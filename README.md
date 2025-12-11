@@ -5,7 +5,6 @@ A production-ready **Model Context Protocol (MCP)** server that enables AI agent
 ## Features
 
 - **24 MCP Tools** for comprehensive WHMCS management:
-
   - Client management (create, search, get details, update)
   - Billing operations (invoices, payments, refunds, credits)
   - Order processing (products, accept orders)
@@ -14,7 +13,6 @@ A production-ready **Model Context Protocol (MCP)** server that enables AI agent
   - Support ticketing (create, reply, departments)
 
 - **6 MCP Resources** for passive context:
-
   - Client summaries
   - Client activity log (recent orders, invoices, tickets)
   - Invoice history
@@ -46,6 +44,26 @@ npm install
 
 # Build
 npm run build
+```
+
+## Docker
+
+Build and run with Docker:
+
+```bash
+# Build image
+npm run docker:build
+
+# Run with docker-compose
+npm run docker:run
+
+# Or manually
+docker run -it \
+  -e WHMCS_API_URL=https://billing.example.com \
+  -e WHMCS_IDENTIFIER=your_identifier \
+  -e WHMCS_SECRET=your_secret \
+  -e MCP_MODE=read_only \
+  whmcs-mcp-server
 ```
 
 ## Configuration
