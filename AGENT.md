@@ -415,6 +415,28 @@ async function compositeRefund(invoiceid, amount) {
 
 ---
 
+#### Tool: `update_client`
+
+**Inputs:** `clientid` (required), optional fields to update (`firstname`, `lastname`, `email`, `companyname`, `address1`, `address2`, `city`, `state`, `postcode`, `country`, `phonenumber`, `notes`)
+
+**Behavior:**
+
+- Only updates provided fields
+- sanitizes text inputs
+- normalizes email
+
+**isMutating:** `true`
+
+---
+
+#### Tool: `get_service_details`
+
+**Inputs:** `serviceid` (required)
+
+**Return:** `{ serviceid, clientid, domain, status, product, billing_cycle, next_due_date, amount, payment_method, ... }` including custom fields and config options.
+
+**isMutating:** `false`
+
 ### 7.2 Billing & Financial Operations
 
 #### Tool: `get_invoice`
@@ -475,6 +497,36 @@ async function compositeRefund(invoiceid, amount) {
 **isMutating:** `true`
 
 ---
+
+---
+
+#### Tool: `create_invoice`
+
+**Inputs:** `userid` (required), `paymentmethod` (optional), `sendinvoice` (default false), `items` (array of `{ description, amount, taxed }`)
+
+**Return:** `{ success, invoiceid, status, items_count, email_sent }`
+
+**isMutating:** `true`
+
+---
+
+#### Tool: `add_credit`
+
+**Inputs:** `clientid` (required), `amount` (required), `description` (default "Credit added via API")
+
+**Return:** `{ clientid, success, amount_added, new_balance }`
+
+**isMutating:** `true`
+
+---
+
+#### Tool: `apply_credit`
+
+**Inputs:** `invoiceid` (required), `amount` (optional - defaults to max available/needed)
+
+**Return:** `{ invoiceid, success, amount_applied, invoice_paid }`
+
+**isMutating:** `true`
 
 ### 7.3 Product & Order Management
 
@@ -544,6 +596,46 @@ async function compositeRefund(invoiceid, amount) {
 
 ---
 
+---
+
+#### Tool: `register_domain`
+
+**Inputs:** `domainid` (required), `nameserver1`...`nameserver4` (optional)
+
+**Return:** `{ domainid, success, message }`
+
+**isMutating:** `true`
+
+---
+
+#### Tool: `renew_domain`
+
+**Inputs:** `domainid` (required)
+
+**Return:** `{ domainid, success, message }`
+
+**isMutating:** `true`
+
+---
+
+#### Tool: `transfer_domain`
+
+**Inputs:** `domainid` (required), `eppcode` (optional)
+
+**Return:** `{ domainid, success, message }`
+
+**isMutating:** `true`
+
+---
+
+#### Tool: `sync_domain`
+
+**Inputs:** `domainid` (required)
+
+**Return:** `{ domainid, success, expiry_date, active, message }`
+
+**isMutating:** `true`
+
 ### 7.6 Support & Ticketing
 
 #### Tool: `create_ticket`
@@ -565,6 +657,16 @@ async function compositeRefund(invoiceid, amount) {
 **isMutating:** `true`
 
 ---
+
+---
+
+#### Tool: `get_ticket_departments`
+
+**Inputs:** None
+
+**Return:** `{ total, departments: [{ id, name, description, ... }] }`
+
+**isMutating:** `false`
 
 ## 8. MCP Resources
 
@@ -707,6 +809,9 @@ Record known-good MCP sessions as JSON transcripts and replay them for regressio
 ---
 
 ## 13. Future Roadmap Tools
+
+> [!NOTE]
+> All tools listed below have been fully implemented as of v1.0 (see Section 7 for details).
 
 The following tools are planned for future implementation:
 
