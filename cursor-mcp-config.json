@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "whmcs": {
+      "command": "node",
+      "args": ["/Users/kritananda/Downloads/Projects/securiace-dev/whmcs-mcp-server/dist/index.js"],
+      "env": {
+        "WHMCS_API_URL": "https://my.securiace.com",
+        "WHMCS_IDENTIFIER": "PnXVjNUA0gF2xYZilxaebE3NGFjdhaUQ",
+        "WHMCS_SECRET": "hkSiiU7YcFEQFEEN80LhEyxoWaaZyJcs",
+        "MCP_MODE": "read_only",
+        "MCP_DEBUG": "false"
+      }
+    }
+  }
+}
