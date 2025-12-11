@@ -1,0 +1,39 @@
+# Docker Compose for WHMCS MCP Server
+# Use for local development and testing
+
+services:
+  whmcs-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whmcs-mcp-server
+    restart: unless-stopped
+    environment:
+      # Required - WHMCS API credentials
+      - WHMCS_API_URL=${WHMCS_API_URL}
+      - WHMCS_IDENTIFIER=${WHMCS_IDENTIFIER}
+      - WHMCS_SECRET=${WHMCS_SECRET}
+      # Optional - MCP configuration
+      - MCP_MODE=${MCP_MODE:-read_only}
+      - MCP_RATE_LIMIT=${MCP_RATE_LIMIT:-10}
+      - MCP_DEBUG=${MCP_DEBUG:-false}
+      - MCP_MAX_PAGE_SIZE=${MCP_MAX_PAGE_SIZE:-100}
+      - MCP_TOOL_ALLOWLIST=${MCP_TOOL_ALLOWLIST:-}
+    # For stdio transport, use stdin_open and tty
+    stdin_open: true
+    tty: true
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M,mode=1777
