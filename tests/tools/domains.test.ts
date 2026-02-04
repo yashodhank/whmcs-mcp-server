@@ -123,17 +123,19 @@ describe('Domain Tools', () => {
       const { z } = require('zod');
       
       const registerDomainSchema = z.object({
-        domainid: z.number().int().positive(),
+        domainid: z.number().int().positive().optional(),
+        domain: z.string().optional(),
+        idn_language: z.string().optional(),
         nameserver1: z.string().optional(),
         nameserver2: z.string().optional(),
         nameserver3: z.string().optional(),
         nameserver4: z.string().optional(),
+        nameserver5: z.string().optional(),
       });
 
       // Valid minimal
-      expect(registerDomainSchema.safeParse({
-        domainid: 100,
-      }).success).toBe(true);
+      expect(registerDomainSchema.safeParse({ domainid: 100 }).success).toBe(true);
+      expect(registerDomainSchema.safeParse({ domain: 'example.com' }).success).toBe(true);
 
       // With nameservers
       expect(registerDomainSchema.safeParse({
@@ -154,10 +156,13 @@ describe('Domain Tools', () => {
       const { z } = require('zod');
       
       const renewDomainSchema = z.object({
-        domainid: z.number().int().positive(),
+        domainid: z.number().int().positive().optional(),
+        domain: z.string().optional(),
+        regperiod: z.number().int().min(1).max(10).optional(),
       });
 
       expect(renewDomainSchema.safeParse({ domainid: 200 }).success).toBe(true);
+      expect(renewDomainSchema.safeParse({ domain: 'example.com', regperiod: 2 }).success).toBe(true);
       expect(renewDomainSchema.safeParse({ domainid: -1 }).success).toBe(false);
     });
   });
@@ -167,13 +172,17 @@ describe('Domain Tools', () => {
       const { z } = require('zod');
       
       const transferDomainSchema = z.object({
-        domainid: z.number().int().positive(),
+        domainid: z.number().int().positive().optional(),
+        domain: z.string().optional(),
         eppcode: z.string().optional(),
       });
 
       // Without EPP code
       expect(transferDomainSchema.safeParse({
         domainid: 100,
+      }).success).toBe(true);
+      expect(transferDomainSchema.safeParse({
+        domain: 'example.com',
       }).success).toBe(true);
 
       // With EPP code

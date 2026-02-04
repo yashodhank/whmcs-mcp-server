@@ -10,6 +10,7 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
+import { ensureToolAuth, clientModeDenied, isClientMode, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray, parseNumber } from '../whmcs/normalizers.js';
 
 const TOOL_VERSION = 'v1';
@@ -70,9 +71,16 @@ const getInvoiceSchema = z.object({
 
 /**
  * Mark invoice paid input schema
+ * Uses AddInvoicePayment per WHMCS API
  */
 const markInvoicePaidSchema = z.object({
   invoiceid: z.number().int().positive('Invoice ID must be positive'),
+  gateway: z.string().optional().describe('Payment gateway module name (e.g., mailin, stripe)'),
+  transid: z.string().optional().describe('Transaction ID reference (will be generated if omitted)'),
+  amount: z.number().positive().optional().describe('Amount to record (defaults to invoice balance)'),
+  fees: z.number().nonnegative().optional().describe('Payment processing fees'),
+  date: z.string().optional().describe('Payment date/time (YYYY-MM-DD HH:mm:ss). Defaults to now UTC'),
+  send_email: z.boolean().default(false).describe('Send payment confirmation email'),
 });
 
 /**
@@ -89,6 +97,8 @@ const recordRefundSchema = z.object({
   amount: z.number().positive('Refund amount must be greater than 0'),
   refund_type: z.enum(['Credit', 'GatewayRecord']),
   reason: z.string().optional(),
+  paymentmethod: z.string().optional().describe('Payment method (required for GatewayRecord if invoice has no method)'),
+  apply_to_invoice: z.boolean().default(false).describe('Apply credit refund to the invoice (if refund_type=Credit)'),
   confirm_large_refund: z.boolean().optional().describe('Required for refunds above threshold'),
 });
 
@@ -100,6 +110,14 @@ const capturePaymentSchema = z.object({
   cvv: z.string().optional(),
   force: z.boolean().default(false),
 });
+
+/**
+ * Format a JS Date to WHMCS expected format: YYYY-MM-DD HH:mm:ss (UTC)
+ */
+function formatWhmcsDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+}
 
 /**
  * Register billing tools
@@ -118,12 +136,15 @@ export function registerBillingTools(
     server.tool(
       'get_invoice',
       `Get full invoice details including line items and transactions. Version: ${TOOL_VERSION}`,
-      getInvoiceSchema.shape,
+      { ...getInvoiceSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
           toolLogger.logToolCall('get_invoice', params, false);
           
           if (!rateLimiter.tryConsume()) {
@@ -133,6 +154,11 @@ export function registerBillingTools(
           const invoice = await whmcsClient.read<WhmcsInvoice>('GetInvoice', {
             invoiceid: params.invoiceid,
           });
+
+          if (isClientMode()) {
+            const ownershipError = ensureClientOwnership(invoice.userid, params as Record<string, unknown>);
+            if (ownershipError) return ownershipError;
+          }
           
           const items = normalizeToArray<InvoiceItem>(invoice.items?.item);
           const transactions = normalizeToArray<Transaction>(invoice.transactions?.transaction);
@@ -198,13 +224,20 @@ export function registerBillingTools(
   if (isToolAllowed('mark_invoice_paid')) {
     server.tool(
       'mark_invoice_paid',
-      `Mark an unpaid invoice as paid. Only works on invoices with 'Unpaid' status. Version: ${TOOL_VERSION}`,
-      markInvoicePaidSchema.shape,
+      `Record a payment for an invoice using AddInvoicePayment. Only works on invoices with 'Unpaid' status. Version: ${TOOL_VERSION}`,
+      { ...markInvoicePaidSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('mark_invoice_paid');
+          }
+
           toolLogger.logToolCall('mark_invoice_paid', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -218,7 +251,7 @@ export function registerBillingTools(
             };
           }
           
-          // Fetch invoice first to check status
+          // Fetch invoice first to check status and defaults
           const invoice = await whmcsClient.read<WhmcsInvoice>('GetInvoice', {
             invoiceid: params.invoiceid,
           });
@@ -236,10 +269,41 @@ export function registerBillingTools(
             };
           }
           
-          // Update invoice status
-          await whmcsClient.mutate('UpdateInvoice', {
+          const warnings: string[] = [];
+          
+          // Determine gateway
+          const gateway = params.gateway || invoice.paymentmethod;
+          if (!gateway) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Payment gateway is required. Provide gateway or ensure invoice has paymentmethod set.',
+                }),
+              }],
+              isError: true,
+            };
+          }
+          
+          // Determine transaction id
+          const transid = params.transid || `MCP-${params.invoiceid}-${Date.now()}`;
+          if (!params.transid) {
+            warnings.push('No transid provided; generated a synthetic transaction ID.');
+          }
+          
+          // Determine date
+          const paymentDate = params.date || formatWhmcsDate(new Date());
+          
+          // Record invoice payment
+          await whmcsClient.mutate('AddInvoicePayment', {
             invoiceid: params.invoiceid,
-            status: 'Paid',
+            transid,
+            gateway,
+            date: paymentDate,
+            amount: params.amount,
+            fees: params.fees,
+            noemail: params.send_email ? false : true,
           });
           
           toolLogger.logToolResult('mark_invoice_paid', true, Date.now() - startTime);
@@ -251,6 +315,12 @@ export function registerBillingTools(
                 invoiceid: params.invoiceid,
                 previous_status: invoice.status,
                 new_status: 'Paid',
+                gateway,
+                transid,
+                amount_recorded: params.amount || parseNumber(invoice.balance),
+                payment_date: paymentDate,
+                email_sent: params.send_email,
+                warnings: warnings.length ? warnings : undefined,
                 success: true,
               }),
             }],
@@ -280,12 +350,19 @@ export function registerBillingTools(
     server.tool(
       'record_refund',
       `Record a refund in WHMCS. IMPORTANT: This ONLY records the refund in WHMCS - it does NOT process the actual refund at the payment gateway (Stripe/PayPal/etc). Gateway reversal must be done manually. Version: ${TOOL_VERSION}`,
-      recordRefundSchema.shape,
+      { ...recordRefundSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('record_refund');
+          }
+
           toolLogger.logToolCall('record_refund', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -324,7 +401,7 @@ export function registerBillingTools(
             };
           }
           
-          // Fetch invoice to validate refund amount
+          // Fetch invoice to validate refund amount and get client/payment method
           const invoice = await whmcsClient.read<WhmcsInvoice>('GetInvoice', {
             invoiceid: params.invoiceid,
           });
@@ -348,30 +425,66 @@ export function registerBillingTools(
             };
           }
           
-          // Record the refund transaction
-          const transactionParams: Record<string, unknown> = {
-            invoiceid: params.invoiceid,
-            description: params.reason ? `Refund: ${params.reason}` : 'Refund',
-          };
+          let newStatus = invoice.status;
+          let note = 'Refund recorded in WHMCS. Gateway reversal (if needed) must be done manually.';
+          let creditApplied = false;
           
           if (params.refund_type === 'Credit') {
-            transactionParams.credit = params.amount;
-          } else {
-            transactionParams.amountout = params.amount;
-            transactionParams.transid = `REFUND-${params.invoiceid}-${Date.now()}`;
-          }
-          
-          await whmcsClient.mutate('AddTransaction', transactionParams);
-          
-          // Check if invoice is fully refunded
-          let newStatus = invoice.status;
-          const newMaxRefundable = maxRefundable - params.amount;
-          if (newMaxRefundable <= 0 && invoice.status === 'Paid') {
-            await whmcsClient.mutate('UpdateInvoice', {
-              invoiceid: params.invoiceid,
-              status: 'Refunded',
+            // Add credit to client account
+            await whmcsClient.mutate('AddCredit', {
+              clientid: invoice.userid,
+              amount: params.amount,
+              description: params.reason ? `Refund credit: ${params.reason}` : 'Refund credit',
             });
-            newStatus = 'Refunded';
+            
+            // Optionally apply credit to invoice
+            if (params.apply_to_invoice) {
+              await whmcsClient.mutate('ApplyCredit', {
+                invoiceid: params.invoiceid,
+                amount: params.amount,
+                noemail: true,
+              });
+              creditApplied = true;
+            }
+            
+            note = params.apply_to_invoice
+              ? 'Credit added and applied to invoice.'
+              : 'Credit added to client account. Apply to an invoice separately if desired.';
+          } else {
+            const paymentmethod = params.paymentmethod || invoice.paymentmethod;
+            if (!paymentmethod) {
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    isError: true,
+                    error: 'paymentmethod is required to record a gateway refund (invoice has no paymentmethod set).',
+                  }),
+                }],
+                isError: true,
+              };
+            }
+            
+            // Record the refund transaction
+            const transactionParams: Record<string, unknown> = {
+              invoiceid: params.invoiceid,
+              description: params.reason ? `Refund: ${params.reason}` : 'Refund',
+              amountout: params.amount,
+              transid: `REFUND-${params.invoiceid}-${Date.now()}`,
+              paymentmethod,
+            };
+            
+            await whmcsClient.mutate('AddTransaction', transactionParams);
+            
+            // Check if invoice is fully refunded
+            const newMaxRefundable = maxRefundable - params.amount;
+            if (newMaxRefundable <= 0 && invoice.status === 'Paid') {
+              await whmcsClient.mutate('UpdateInvoice', {
+                invoiceid: params.invoiceid,
+                status: 'Refunded',
+              });
+              newStatus = 'Refunded';
+            }
           }
           
           const result = {
@@ -379,7 +492,8 @@ export function registerBillingTools(
             amount: params.amount,
             refund_type: params.refund_type,
             new_invoice_status: newStatus,
-            note: 'Refund recorded in WHMCS. Gateway reversal (if needed) must be done manually.',
+            credit_applied: creditApplied,
+            note,
           };
           
           // Cache result for idempotency
@@ -415,12 +529,19 @@ export function registerBillingTools(
     server.tool(
       'capture_payment',
       `Capture payment for an unpaid invoice using stored payment method. Version: ${TOOL_VERSION}`,
-      capturePaymentSchema.shape,
+      { ...capturePaymentSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('capture_payment');
+          }
+
           toolLogger.logToolCall('capture_payment', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -478,7 +599,7 @@ export function registerBillingTools(
           // Check for recent failed captures (unless force=true)
           if (!params.force) {
             // Look at transactions for failed attempts
-            const transactions = invoice.transactions?.transaction ?? [];
+            const transactions = normalizeToArray<Transaction>(invoice.transactions?.transaction);
             
             // Check for failed transactions in the last 24 hours
             const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -579,12 +700,19 @@ export function registerBillingTools(
     server.tool(
       'create_invoice',
       `Create a new invoice for a client with line items. Version: ${TOOL_VERSION}`,
-      createInvoiceSchema.shape,
+      { ...createInvoiceSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('create_invoice');
+          }
+
           toolLogger.logToolCall('create_invoice', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -608,11 +736,14 @@ export function registerBillingTools(
             paymentmethod: params.paymentmethod,
             sendinvoice: params.sendinvoice,
             ...Object.fromEntries(
-              params.items.flatMap((item, i) => [
-                [`itemdescription${i}`, item.description],
-                [`itemamount${i}`, item.amount],
-                [`itemtaxed${i}`, item.taxed ? 1 : 0],
-              ])
+              params.items.flatMap((item, i) => {
+                const idx = i + 1; // WHMCS expects 1-based item indexes
+                return [
+                  [`itemdescription${idx}`, item.description],
+                  [`itemamount${idx}`, item.amount],
+                  [`itemtaxed${idx}`, item.taxed ? 1 : 0],
+                ];
+              })
             ),
           });
           
@@ -663,12 +794,19 @@ export function registerBillingTools(
     server.tool(
       'add_credit',
       `Add credit to a client's account balance. Version: ${TOOL_VERSION}`,
-      addCreditSchema.shape,
+      { ...addCreditSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('add_credit');
+          }
+
           toolLogger.logToolCall('add_credit', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -737,12 +875,19 @@ export function registerBillingTools(
     server.tool(
       'apply_credit',
       `Apply client credit to an invoice. Reduces invoice balance using available credit. Version: ${TOOL_VERSION}`,
-      applyCreditSchema.shape,
+      { ...applyCreditSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('apply_credit');
+          }
+
           toolLogger.logToolCall('apply_credit', params, true);
           
           if (!rateLimiter.tryConsume()) {

@@ -10,6 +10,7 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
+import { ensureToolAuth, clientModeDenied, isClientMode, ensureClientAllowed, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import crypto from 'node:crypto';
 
@@ -113,13 +114,36 @@ const createClientSchema = z.object({
   country: z.string().length(2, 'Country must be 2-letter ISO code'),
   company: z.string().optional(),
   address1: z.string().optional(),
+  address2: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
   postcode: z.string().optional(),
   phonenumber: z.string().optional(),
   password: z.string().optional(),
   owner_user_id: z.number().int().optional(),
+  send_email: z.boolean().default(false).describe('Send welcome email'),
+  skip_validation: z.boolean().default(false).describe('Bypass WHMCS required-field validation'),
   mode: z.enum(['create_only', 'reuse_if_exists']).default('reuse_if_exists'),
+}).superRefine((val, ctx) => {
+  if (val.skip_validation) {
+    return;
+  }
+  const requiredFields: Array<keyof typeof val> = [
+    'address1',
+    'city',
+    'state',
+    'postcode',
+    'phonenumber',
+  ];
+  for (const field of requiredFields) {
+    if (!val[field] || String(val[field]).trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${field} is required unless skip_validation=true`,
+      });
+    }
+  }
 });
 
 /**
@@ -186,13 +210,16 @@ async function performClientCreation(
     email: normalizedEmail,
     country: params.country.toUpperCase(), // Normalize country code
     companyname: sanitizedCompany,
-    address1: params.address1 ? sanitizeTextInput(params.address1) : '',
-    city: params.city ? sanitizeTextInput(params.city) : '',
-    state: params.state ? sanitizeTextInput(params.state) : '',
-    postcode: params.postcode ? sanitizeTextInput(params.postcode) : '',
-    phonenumber: params.phonenumber || '',
+    address1: params.address1 ? sanitizeTextInput(params.address1) : undefined,
+    address2: params.address2 ? sanitizeTextInput(params.address2) : undefined,
+    city: params.city ? sanitizeTextInput(params.city) : undefined,
+    state: params.state ? sanitizeTextInput(params.state) : undefined,
+    postcode: params.postcode ? sanitizeTextInput(params.postcode) : undefined,
+    phonenumber: params.phonenumber || undefined,
     password2: password,
     owner_user_id: params.owner_user_id,
+    noemail: params.send_email ? false : true,
+    skipvalidation: params.skip_validation ? true : undefined,
   }, {
     clientid: Math.floor(Math.random() * 10000) + 1000,
   });
@@ -220,12 +247,19 @@ export function registerClientTools(
     server.tool(
       'create_client',
       `Create a new WHMCS client or reuse existing one by email. Version: ${TOOL_VERSION}`,
-      createClientSchema.shape,
+      { ...createClientSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('create_client');
+          }
+
           toolLogger.logToolCall('create_client', params, true);
           
           // Check rate limit
@@ -312,12 +346,19 @@ export function registerClientTools(
     server.tool(
       'search_clients',
       `Search for WHMCS clients by name, email, or company. Returns minimal summary. Version: ${TOOL_VERSION}`,
-      searchClientsSchema.shape,
+      { ...searchClientsSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('search_clients');
+          }
+
           toolLogger.logToolCall('search_clients', params, false);
           
           if (!rateLimiter.tryConsume()) {
@@ -382,12 +423,20 @@ export function registerClientTools(
     server.tool(
       'get_client_details',
       `Get full details for a specific WHMCS client including credit balance and custom fields. Version: ${TOOL_VERSION}`,
-      getClientDetailsSchema.shape,
+      { ...getClientDetailsSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            const scopeError = ensureClientAllowed(params.clientid);
+            if (scopeError) return scopeError;
+          }
+
           toolLogger.logToolCall('get_client_details', params, false);
           
           if (!rateLimiter.tryConsume()) {
@@ -472,12 +521,19 @@ export function registerClientTools(
     server.tool(
       'update_client',
       `Update an existing client's details. Only provided fields will be updated. Version: ${TOOL_VERSION}`,
-      updateClientSchema.shape,
+      { ...updateClientSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('update_client');
+          }
+
           toolLogger.logToolCall('update_client', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -554,12 +610,15 @@ export function registerClientTools(
     server.tool(
       'get_service_details',
       `Get detailed information about a client's service/product. Version: ${TOOL_VERSION}`,
-      getServiceDetailsSchema.shape,
+      { ...getServiceDetailsSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
           toolLogger.logToolCall('get_service_details', params, false);
           
           if (!rateLimiter.tryConsume()) {
@@ -568,33 +627,90 @@ export function registerClientTools(
           
           const result = await whmcsClient.read<{
             result: string;
-            serviceid: number;
+            products?: {
+              product?: Array<{
+                id: number;
+                clientid?: number;
+                pid?: number;
+                name?: string;
+                domain?: string;
+                status?: string;
+                billingcycle?: string;
+                nextduedate?: string;
+                firstpaymentamount?: string;
+                recurringamount?: string;
+                paymentmethod?: string;
+                regdate?: string;
+                username?: string;
+                server?: string;
+                customfields?: unknown;
+                configoptions?: unknown;
+              }>;
+            };
+          }>('GetClientsProducts', {
+            serviceid: params.serviceid,
+            limitnum: 1,
+          });
+          
+          const products = normalizeToArray<{
+            id: number;
             clientid?: number;
+            pid?: number;
+            name?: string;
             domain?: string;
             status?: string;
-            product?: string;
-            productname?: string;
             billingcycle?: string;
             nextduedate?: string;
-            amount?: string;
+            firstpaymentamount?: string;
+            recurringamount?: string;
             paymentmethod?: string;
             regdate?: string;
             username?: string;
             server?: string;
             customfields?: unknown;
             configoptions?: unknown;
-          }>('GetClientsProducts', {
-            serviceid: params.serviceid,
-            limitnum: 1,
-          });
+          }>(result.products?.product);
+          const product = products[0];
+          
+          if (!product) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: `Service not found: ${params.serviceid}`,
+                }),
+              }],
+              isError: true,
+            };
+          }
+
+          if (isClientMode()) {
+            if (!product.clientid) {
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    isError: true,
+                    error: 'Unable to validate service ownership for client access mode.',
+                  }),
+                }],
+                isError: true,
+              };
+            }
+            const ownershipError = ensureClientOwnership(product.clientid, params as Record<string, unknown>);
+            if (ownershipError) return ownershipError;
+          }
           
           // Normalize custom fields
+          const customfieldsContainer = (product.customfields as { customfield?: unknown })?.customfield ?? product.customfields;
           const customfields = normalizeToArray<{ id: number; name: string; value: string }>(
-            result.customfields
+            customfieldsContainer
           );
           
+          const configoptionsContainer = (product.configoptions as { configoption?: unknown })?.configoption ?? product.configoptions;
           const configoptions = normalizeToArray<{ id: number; option: string; value: string }>(
-            result.configoptions
+            configoptionsContainer
           );
           
           toolLogger.logToolResult('get_service_details', true, Date.now() - startTime);
@@ -603,18 +719,20 @@ export function registerClientTools(
             content: [{
               type: 'text' as const,
               text: JSON.stringify({
-                serviceid: result.serviceid || params.serviceid,
-                clientid: result.clientid,
-                domain: result.domain,
-                status: result.status,
-                product: result.product || result.productname,
-                billing_cycle: result.billingcycle,
-                next_due_date: result.nextduedate,
-                amount: result.amount,
-                payment_method: result.paymentmethod,
-                registration_date: result.regdate,
-                username: result.username,
-                server: result.server,
+                serviceid: product.id || params.serviceid,
+                clientid: product.clientid,
+                domain: product.domain,
+                status: product.status,
+                product: product.name,
+                product_id: product.pid,
+                billing_cycle: product.billingcycle,
+                next_due_date: product.nextduedate,
+                first_payment_amount: product.firstpaymentamount,
+                recurring_amount: product.recurringamount,
+                payment_method: product.paymentmethod,
+                registration_date: product.regdate,
+                username: product.username,
+                server: product.server,
                 custom_fields: customfields,
                 config_options: configoptions,
               }),

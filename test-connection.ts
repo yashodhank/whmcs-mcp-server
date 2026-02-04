@@ -13,6 +13,9 @@ async function testConnection() {
   console.error('📋 Configuration:');
   console.error(`   API URL: ${config.WHMCS_API_URL}`);
   console.error(`   Mode: ${config.MCP_MODE}`);
+  console.error(`   Access Mode: ${config.MCP_ACCESS_MODE}`);
+  console.error(`   Allowed Clients: ${config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS.join(',') : 'none'}`);
+  console.error(`   Auth Token Enabled: ${config.MCP_AUTH_TOKEN ? 'yes' : 'no'}`);
   console.error(`   Rate Limit: ${config.MCP_RATE_LIMIT}/sec`);
   console.error(`   Debug: ${config.MCP_DEBUG}\n`);
   

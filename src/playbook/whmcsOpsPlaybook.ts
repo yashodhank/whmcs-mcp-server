@@ -5,8 +5,9 @@
  * Exposed as an MCP resource at whmcs://docs/ops-playbook
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Logger } from '../logging.js';
+import { ensureResourceAuth } from '../security.js';
 
 /**
  * The WHMCS Operations Playbook content
@@ -115,18 +116,17 @@ export function registerPlaybookResource(
   // Register the playbook as a static resource
   server.resource(
     'ops-playbook',
-    'whmcs://docs/ops-playbook',
-    {
-      description: 'WHMCS Operations Playbook - Guidelines for AI agents administering WHMCS',
-      mimeType: 'text/markdown',
-    },
-    async () => {
+    new ResourceTemplate('whmcs://docs/ops-playbook{?token,auth_token}', { list: undefined }),
+    async (uri) => {
       logger.debug('Fetching ops-playbook resource');
+
+      const authResult = ensureResourceAuth(uri);
+      if (!authResult.ok) return authResult.response;
       
       return {
         contents: [
           {
-            uri: 'whmcs://docs/ops-playbook',
+            uri: uri.href,
             mimeType: 'text/markdown',
             text: WHMCS_OPS_PLAYBOOK.trim(),
           }

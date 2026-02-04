@@ -36,6 +36,9 @@ async function main(): Promise<void> {
     debug: config.MCP_DEBUG,
     rateLimit: config.MCP_RATE_LIMIT,
     maxPageSize: config.MCP_MAX_PAGE_SIZE,
+    accessMode: config.MCP_ACCESS_MODE,
+    allowedClientIds: config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS : 'not set',
+    authEnabled: !!config.MCP_AUTH_TOKEN,
     toolAllowlist: config.MCP_TOOL_ALLOWLIST.length > 0 
       ? config.MCP_TOOL_ALLOWLIST 
       : 'all tools enabled',
@@ -65,7 +68,7 @@ async function main(): Promise<void> {
   
   // Register resources
   logger.info('Registering MCP resources...');
-  registerResources(server, whmcsClient, logger);
+  registerResources(server, whmcsClient, logger, rateLimiter);
   registerPlaybookResource(server, logger);
   
   // Connect with stdio transport

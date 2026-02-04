@@ -10,6 +10,7 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
+import { ensureToolAuth, clientModeDenied, isClientMode, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray, whmcsToBool } from '../whmcs/normalizers.js';
 
 const TOOL_VERSION = 'v1';
@@ -64,12 +65,15 @@ export function registerOrderTools(
     server.tool(
       'list_products',
       `List available WHMCS products with optional filtering. Version: ${TOOL_VERSION}`,
-      listProductsSchema.shape,
+      { ...listProductsSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
           toolLogger.logToolCall('list_products', params, false);
           
           if (!rateLimiter.tryConsume()) {
@@ -146,12 +150,19 @@ export function registerOrderTools(
     server.tool(
       'accept_order',
       `Accept a pending WHMCS order. WARNING: If autosetup is true, WHMCS will attempt to contact the provisioning server and may fail if it is offline. Version: ${TOOL_VERSION}`,
-      acceptOrderSchema.shape,
+      { ...acceptOrderSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('accept_order');
+          }
+
           toolLogger.logToolCall('accept_order', params, true);
           
           if (!rateLimiter.tryConsume()) {

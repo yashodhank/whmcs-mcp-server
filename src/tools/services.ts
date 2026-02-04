@@ -10,6 +10,7 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
+import { ensureToolAuth, clientModeDenied, isClientMode, AUTH_SHAPE } from '../security.js';
 
 const TOOL_VERSION = 'v1';
 
@@ -56,12 +57,19 @@ export function registerServiceTools(
     server.tool(
       'suspend_service',
       `Suspend an active WHMCS service. Prefer this over termination when in doubt. Version: ${TOOL_VERSION}`,
-      suspendServiceSchema.shape,
+      { ...suspendServiceSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('suspend_service');
+          }
+
           toolLogger.logToolCall('suspend_service', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -118,12 +126,19 @@ export function registerServiceTools(
     server.tool(
       'unsuspend_service',
       `Unsuspend a previously suspended WHMCS service. Version: ${TOOL_VERSION}`,
-      unsuspendServiceSchema.shape,
+      { ...unsuspendServiceSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('unsuspend_service');
+          }
+
           toolLogger.logToolCall('unsuspend_service', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -178,12 +193,19 @@ export function registerServiceTools(
     server.tool(
       'terminate_service',
       `Terminate a WHMCS service permanently. DANGEROUS: This action cannot be undone. Requires explicit confirm=true. Consider using suspend_service instead. Version: ${TOOL_VERSION}`,
-      terminateServiceSchema.shape,
+      { ...terminateServiceSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('terminate_service');
+          }
+
           toolLogger.logToolCall('terminate_service', params, true);
           
           if (!rateLimiter.tryConsume()) {

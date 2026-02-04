@@ -204,6 +204,7 @@ export class WhmcsClient {
       action,
       identifier: this.config.WHMCS_IDENTIFIER,
       secret: this.config.WHMCS_SECRET,
+      ...(this.config.WHMCS_ACCESS_KEY ? { accesskey: this.config.WHMCS_ACCESS_KEY } : {}),
       responsetype: 'json',
       ...this.transformParams(params),
     } as Record<string, string>);

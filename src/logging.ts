@@ -42,6 +42,8 @@ const SENSITIVE_FIELDS = [
   'api_key',
   'authorization',
   'bearer',
+  'auth_token',
+  'mcp_auth_token',
   // Payment data (PCI compliance)
   'cvv',
   'cardnumber',

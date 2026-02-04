@@ -7,6 +7,8 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
+import { RateLimiter } from '../rateLimiter.js';
+import { ensureResourceAuth, isClientMode, ensureClientAllowed, ensureClientOwnership } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 
 /**
@@ -15,7 +17,8 @@ import { normalizeToArray } from '../whmcs/normalizers.js';
 export function registerResources(
   server: McpServer,
   whmcsClient: WhmcsClient,
-  logger: Logger
+  logger: Logger,
+  rateLimiter: RateLimiter
 ): void {
   
   // ============================================
@@ -23,13 +26,39 @@ export function registerResources(
   // ============================================
   server.resource(
     'client-summary',
-    new ResourceTemplate('whmcs://clients/{clientid}/summary', { list: undefined }),
+    new ResourceTemplate('whmcs://clients/{clientid}/summary{?token,auth_token}', { list: undefined }),
     async (uri, params) => {
       const clientid = params.clientid;
       const resourceLogger = logger.child();
       
       try {
+        const authResult = ensureResourceAuth(uri);
+        if (!authResult.ok) return authResult.response;
+
+        if (isClientMode()) {
+          const scopeError = ensureClientAllowed(clientid);
+          if (scopeError) {
+            return {
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'Access denied: client scope mismatch.' }),
+              }],
+            };
+          }
+        }
+
         resourceLogger.info('Fetching client summary', { clientid });
+        
+        if (!rateLimiter.tryConsume()) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }),
+            }],
+          };
+        }
         
         const client = await whmcsClient.read<{
           id: number;
@@ -86,13 +115,26 @@ export function registerResources(
   // ============================================
   server.resource(
     'invoice-history',
-    new ResourceTemplate('whmcs://invoices/{invoiceid}/history', { list: undefined }),
+    new ResourceTemplate('whmcs://invoices/{invoiceid}/history{?token,auth_token}', { list: undefined }),
     async (uri, params) => {
       const invoiceid = params.invoiceid;
       const resourceLogger = logger.child();
       
       try {
+        const authResult = ensureResourceAuth(uri);
+        if (!authResult.ok) return authResult.response;
+
         resourceLogger.info('Fetching invoice history', { invoiceid });
+        
+        if (!rateLimiter.tryConsume()) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }),
+            }],
+          };
+        }
         
         interface InvoiceItem {
           id: number;
@@ -120,6 +162,19 @@ export function registerResources(
           items?: { item?: InvoiceItem[] };
           transactions?: { transaction?: Transaction[] };
         }>('GetInvoice', { invoiceid });
+
+        if (isClientMode()) {
+          const ownershipError = ensureClientOwnership(invoice.userid, { clientid: invoice.userid });
+          if (ownershipError) {
+            return {
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'Access denied: client scope mismatch.' }),
+              }],
+            };
+          }
+        }
         
         const items = normalizeToArray<InvoiceItem>(invoice.items?.item);
         const transactions = normalizeToArray<Transaction>(invoice.transactions?.transaction);
@@ -175,13 +230,26 @@ export function registerResources(
   // ============================================
   server.resource(
     'ticket-thread',
-    new ResourceTemplate('whmcs://tickets/{ticketid}/thread', { list: undefined }),
+    new ResourceTemplate('whmcs://tickets/{ticketid}/thread{?token,auth_token}', { list: undefined }),
     async (uri, params) => {
       const ticketid = params.ticketid;
       const resourceLogger = logger.child();
       
       try {
+        const authResult = ensureResourceAuth(uri);
+        if (!authResult.ok) return authResult.response;
+
         resourceLogger.info('Fetching ticket thread', { ticketid });
+        
+        if (!rateLimiter.tryConsume()) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }),
+            }],
+          };
+        }
         
         interface Reply {
           replyid: number;
@@ -206,9 +274,34 @@ export function registerResources(
           status: string;
           date: string;
           message: string;
+          userid?: number;
+          clientid?: number;
           replies?: { reply?: Reply[] };
           notes?: { note?: Note[] };
         }>('GetTicket', { ticketid });
+
+        if (isClientMode()) {
+          const ownerId = ticket.userid ?? ticket.clientid;
+          if (!ownerId) {
+            return {
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'Unable to validate ticket ownership for client access mode.' }),
+              }],
+            };
+          }
+          const ownershipError = ensureClientOwnership(ownerId, { clientid: ownerId });
+          if (ownershipError) {
+            return {
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'Access denied: client scope mismatch.' }),
+              }],
+            };
+          }
+        }
         
         const replies = normalizeToArray<Reply>(ticket.replies?.reply);
         const notes = normalizeToArray<Note>(ticket.notes?.note);
@@ -264,13 +357,39 @@ export function registerResources(
   // ============================================
   server.resource(
     'client-log',
-    new ResourceTemplate('whmcs://clients/{clientid}/log', { list: undefined }),
+    new ResourceTemplate('whmcs://clients/{clientid}/log{?token,auth_token}', { list: undefined }),
     async (uri, params) => {
       const clientid = params.clientid;
       const resourceLogger = logger.child();
       
       try {
+        const authResult = ensureResourceAuth(uri);
+        if (!authResult.ok) return authResult.response;
+
+        if (isClientMode()) {
+          const scopeError = ensureClientAllowed(clientid);
+          if (scopeError) {
+            return {
+              contents: [{
+                uri: uri.href,
+                mimeType: 'application/json',
+                text: JSON.stringify({ error: 'Access denied: client scope mismatch.' }),
+              }],
+            };
+          }
+        }
+
         resourceLogger.info('Fetching client activity log', { clientid });
+        
+        if (!rateLimiter.tryConsume()) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }),
+            }],
+          };
+        }
         
         // Fetch recent orders
         const orders = await whmcsClient.read<{
@@ -384,12 +503,35 @@ export function registerResources(
   // ============================================
   server.resource(
     'system-activity',
-    new ResourceTemplate('whmcs://system/activity', { list: undefined }),
+    new ResourceTemplate('whmcs://system/activity{?token,auth_token}', { list: undefined }),
     async (uri) => {
       const resourceLogger = logger.child();
       
       try {
+        const authResult = ensureResourceAuth(uri);
+        if (!authResult.ok) return authResult.response;
+
+        if (isClientMode()) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: 'System activity is not available in client access mode.' }),
+            }],
+          };
+        }
+
         resourceLogger.info('Fetching system activity');
+        
+        if (!rateLimiter.tryConsume()) {
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }),
+            }],
+          };
+        }
         
         // Fetch recent activity log
         const activityLog = await whmcsClient.read<{

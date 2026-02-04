@@ -1,7 +1,7 @@
 /**
  * Domain Tools for WHMCS MCP Server
  * 
- * Tools: check_domain_availability
+ * Tools: check_domain_availability, register_domain, renew_domain, transfer_domain, sync_domain
  */
 
 import { z } from 'zod';
@@ -10,6 +10,7 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
+import { ensureToolAuth, clientModeDenied, isClientMode, AUTH_SHAPE } from '../security.js';
 
 const TOOL_VERSION = 'v1';
 
@@ -92,6 +93,19 @@ function normalizeDomain(domain: string): string {
 }
 
 /**
+ * Helper: require a domain identifier (domainid or domain)
+ */
+function getDomainIdentifier(
+  domainid?: number,
+  domain?: string
+): { domainid?: number; domain?: string } | null {
+  if (!domainid && !domain) {
+    return null;
+  }
+  return { domainid, domain };
+}
+
+/**
  * Register domain tools
  */
 export function registerDomainTools(
@@ -108,12 +122,15 @@ export function registerDomainTools(
     server.tool(
       'check_domain_availability',
       `Check if a domain is available for registration. Version: ${TOOL_VERSION}`,
-      checkDomainSchema.shape,
+      { ...checkDomainSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
           toolLogger.logToolCall('check_domain_availability', params, false);
           
           if (!rateLimiter.tryConsume()) {
@@ -194,22 +211,32 @@ export function registerDomainTools(
   // ============================================
   if (isToolAllowed('register_domain')) {
     const registerDomainSchema = z.object({
-      domainid: z.number().int().positive('Domain ID must be positive'),
+      domainid: z.number().int().positive('Domain ID must be positive').optional(),
+      domain: z.string().optional(),
+      idn_language: z.string().optional().describe('IDN language code to override stored domain language'),
       nameserver1: z.string().optional(),
       nameserver2: z.string().optional(),
       nameserver3: z.string().optional(),
       nameserver4: z.string().optional(),
+      nameserver5: z.string().optional(),
     });
     
     server.tool(
       'register_domain',
       `Register a domain with the registrar. Requires domain to be in Pending status. Version: ${TOOL_VERSION}`,
-      registerDomainSchema.shape,
+      { ...registerDomainSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('register_domain');
+          }
+
           toolLogger.logToolCall('register_domain', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -223,27 +250,61 @@ export function registerDomainTools(
             };
           }
           
+          const identifier = getDomainIdentifier(params.domainid, params.domain);
+          if (!identifier) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Either domainid or domain is required',
+                }),
+              }],
+              isError: true,
+            };
+          }
+
           const result = await whmcsClient.mutate<{
             result: string;
             message?: string;
             domainid?: number;
-          }>('ModuleCreate', {
-            domainid: params.domainid,
-            ns1: params.nameserver1,
-            ns2: params.nameserver2,
-            ns3: params.nameserver3,
-            ns4: params.nameserver4,
+          }>('DomainRegister', {
+            ...identifier,
+            idnlanguage: params.idn_language,
           });
           
           toolLogger.logToolResult('register_domain', result.result === 'success', Date.now() - startTime);
+
+          // Optionally update nameservers after registration if provided
+          const hasNameservers = !!(params.nameserver1 || params.nameserver2 || params.nameserver3 || params.nameserver4 || params.nameserver5);
+          if (hasNameservers && result.result === 'success') {
+            // DomainUpdateNameservers requires ns1 and ns2 at minimum
+            if (!params.nameserver1 || !params.nameserver2) {
+              toolLogger.warn('Nameserver update skipped: ns1 and ns2 are required', {
+                domainid: params.domainid,
+                domain: params.domain,
+              });
+            } else {
+              await whmcsClient.mutate('DomainUpdateNameservers', {
+                ...identifier,
+                ns1: params.nameserver1,
+                ns2: params.nameserver2,
+                ns3: params.nameserver3,
+                ns4: params.nameserver4,
+                ns5: params.nameserver5,
+              });
+            }
+          }
           
           return {
             content: [{
               type: 'text' as const,
               text: JSON.stringify({
-                domainid: params.domainid,
+                domainid: result.domainid ?? params.domainid,
+                domain: params.domain,
                 success: result.result === 'success',
                 message: result.message || (result.result === 'success' ? 'Domain registered successfully' : 'Registration failed'),
+                nameservers_updated: hasNameservers && result.result === 'success' ? !!(params.nameserver1 && params.nameserver2) : false,
               }),
             }],
           };
@@ -270,18 +331,27 @@ export function registerDomainTools(
   // ============================================
   if (isToolAllowed('renew_domain')) {
     const renewDomainSchema = z.object({
-      domainid: z.number().int().positive('Domain ID must be positive'),
+      domainid: z.number().int().positive('Domain ID must be positive').optional(),
+      domain: z.string().optional(),
+      regperiod: z.number().int().min(1).max(10).optional().describe('Renewal term in years'),
     });
     
     server.tool(
       'renew_domain',
       `Renew a domain with the registrar. The domain must be active and eligible for renewal. Version: ${TOOL_VERSION}`,
-      renewDomainSchema.shape,
+      { ...renewDomainSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('renew_domain');
+          }
+
           toolLogger.logToolCall('renew_domain', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -295,11 +365,26 @@ export function registerDomainTools(
             };
           }
           
+          const identifier = getDomainIdentifier(params.domainid, params.domain);
+          if (!identifier) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Either domainid or domain is required',
+                }),
+              }],
+              isError: true,
+            };
+          }
+          
           const result = await whmcsClient.mutate<{
             result: string;
             message?: string;
-          }>('ModuleRenew', {
-            domainid: params.domainid,
+          }>('DomainRenew', {
+            ...identifier,
+            regperiod: params.regperiod,
           });
           
           toolLogger.logToolResult('renew_domain', result.result === 'success', Date.now() - startTime);
@@ -309,8 +394,10 @@ export function registerDomainTools(
               type: 'text' as const,
               text: JSON.stringify({
                 domainid: params.domainid,
+                domain: params.domain,
                 success: result.result === 'success',
                 message: result.message || (result.result === 'success' ? 'Domain renewed successfully' : 'Renewal failed'),
+                regperiod: params.regperiod,
               }),
             }],
           };
@@ -337,19 +424,27 @@ export function registerDomainTools(
   // ============================================
   if (isToolAllowed('transfer_domain')) {
     const transferDomainSchema = z.object({
-      domainid: z.number().int().positive('Domain ID must be positive'),
+      domainid: z.number().int().positive('Domain ID must be positive').optional(),
+      domain: z.string().optional(),
       eppcode: z.string().optional().describe('EPP/Authorization code for transfer'),
     });
     
     server.tool(
       'transfer_domain',
       `Initiate a domain transfer from another registrar. Requires valid EPP code for most TLDs. Version: ${TOOL_VERSION}`,
-      transferDomainSchema.shape,
+      { ...transferDomainSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('transfer_domain');
+          }
+
           toolLogger.logToolCall('transfer_domain', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -363,11 +458,25 @@ export function registerDomainTools(
             };
           }
           
+          const identifier = getDomainIdentifier(params.domainid, params.domain);
+          if (!identifier) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Either domainid or domain is required',
+                }),
+              }],
+              isError: true,
+            };
+          }
+          
           const result = await whmcsClient.mutate<{
             result: string;
             message?: string;
-          }>('ModuleTransfer', {
-            domainid: params.domainid,
+          }>('DomainTransfer', {
+            ...identifier,
             eppcode: params.eppcode,
           });
           
@@ -378,6 +487,7 @@ export function registerDomainTools(
               type: 'text' as const,
               text: JSON.stringify({
                 domainid: params.domainid,
+                domain: params.domain,
                 success: result.result === 'success',
                 message: result.message || (result.result === 'success' ? 'Transfer initiated' : 'Transfer failed'),
                 warning: 'Domain transfers may take several days to complete depending on registrar policies.',
@@ -412,41 +522,38 @@ export function registerDomainTools(
     
     server.tool(
       'sync_domain',
-      `Sync domain status and expiry date with the registrar. Useful for ensuring WHMCS data matches registrar data. Version: ${TOOL_VERSION}`,
-      syncDomainSchema.shape,
+      `Sync domain status and expiry date with the registrar. NOTE: WHMCS performs domain sync via cron; there is no external API endpoint. Version: ${TOOL_VERSION}`,
+      { ...syncDomainSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          if (isClientMode()) {
+            return clientModeDenied('sync_domain');
+          }
+
           toolLogger.logToolCall('sync_domain', params, false);
           
           if (!rateLimiter.tryConsume()) {
             throw new RateLimitError();
           }
           
-          const result = await whmcsClient.read<{
-            result: string;
-            expirydate?: string;
-            active?: string;
-            message?: string;
-          }>('ModuleSync', {
-            domainid: params.domainid,
-          });
-          
-          toolLogger.logToolResult('sync_domain', result.result === 'success', Date.now() - startTime);
+          toolLogger.logToolResult('sync_domain', false, Date.now() - startTime);
           
           return {
             content: [{
               type: 'text' as const,
               text: JSON.stringify({
-                domainid: params.domainid,
-                success: result.result === 'success',
-                expiry_date: result.expirydate,
-                active: result.active === '1' || result.active === 'true',
-                message: result.message || 'Domain synced',
+                isError: true,
+                error: 'Domain sync is performed by WHMCS cron/registrar module and is not available via the External API.',
+                suggestion: 'Use the WHMCS domain sync cron or registrar module sync function.',
               }),
             }],
+            isError: true,
           };
           
         } catch (error) {

@@ -36,6 +36,24 @@ describe('Client Tools', () => {
         lastname: z.string().min(1, 'Last name is required'),
         email: z.string().email('Valid email is required'),
         country: z.string().length(2, 'Country must be 2-letter ISO code'),
+        address1: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        postcode: z.string().optional(),
+        phonenumber: z.string().optional(),
+        skip_validation: z.boolean().default(false),
+      }).superRefine((val, ctx) => {
+        if (val.skip_validation) return;
+        const requiredFields = ['address1', 'city', 'state', 'postcode', 'phonenumber'] as const;
+        for (const field of requiredFields) {
+          if (!val[field] || String(val[field]).trim().length === 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [field],
+              message: `${field} is required unless skip_validation=true`,
+            });
+          }
+        }
       });
 
       // Valid input
@@ -44,6 +62,11 @@ describe('Client Tools', () => {
         lastname: 'Doe',
         email: 'john@example.com',
         country: 'US',
+        address1: '123 Main St',
+        city: 'Austin',
+        state: 'TX',
+        postcode: '78701',
+        phonenumber: '+1.5125550100',
       });
       expect(validResult.success).toBe(true);
 
@@ -52,6 +75,11 @@ describe('Client Tools', () => {
         lastname: 'Doe',
         email: 'john@example.com',
         country: 'US',
+        address1: '123 Main St',
+        city: 'Austin',
+        state: 'TX',
+        postcode: '78701',
+        phonenumber: '+1.5125550100',
       });
       expect(missingFirstname.success).toBe(false);
 
@@ -61,6 +89,11 @@ describe('Client Tools', () => {
         lastname: 'Doe',
         email: 'not-an-email',
         country: 'US',
+        address1: '123 Main St',
+        city: 'Austin',
+        state: 'TX',
+        postcode: '78701',
+        phonenumber: '+1.5125550100',
       });
       expect(invalidEmail.success).toBe(false);
 
@@ -70,8 +103,23 @@ describe('Client Tools', () => {
         lastname: 'Doe',
         email: 'john@example.com',
         country: 'USA', // Should be 2 chars
+        address1: '123 Main St',
+        city: 'Austin',
+        state: 'TX',
+        postcode: '78701',
+        phonenumber: '+1.5125550100',
       });
       expect(invalidCountry.success).toBe(false);
+
+      // Allow missing address fields when skip_validation=true
+      const skipValidation = createClientSchema.safeParse({
+        firstname: 'Jane',
+        lastname: 'Roe',
+        email: 'jane@example.com',
+        country: 'US',
+        skip_validation: true,
+      });
+      expect(skipValidation.success).toBe(true);
     });
 
     it('should sanitize text input correctly', () => {

@@ -62,6 +62,9 @@ docker run -it \
   -e WHMCS_API_URL=https://billing.example.com \
   -e WHMCS_IDENTIFIER=your_identifier \
   -e WHMCS_SECRET=your_secret \
+  -e WHMCS_ACCESS_KEY= \
+  -e MCP_AUTH_TOKEN= \
+  -e MCP_ACCESS_MODE=admin \
   -e MCP_MODE=read_only \
   whmcs-mcp-server
 ```
@@ -87,10 +90,14 @@ cp .env.example .env
 | Variable             | Default     | Description                                     |
 | -------------------- | ----------- | ----------------------------------------------- |
 | `MCP_MODE`           | `read_only` | Operation mode: `read_only`, `simulate`, `full` |
+| `MCP_ACCESS_MODE`    | `admin`     | Access mode: `admin` (full) or `client` (scoped) |
+| `MCP_ALLOWED_CLIENT_IDS` | (empty) | Comma-separated client IDs allowed in `client` mode |
+| `MCP_AUTH_TOKEN`     | (empty)     | Optional shared secret required by tools/resources |
 | `MCP_RATE_LIMIT`     | `10`        | Max WHMCS API calls per second                  |
 | `MCP_DEBUG`          | `false`     | Enable verbose logging                          |
 | `MCP_MAX_PAGE_SIZE`  | `100`       | Maximum pagination size                         |
 | `MCP_TOOL_ALLOWLIST` | (empty)     | Comma-separated list of allowed tools           |
+| `WHMCS_ACCESS_KEY`   | (empty)     | Optional WHMCS API access key (for IP restricted setups) |
 
 ## Usage with Cursor
 
@@ -106,6 +113,10 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
         "WHMCS_API_URL": "https://billing.example.com",
         "WHMCS_IDENTIFIER": "your_identifier",
         "WHMCS_SECRET": "your_secret",
+        "WHMCS_ACCESS_KEY": "",
+        "MCP_AUTH_TOKEN": "",
+        "MCP_ACCESS_MODE": "admin",
+        "MCP_ALLOWED_CLIENT_IDS": "",
         "MCP_MODE": "read_only"
       }
     }
@@ -150,13 +161,64 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
 - `register_domain` - Register a domain with registrar
 - `renew_domain` - Renew a domain
 - `transfer_domain` - Initiate domain transfer
-- `sync_domain` - Sync domain status with registrar
+- `sync_domain` - Domain sync is cron-based in WHMCS (no External API endpoint)
 
 ### Support
 
 - `create_ticket` - Create a support ticket
 - `reply_ticket` - Reply to ticket (client/admin/note)
 - `get_ticket_departments` - List support departments
+
+## Authentication & Access Modes
+
+### Shared-Secret Auth (Optional)
+If `MCP_AUTH_TOKEN` is set, every tool call must include `auth_token`, and every resource URI must include `?token=...`.
+
+Example tool call payload:
+```json
+{
+  "auth_token": "your_shared_secret",
+  "invoiceid": 123
+}
+```
+
+Example resource URI:
+```
+whmcs://clients/123/summary?token=your_shared_secret
+```
+
+### Access Modes
+This server always uses WHMCS **admin** API credentials under the hood. `MCP_ACCESS_MODE=client` adds an extra guardrail layer to prevent cross-client access and admin actions.
+
+**Client mode requires**:
+- `MCP_ALLOWED_CLIENT_IDS` to scope all client operations
+
+**Client mode allows only:**
+- `check_domain_availability`
+- `list_products`
+- `get_invoice` (scoped to allowed client IDs)
+- `get_client_details` (scoped)
+- `get_service_details` (scoped)
+- `create_ticket` (scoped)
+- `reply_ticket` (client replies only, scoped)
+- `get_ticket_departments`
+- Resources: client-summary, invoice-history, ticket-thread, client-log, ops-playbook
+
+**Admin-only tools blocked in client mode:**
+- `create_client`, `search_clients`, `update_client`
+- `mark_invoice_paid`, `record_refund`, `capture_payment`, `create_invoice`, `add_credit`, `apply_credit`
+- `accept_order`
+- `suspend_service`, `unsuspend_service`, `terminate_service`
+- `register_domain`, `renew_domain`, `transfer_domain`, `sync_domain`
+- Resource: system-activity
+
+For **chatbots** and customer-facing integrations, run in `client` mode with a strict allowlist and a dedicated WHMCS API role. For **admin workflows** (Cursor IDE, internal ops), use `admin` mode.
+
+### Real-World Isolation Patterns
+- **Two MCP instances**: one `client` mode (low-privilege WHMCS API role), one `admin` mode (full role), each with separate credentials and tokens.
+- **Per-tenant instances**: run one MCP server per client or tenant and set `MCP_ALLOWED_CLIENT_IDS` to a single ID.
+- **Network controls**: restrict WHMCS API access by IP and use `WHMCS_ACCESS_KEY` for IP-restricted setups.
+- **Least-privilege API roles**: in WHMCS, define roles with only the exact API actions needed by each MCP instance.
 
 ## Operation Modes
 

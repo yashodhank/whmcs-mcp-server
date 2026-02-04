@@ -22,6 +22,27 @@ const configSchema = z.object({
   WHMCS_API_URL: z.string().min(1, 'WHMCS_API_URL is required'),
   WHMCS_IDENTIFIER: z.string().min(1, 'WHMCS_IDENTIFIER is required'),
   WHMCS_SECRET: z.string().min(1, 'WHMCS_SECRET is required'),
+  WHMCS_ACCESS_KEY: z.preprocess(
+    (val) => (val === undefined || val === '' ? undefined : String(val)),
+    z.string().optional()
+  ),
+  MCP_AUTH_TOKEN: z.preprocess(
+    (val) => (val === undefined || val === '' ? undefined : String(val)),
+    z.string().optional()
+  ),
+  MCP_ACCESS_MODE: z.enum(['admin', 'client']).default('admin'),
+  MCP_ALLOWED_CLIENT_IDS: z.preprocess(
+    (val) => {
+      if (!val || val === '') return [];
+      return String(val)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => Number.parseInt(s, 10))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    },
+    z.array(z.number().int().positive()).default([])
+  ),
   
   // MCP Server Configuration
   MCP_MODE: z.enum(['read_only', 'simulate', 'full']).default('read_only'),
@@ -38,6 +59,14 @@ const configSchema = z.object({
     },
     z.array(z.string()).default([])
   ),
+}).superRefine((val, ctx) => {
+  if (val.MCP_ACCESS_MODE === 'client' && val.MCP_ALLOWED_CLIENT_IDS.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['MCP_ALLOWED_CLIENT_IDS'],
+      message: 'MCP_ALLOWED_CLIENT_IDS is required when MCP_ACCESS_MODE=client',
+    });
+  }
 });
 
 /**

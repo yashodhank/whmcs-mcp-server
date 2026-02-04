@@ -46,9 +46,16 @@ describe('Billing Tools', () => {
       
       const markInvoicePaidSchema = z.object({
         invoiceid: z.number().int().positive('Invoice ID must be positive'),
+        gateway: z.string().optional(),
+        transid: z.string().optional(),
+        amount: z.number().positive().optional(),
+        fees: z.number().nonnegative().optional(),
+        date: z.string().optional(),
+        send_email: z.boolean().default(false),
       });
 
       expect(markInvoicePaidSchema.safeParse({ invoiceid: 200 }).success).toBe(true);
+      expect(markInvoicePaidSchema.safeParse({ invoiceid: 200, gateway: 'mailin' }).success).toBe(true);
       expect(markInvoicePaidSchema.safeParse({}).success).toBe(false);
     });
   });
@@ -62,6 +69,8 @@ describe('Billing Tools', () => {
         amount: z.number().positive('Refund amount must be greater than 0'),
         refund_type: z.enum(['Credit', 'GatewayRecord']),
         reason: z.string().optional(),
+        paymentmethod: z.string().optional(),
+        apply_to_invoice: z.boolean().default(false),
         confirm_large_refund: z.boolean().optional(),
       });
 

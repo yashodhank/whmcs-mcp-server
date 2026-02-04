@@ -10,6 +10,8 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
+import { ensureToolAuth, isClientMode, requireClientModeClientId, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
+import { normalizeToArray } from '../whmcs/normalizers.js';
 
 const TOOL_VERSION = 'v1';
 
@@ -53,12 +55,46 @@ export function registerSupportTools(
     server.tool(
       'create_ticket',
       `Create a new support ticket in WHMCS. Version: ${TOOL_VERSION}`,
-      createTicketSchema.shape,
+      { ...createTicketSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
+          let clientReplyClientId: number | undefined;
+          if (isClientMode()) {
+            const scopeError = requireClientModeClientId(params as Record<string, unknown>);
+            if (scopeError) return scopeError;
+
+            if (params.related_service_id) {
+              const services = await whmcsClient.read<{
+                products?: { product?: Array<{ id: number; clientid?: number }> };
+              }>('GetClientsProducts', { serviceid: params.related_service_id, limitnum: 1 });
+
+              const products = normalizeToArray<{ id: number; clientid?: number }>(services.products?.product);
+              const service = products[0];
+
+              if (!service || !service.clientid) {
+                return {
+                  content: [{
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      isError: true,
+                      error: 'Unable to validate related_service_id ownership for client access mode.',
+                    }),
+                  }],
+                  isError: true,
+                };
+              }
+
+              const ownershipError = ensureClientOwnership(service.clientid, { clientid: service.clientid });
+              if (ownershipError) return ownershipError;
+            }
+          }
+
           toolLogger.logToolCall('create_ticket', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -128,12 +164,15 @@ export function registerSupportTools(
     server.tool(
       'reply_ticket',
       `Reply to an existing support ticket. Use type='Client' for client-visible reply, 'AdminNote' for internal notes, 'AdminPublic' for admin reply visible to client. Version: ${TOOL_VERSION}`,
-      replyTicketSchema.shape,
+      { ...replyTicketSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
           toolLogger.logToolCall('reply_ticket', params, true);
           
           if (!rateLimiter.tryConsume()) {
@@ -147,12 +186,56 @@ export function registerSupportTools(
             };
           }
           
+          if (isClientMode()) {
+            if (params.type !== 'Client') {
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    isError: true,
+                    error: 'Only Client replies are allowed in client access mode.',
+                  }),
+                }],
+                isError: true,
+              };
+            }
+
+            // Validate ticket ownership
+            const ticket = await whmcsClient.read<{
+              ticketid: number;
+              userid?: number;
+              clientid?: number;
+            }>('GetTicket', { ticketid: params.ticketid });
+
+            const ownerId = ticket.userid ?? ticket.clientid;
+            if (!ownerId) {
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    isError: true,
+                    error: 'Unable to validate ticket ownership for client access mode.',
+                  }),
+                }],
+                isError: true,
+              };
+            }
+
+            const ownershipError = ensureClientOwnership(ownerId, params as Record<string, unknown>);
+            if (ownershipError) return ownershipError;
+            clientReplyClientId = ownerId;
+          }
+
           // Use different API actions based on reply type
           let action = 'AddTicketReply';
           const apiParams: Record<string, unknown> = {
             ticketid: params.ticketid,
             message: params.message,
           };
+
+          if (clientReplyClientId) {
+            apiParams.clientid = clientReplyClientId;
+          }
           
           if (params.type === 'AdminNote') {
             action = 'AddTicketNote';
@@ -205,12 +288,15 @@ export function registerSupportTools(
     server.tool(
       'get_ticket_departments',
       `List all support ticket departments. Returns department IDs, names, and descriptions. Version: ${TOOL_VERSION}`,
-      {},
-      async () => {
+      { ...AUTH_SHAPE },
+      async (params) => {
         const toolLogger = logger.child();
         const startTime = Date.now();
         
         try {
+          const authError = ensureToolAuth(params as Record<string, unknown>);
+          if (authError) return authError;
+
           toolLogger.logToolCall('get_ticket_departments', {}, false);
           
           if (!rateLimiter.tryConsume()) {
