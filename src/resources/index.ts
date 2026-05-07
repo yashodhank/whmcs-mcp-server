@@ -28,7 +28,7 @@ export function registerResources(
     'client-summary',
     new ResourceTemplate('whmcs://clients/{clientid}/summary{?token,auth_token}', { list: undefined }),
     async (uri, params) => {
-      const clientid = params.clientid;
+      const clientid = Number(Array.isArray(params.clientid) ? params.clientid[0] : params.clientid);
       const resourceLogger = logger.child();
       
       try {
@@ -359,7 +359,7 @@ export function registerResources(
     'client-log',
     new ResourceTemplate('whmcs://clients/{clientid}/log{?token,auth_token}', { list: undefined }),
     async (uri, params) => {
-      const clientid = params.clientid;
+      const clientid = Number(Array.isArray(params.clientid) ? params.clientid[0] : params.clientid);
       const resourceLogger = logger.child();
       
       try {
