@@ -90,6 +90,16 @@ const markInvoicePaidSchema = z.object({
 const LARGE_REFUND_THRESHOLD = 1000;
 
 /**
+ * Maximum credit that can be added to a client in a single operation
+ */
+const MAX_CREDIT_AMOUNT = 50_000;
+
+/**
+ * Maximum amount per line item in a single create_invoice call
+ */
+const MAX_INVOICE_ITEM_AMOUNT = 100_000;
+
+/**
  * Record refund input schema
  */
 const recordRefundSchema = z.object({
@@ -250,6 +260,15 @@ export function registerBillingTools(
               isError: true,
             };
           }
+
+          // Apply idempotency for financial operation
+          const idempotencyKey = rateLimiter.generateIdempotencyKey('mark_invoice_paid', params.invoiceid);
+          const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+          if (cached) {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify(cached) }],
+            };
+          }
           
           // Fetch invoice first to check status and defaults
           const invoice = await whmcsClient.read<WhmcsInvoice>('GetInvoice', {
@@ -305,24 +324,27 @@ export function registerBillingTools(
             fees: params.fees,
             noemail: params.send_email ? false : true,
           });
-          
+
+          const result = {
+            invoiceid: params.invoiceid,
+            previous_status: invoice.status,
+            new_status: 'Paid',
+            gateway,
+            transid,
+            amount_recorded: params.amount || parseNumber(invoice.balance),
+            payment_date: paymentDate,
+            email_sent: params.send_email,
+            warnings: warnings.length ? warnings : undefined,
+            success: true,
+          };
+
+          rateLimiter.cacheResult(idempotencyKey, result);
           toolLogger.logToolResult('mark_invoice_paid', true, Date.now() - startTime);
           
           return {
             content: [{
               type: 'text' as const,
-              text: JSON.stringify({
-                invoiceid: params.invoiceid,
-                previous_status: invoice.status,
-                new_status: 'Paid',
-                gateway,
-                transid,
-                amount_recorded: params.amount || parseNumber(invoice.balance),
-                payment_date: paymentDate,
-                email_sent: params.send_email,
-                warnings: warnings.length ? warnings : undefined,
-                success: true,
-              }),
+              text: JSON.stringify(result),
             }],
           };
           
@@ -692,7 +714,7 @@ export function registerBillingTools(
       sendinvoice: z.boolean().default(false).describe('Send invoice email to client'),
       items: z.array(z.object({
         description: z.string(),
-        amount: z.number(),
+        amount: z.number().max(MAX_INVOICE_ITEM_AMOUNT, `Invoice item amount cannot exceed ${MAX_INVOICE_ITEM_AMOUNT}`),
         taxed: z.boolean().default(false),
       })).min(1, 'At least one line item is required'),
     });
@@ -787,7 +809,7 @@ export function registerBillingTools(
   if (isToolAllowed('add_credit')) {
     const addCreditSchema = z.object({
       clientid: z.number().int().positive('Client ID must be positive'),
-      amount: z.number().positive('Amount must be positive'),
+      amount: z.number().positive('Amount must be positive').max(MAX_CREDIT_AMOUNT, `Credit amount cannot exceed ${MAX_CREDIT_AMOUNT}`),
       description: z.string().default('Credit added via API'),
     });
     
@@ -819,6 +841,15 @@ export function registerBillingTools(
               isError: true,
             };
           }
+
+          // Apply idempotency for financial operation
+          const idempotencyKey = rateLimiter.generateIdempotencyKey('add_credit', params.clientid);
+          const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+          if (cached) {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify(cached) }],
+            };
+          }
           
           const result = await whmcsClient.mutate<{
             result: string;
@@ -830,18 +861,24 @@ export function registerBillingTools(
           });
           
           const success = result.result === 'success';
+
+          const response = {
+            clientid: params.clientid,
+            success,
+            amount_added: params.amount,
+            new_balance: result.newbalance,
+          };
+
+          if (success) {
+            rateLimiter.cacheResult(idempotencyKey, response);
+          }
           
           toolLogger.logToolResult('add_credit', success, Date.now() - startTime);
           
           return {
             content: [{
               type: 'text' as const,
-              text: JSON.stringify({
-                clientid: params.clientid,
-                success,
-                amount_added: params.amount,
-                new_balance: result.newbalance,
-              }),
+              text: JSON.stringify(response),
             }],
           };
           

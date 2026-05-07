@@ -32,6 +32,8 @@ interface CachedResult<T = unknown> {
 const HIGH_RISK_TOOLS = new Set([
   'capture_payment',
   'record_refund',
+  'mark_invoice_paid',
+  'add_credit',
   'accept_order',
   'terminate_service',
 ]);

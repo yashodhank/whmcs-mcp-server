@@ -12,11 +12,13 @@ export type AccessMode = 'admin' | 'client';
 export type AccessLevel = 'admin' | 'client' | 'shared';
 
 interface McpToolResponse {
+  [key: string]: unknown;
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
 }
 
 interface ResourceResponse {
+  [key: string]: unknown;
   contents: Array<{ uri: string; mimeType: string; text: string }>;
 }
 
@@ -24,8 +26,8 @@ export const AUTH_SHAPE = {
   auth_token: z.string().optional().describe('MCP auth token'),
 };
 
-export function withAuthSchema<T extends z.ZodRawShape>(schema: z.ZodObject<T>): z.ZodObject<T & typeof AUTH_SHAPE> {
-  return schema.extend(AUTH_SHAPE);
+export function withAuthSchema<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  return config.MCP_AUTH_TOKEN ? schema.extend(AUTH_SHAPE) : schema;
 }
 
 function toolError(message: string, extra?: Record<string, unknown>): McpToolResponse {

@@ -64,7 +64,6 @@ export function registerSupportTools(
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
 
-          let clientReplyClientId: number | undefined;
           if (isClientMode()) {
             const scopeError = requireClientModeClientId(params as Record<string, unknown>);
             if (scopeError) return scopeError;
@@ -185,7 +184,8 @@ export function registerSupportTools(
               isError: true,
             };
           }
-          
+
+          let clientReplyClientId: number | undefined;
           if (isClientMode()) {
             if (params.type !== 'Client') {
               return {

@@ -6,8 +6,8 @@
 import { config as loadEnv } from 'dotenv';
 import { z } from 'zod';
 
-// Load .env file
-loadEnv();
+// Load .env file without writing tips to stdout, which breaks MCP stdio.
+loadEnv({ quiet: true });
 
 /**
  * MCP operation modes
@@ -19,7 +19,26 @@ export type McpMode = 'read_only' | 'simulate' | 'full';
  */
 const configSchema = z.object({
   // WHMCS API Configuration
-  WHMCS_API_URL: z.string().min(1, 'WHMCS_API_URL is required'),
+  WHMCS_API_URL: z.string().min(1, 'WHMCS_API_URL is required').refine(
+    (url) => {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') return false;
+        const host = parsed.hostname.toLowerCase();
+        // Block loopback and cloud metadata endpoints
+        const blocked = ['localhost', '127.0.0.1', '::1', '0.0.0.0', '169.254.169.254'];
+        if (blocked.includes(host)) return false;
+        // Block RFC-1918 private ranges
+        if (/^10\.\d+\.\d+\.\d+$/.test(host)) return false;
+        if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return false;
+        if (/^192\.168\.\d+\.\d+$/.test(host)) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: 'WHMCS_API_URL must be a valid https:// URL and must not target private or internal hosts' }
+  ),
   WHMCS_IDENTIFIER: z.string().min(1, 'WHMCS_IDENTIFIER is required'),
   WHMCS_SECRET: z.string().min(1, 'WHMCS_SECRET is required'),
   WHMCS_ACCESS_KEY: z.preprocess(
