@@ -59,6 +59,27 @@ const configSchema = z.object({
     },
     z.array(z.string()).default([])
   ),
+  MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess(
+    (val) => {
+      if (!val || val === '') return {};
+      return Object.fromEntries(
+        String(val)
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .map((entry) => {
+            const separatorIndex = entry.indexOf(':');
+            if (separatorIndex === -1) return null;
+            const id = Number.parseInt(entry.slice(0, separatorIndex).trim(), 10);
+            const label = entry.slice(separatorIndex + 1).trim();
+            if (!Number.isFinite(id) || id <= 0 || !label) return null;
+            return [String(id), label] as const;
+          })
+          .filter((entry): entry is readonly [string, string] => entry !== null)
+      );
+    },
+    z.record(z.string(), z.string()).default({})
+  ),
 }).superRefine((val, ctx) => {
   if (val.MCP_ACCESS_MODE === 'client' && val.MCP_ALLOWED_CLIENT_IDS.length === 0) {
     ctx.addIssue({

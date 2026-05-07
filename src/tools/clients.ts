@@ -50,7 +50,13 @@ interface WhmcsClientDetails {
   defaultgateway?: string;
   numproducts?: number;
   numdomains?: number;
-  customfields?: Array<{ id: number; value: string }>;
+  customfields?: Array<{
+    id: number;
+    name?: string;
+    label?: string;
+    fieldname?: string;
+    value: string;
+  }>;
 }
 
 /**
@@ -448,9 +454,24 @@ export function registerClientTools(
           });
           
           // Normalize custom fields
-          const customfields = normalizeToArray<{ id: number; value: string }>(
+          const customfields = normalizeToArray<{
+            id: number;
+            name?: string;
+            label?: string;
+            fieldname?: string;
+            value: string;
+          }>(
             result.customfields
-          ).map((cf) => ({ id: cf.id, value: cf.value }));
+          ).map((cf) => {
+            const configuredLabel = config.MCP_CLIENT_CUSTOM_FIELD_LABELS[String(cf.id)];
+            const label = cf.label || cf.name || cf.fieldname || configuredLabel || null;
+            return {
+              id: cf.id,
+              label,
+              name: label,
+              value: cf.value,
+            };
+          });
           
           toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
           
