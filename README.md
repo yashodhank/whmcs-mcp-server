@@ -136,7 +136,7 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
 
 ### Billing & Financial
 
-- `get_invoice` - Get invoice with line items and transactions
+- `get_invoice` - Get one or more invoices with line items and transactions
 - `mark_invoice_paid` - Mark invoice as paid
 - `record_refund` - Record a refund (WHMCS only, not gateway)
 - `capture_payment` - Capture payment on stored method

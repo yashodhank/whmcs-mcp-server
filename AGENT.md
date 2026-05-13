@@ -441,9 +441,9 @@ async function compositeRefund(invoiceid, amount) {
 
 #### Tool: `get_invoice`
 
-**Inputs:** `invoiceid` (required)
+**Inputs:** `invoiceid` for a single invoice, `invoiceid` as an array, or `invoiceids` array for multiple invoices
 
-**Return:** Invoice with status, total, balance, dates, line items, transactions
+**Return:** Invoice with status, total, balance, dates, line items, transactions. Multiple-invoice requests return `{ invoices, total }`.
 
 **isMutating:** `false`
 
