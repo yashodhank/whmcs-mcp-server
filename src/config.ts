@@ -6,8 +6,8 @@
 import { config as loadEnv } from 'dotenv';
 import { z } from 'zod';
 
-// Load .env file
-loadEnv();
+// Load .env silently. MCP stdio must reserve stdout for JSON-RPC messages only.
+loadEnv({ quiet: true });
 
 /**
  * MCP operation modes

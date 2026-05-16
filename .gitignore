@@ -9,6 +9,9 @@ dist/
 .env.local
 .env.*.local
 
+# Local MCP configs may contain WHMCS credentials
+cursor-mcp-config.json
+
 # Logs
 *.log
 npm-debug.log*

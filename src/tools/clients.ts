@@ -158,9 +158,43 @@ const searchClientsSchema = z.object({
 /**
  * Get client details input schema
  */
+const clientIdSchema = z.number().int().positive('Client ID must be positive');
 const getClientDetailsSchema = z.object({
-  clientid: z.number().int().positive('Client ID must be positive'),
+  clientid: clientIdSchema
+    .or(z.array(clientIdSchema).min(1, 'At least one client ID is required').max(config.MCP_MAX_PAGE_SIZE))
+    .optional()
+    .describe('Single client ID, or an array of client IDs.'),
+  clientids: z.array(clientIdSchema)
+    .min(1, 'At least one client ID is required')
+    .max(config.MCP_MAX_PAGE_SIZE)
+    .optional()
+    .describe('One or more client IDs to fetch in a single call.'),
 });
+
+interface ClientDetailsResponse {
+  clientid: number;
+  firstname: string;
+  lastname: string;
+  fullname: string;
+  email: string;
+  companyname: string | null;
+  address1: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+  phonenumber: string | null;
+  status: string;
+  credit_balance: string;
+  currency: string;
+  payment_gateway: string | null;
+  product_count: number;
+  domain_count: number;
+  custom_fields: {
+    id: number;
+    value: string;
+  }[];
+}
 
 /**
  * Check if a client exists by email (for reuse_if_exists mode)
@@ -227,6 +261,60 @@ async function performClientCreation(
   return {
     clientid: createResult.clientid,
     created: true,
+  };
+}
+
+function resolveClientDetailIds(params: z.infer<typeof getClientDetailsSchema>): number[] {
+  if (params.clientids && params.clientids.length > 0) {
+    return params.clientids;
+  }
+
+  if (Array.isArray(params.clientid)) {
+    return params.clientid;
+  }
+
+  if (params.clientid !== undefined) {
+    return [params.clientid];
+  }
+
+  return [];
+}
+
+function firstNonEmptyText(...values: (string | undefined)[]): string | null {
+  for (const value of values) {
+    if (value !== undefined && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function formatClientDetails(result: WhmcsClientDetails): ClientDetailsResponse {
+  const customfields = normalizeToArray<{ id: number; value: string }>(
+    result.customfields
+  ).map((cf) => ({ id: cf.id, value: cf.value }));
+
+  return {
+    clientid: result.id,
+    firstname: result.firstname,
+    lastname: result.lastname,
+    fullname: result.fullname,
+    email: result.email,
+    companyname: firstNonEmptyText(result.companyname),
+    address1: firstNonEmptyText(result.address1),
+    city: firstNonEmptyText(result.city),
+    state: firstNonEmptyText(result.state),
+    postcode: firstNonEmptyText(result.postcode),
+    country: firstNonEmptyText(result.country),
+    phonenumber: firstNonEmptyText(result.phonenumber),
+    status: result.status,
+    credit_balance: result.credit,
+    currency: result.currency_code,
+    payment_gateway: firstNonEmptyText(result.defaultgateway),
+    product_count: result.numproducts ?? 0,
+    domain_count: result.numdomains ?? 0,
+    custom_fields: customfields,
   };
 }
 
@@ -422,7 +510,7 @@ export function registerClientTools(
   if (isToolAllowed('get_client_details')) {
     server.tool(
       'get_client_details',
-      `Get full details for a specific WHMCS client including credit balance and custom fields. Version: ${TOOL_VERSION}`,
+      `Get full WHMCS customer/client details for one or more clients, including contact data, status, credit balance, product/domain counts, payment gateway, and custom fields. Use clientid for one client, clientid as an array, or clientids for multiple clients after search_clients or invoice reports when the user needs deeper client profile data. Version: ${TOOL_VERSION}`,
       { ...getClientDetailsSchema.shape, ...AUTH_SHAPE },
       async (params) => {
         const toolLogger = logger.child();
@@ -432,52 +520,50 @@ export function registerClientTools(
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
 
+          const clientIds = resolveClientDetailIds(params);
+          if (clientIds.length === 0) {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify({
+                isError: true,
+                error: 'clientid or clientids is required.',
+              }) }],
+              isError: true,
+            };
+          }
+
           if (isClientMode()) {
-            const scopeError = ensureClientAllowed(params.clientid);
-            if (scopeError) return scopeError;
+            for (const clientId of clientIds) {
+              const scopeError = ensureClientAllowed(clientId);
+              if (scopeError) return scopeError;
+            }
           }
 
           toolLogger.logToolCall('get_client_details', params, false);
           
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
+          const clients: ClientDetailsResponse[] = [];
+          for (const clientId of clientIds) {
+            if (!rateLimiter.tryConsume()) {
+              throw new RateLimitError();
+            }
+
+            const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
+              clientid: clientId,
+            });
+
+            clients.push(formatClientDetails(result));
           }
           
-          const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
-            clientid: params.clientid,
-          });
-          
-          // Normalize custom fields
-          const customfields = normalizeToArray<{ id: number; value: string }>(
-            result.customfields
-          ).map((cf) => ({ id: cf.id, value: cf.value }));
-          
           toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
+
+          const isBatchRequest = params.clientids !== undefined || Array.isArray(params.clientid);
           
           return {
             content: [{
               type: 'text' as const,
-              text: JSON.stringify({
-                clientid: result.id,
-                firstname: result.firstname,
-                lastname: result.lastname,
-                fullname: result.fullname,
-                email: result.email,
-                companyname: result.companyname || null,
-                address1: result.address1 || null,
-                city: result.city || null,
-                state: result.state || null,
-                postcode: result.postcode || null,
-                country: result.country || null,
-                phonenumber: result.phonenumber || null,
-                status: result.status,
-                credit_balance: result.credit,
-                currency: result.currency_code,
-                payment_gateway: result.defaultgateway || null,
-                product_count: result.numproducts || 0,
-                domain_count: result.numdomains || 0,
-                custom_fields: customfields,
-              }),
+              text: JSON.stringify(isBatchRequest ? {
+                clients,
+                total: clients.length,
+              } : clients[0]),
             }],
           };
           
