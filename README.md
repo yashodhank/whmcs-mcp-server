@@ -89,6 +89,7 @@ cp .env.example .env
 
 | Variable             | Default     | Description                                     |
 | -------------------- | ----------- | ----------------------------------------------- |
+| `MCP_ENV`            | `production` | Env profile: `local`, `staging`, `production`. Layers `.env.<MCP_ENV>` over base `.env`. See [Local WHMCS dev/test](#local-whmcs-devtest). |
 | `MCP_MODE`           | `read_only` | Operation mode: `read_only`, `simulate`, `full` |
 | `MCP_ACCESS_MODE`    | `admin`     | Access mode: `admin` (full) or `client` (scoped) |
 | `MCP_ALLOWED_CLIENT_IDS` | (empty) | Comma-separated client IDs allowed in `client` mode |
@@ -273,6 +274,27 @@ npm run test:coverage
 - Integration tests call the WHMCS API directly (using `.env` credentials). If the test runner's IP is not in the WHMCS API allowlist, or the API is unreachable, the API may return **403** or a network error.
 - In that case, the integration test run **skips** all live API tests with a clear message (e.g. "WHMCS API returned 403; skipping integration tests (check IP allowlist and credentials)").
 - To skip integration tests entirely (e.g. in CI where WHMCS is never reachable), set `MCP_INTEGRATION_SKIP=1`.
+
+### Local WHMCS dev/test
+
+For full end-to-end testing (including **write** tools) against a disposable
+local WHMCS instead of read-only-against-production, this repo ships a
+self-contained dual stack (WHMCS **8.13** @ `localhost:8813` and **9.0** @
+`localhost:8890`) via `docker-compose.whmcs-test.yml` + `npm run whmcs:test:*`:
+
+```bash
+npm run whmcs:test:source && npm run whmcs:test:licenses
+npm run whmcs:test:up && npm run whmcs:test:license-install
+# walk each install wizard once, then:
+npm run whmcs:test:fixup && npm run whmcs:test:snapshot
+# create API creds in the local WHMCS admin, then:
+cp .env.local.example .env.local      # fill WHMCS_IDENTIFIER / WHMCS_SECRET
+MCP_ENV=local npm run build && MCP_ENV=local npm test
+```
+
+`MCP_ENV` selects the env profile (`.env.<MCP_ENV>` layered over base `.env`);
+the `local` profile targets the local stack over http (SEC-005 stays strict
+for staging/production). Full runbook: **[docs/local-whmcs-testing.md](docs/local-whmcs-testing.md)**.
 
 ### Verifying read-only in Cursor
 

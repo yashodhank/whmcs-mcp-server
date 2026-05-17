@@ -6,8 +6,20 @@
 import { config as loadEnv } from 'dotenv';
 import { z } from 'zod';
 
-// Load .env file
-loadEnv();
+/**
+ * Environment separation. `MCP_ENV` selects which env profile to layer on
+ * top of the base `.env`:
+ *   - local      → `.env.local`      (e.g. local dockerized WHMCS, http)
+ *   - staging    → `.env.staging`
+ *   - production  → `.env.production` (default; never weakens prod, e.g. SEC-005)
+ *
+ * Precedence (highest first): real process.env (explicit exports) >
+ * `.env.<MCP_ENV>` > base `.env`. dotenv does not overwrite already-set
+ * keys, so we load the env-specific file FIRST, then the base `.env`.
+ */
+const MCP_ENV = process.env.MCP_ENV ?? 'production';
+loadEnv({ path: `.env.${MCP_ENV}` });
+loadEnv(); // base .env fallback
 
 /**
  * MCP operation modes
@@ -50,6 +62,7 @@ const configSchema = z.object({
   ),
   
   // MCP Server Configuration
+  MCP_ENV: z.enum(['local', 'staging', 'production']).default('production'),
   MCP_MODE: z.enum(['read_only', 'simulate', 'full']).default('read_only'),
   MCP_RATE_LIMIT: z.coerce.number().int().positive().default(10),
   MCP_DEBUG: z.preprocess(

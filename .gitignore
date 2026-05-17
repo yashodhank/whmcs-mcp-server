@@ -4,9 +4,12 @@ node_modules/
 # Build output
 dist/
 
-# Environment variables
+# Environment variables (real values — never committed).
+# Committed templates: .env.example, .env.local.example, .env.staging.example
 .env
 .env.local
+.env.staging
+.env.production
 .env.*.local
 
 # Logs
@@ -23,3 +26,17 @@ Thumbs.db
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Local WHMCS dev/test stack (docker-compose.whmcs-test.yml)
+# Bypass License.php — third-party + sensitive, never committed.
+deploy/whmcs-test/licenses/*.php
+!deploy/whmcs-test/licenses/.gitkeep
+# WHMCS source bundles staged from ~/Downloads (~900MB, third-party).
+deploy/whmcs-test/source/8.13/
+deploy/whmcs-test/source/9.0/
+!deploy/whmcs-test/source/.gitkeep
+# Post-install DB dumps + configuration.php snapshots (license keys,
+# admin password hashes — sensitive). Pattern uses /* so the .gitkeep
+# negation works (a bare dir/ exclusion can't be re-included).
+deploy/whmcs-test/snapshot/*
+!deploy/whmcs-test/snapshot/.gitkeep

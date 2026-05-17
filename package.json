@@ -23,7 +23,17 @@
     "test:coverage": "vitest run --coverage",
     "precommit": "npm run typecheck && npm run lint && npm run format:check && npm run test",
     "docker:build": "docker build -t whmcs-mcp-server .",
-    "docker:run": "docker-compose up -d"
+    "docker:run": "docker-compose up -d",
+    "whmcs:test:source": "bash deploy/whmcs-test/stage-source.sh",
+    "whmcs:test:licenses": "bash deploy/whmcs-test/stage-licenses.sh",
+    "whmcs:test:up": "docker compose -f docker-compose.whmcs-test.yml up -d",
+    "whmcs:test:ps": "docker compose -f docker-compose.whmcs-test.yml ps",
+    "whmcs:test:logs": "docker compose -f docker-compose.whmcs-test.yml logs -f",
+    "whmcs:test:license-install": "bash deploy/whmcs-test/install-license.sh",
+    "whmcs:test:fixup": "bash deploy/whmcs-test/post-install-fixup.sh",
+    "whmcs:test:snapshot": "bash deploy/whmcs-test/snapshot.sh",
+    "whmcs:test:reset": "bash deploy/whmcs-test/reset.sh",
+    "whmcs:test:down": "docker compose -f docker-compose.whmcs-test.yml down -v"
   },
   "keywords": [
     "mcp",

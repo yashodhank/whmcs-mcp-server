@@ -1,0 +1,187 @@
+# ============================================================================
+# docker-compose.whmcs-test.yml — local WHMCS 8.13 + 9.0 dual-stack
+#
+# Replicated (and customized) into whmcs-mcp-server from
+# securiace-vps-platform/docker-compose.test-whmcs.yml so this project has a
+# self-contained local WHMCS to dev-test the MCP against — instead of pointing
+# the MCP at production my.securiace.com (IP-allowlist 403s, prod-only 500s).
+#
+# Brings up TWO parallel WHMCS stacks for matrix-style local testing:
+#
+#   localhost:8813 → WHMCS 8.13.1 + PHP 7.4 + MariaDB 10.11   (matches prod)
+#   localhost:8890 → WHMCS 9.0.1  + PHP 8.3 + MariaDB 11       (upgrade target)
+#
+# Isolation from securiace-vps-platform's stack (so BOTH can run at once):
+#   - compose project name : whmcsmcp-whmcs-test   (vs that repo's default)
+#   - host ports           : 8813 / 8890           (vs 8013 / 8090)
+#   - services/containers  : mcpw8* / mcpw9*        (vs whmcs8* / whmcs9*)
+#   - networks             : mcpw8-net / mcpw9-net  (vs whmcs8-net / whmcs9-net)
+#   - volumes              : mcpw{8,9}_{db,storage} (vs whmcs{8,9}_{db,storage})
+#   - env prefix           : WMCP_                  (vs SECVPS_)
+#
+# Source provisioning:
+#   WHMCS source zips (whmcs_v8131_full.zip, whmcs_v901_full.zip) are staged
+#   from ~/Downloads via deploy/whmcs-test/stage-source.sh into:
+#     deploy/whmcs-test/source/8.13/   (gitignored)
+#     deploy/whmcs-test/source/9.0/    (gitignored)
+#   bind-mounted into each stack. The EdyTheCow nginx entrypoint sees the
+#   bind-mount is non-empty and SKIPS its auto-download path.
+#
+# Licensing (LOCAL DEV/TEST ONLY):
+#   Bypass License.php variants are staged via `npm run whmcs:test:licenses`
+#   then `npm run whmcs:test:license-install` docker-cps the matching one into
+#   /var/www/html/vendor/whmcs/whmcs-foundation/lib/License.php. Never used in
+#   production.
+#
+# Runtime images (amd64-only; qemu emulation on Apple Silicon is stable):
+#   ghcr.io/edythecow/whmcs-php-fpm:php-7.4  (8.13)
+#   ghcr.io/edythecow/whmcs-php-fpm:php-8.3  (9.0)
+#   ghcr.io/edythecow/whmcs-nginx:latest     (both)
+# ============================================================================
+
+name: whmcsmcp-whmcs-test
+
+x-whmcs-nginx-defaults: &whmcs-nginx-defaults
+  image: ghcr.io/edythecow/whmcs-nginx:latest
+  platform: linux/amd64
+  environment:
+    # Bundled nginx config has `set_real_ip_from ${TRAEFIK_SUBNET}`; we
+    # don't run Traefik locally, so a harmless local range satisfies it.
+    TRAEFIK_SUBNET: 127.0.0.0/8
+    PUBLIC_SERVER_IP: 127.0.0.1
+  healthcheck:
+    test:
+      - "CMD-SHELL"
+      - "curl -fsS -o /dev/null http://localhost/ || exit 1"
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 60s
+
+services:
+
+  # =========================================================================
+  # WHMCS 8.13 stack (PHP 7.4) — localhost:8813
+  # =========================================================================
+
+  mcpw8-db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${WMCP_WHMCS_8_DB_ROOT_PW:-rootsecret_8}
+      MARIADB_DATABASE: ${WMCP_WHMCS_8_DB_NAME:-whmcs8}
+      MARIADB_USER: ${WMCP_WHMCS_8_DB_USER:-whmcs}
+      MARIADB_PASSWORD: ${WMCP_WHMCS_8_DB_PW:-whmcs_8_password}
+    volumes:
+      - mcpw8_db:/var/lib/mysql
+    networks:
+      - mcpw8-net
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mcpw8-php:
+    image: ${WMCP_WHMCS_8_PHP_IMAGE:-ghcr.io/edythecow/whmcs-php-fpm:php-7.4}
+    platform: linux/amd64
+    depends_on:
+      mcpw8-db:
+        condition: service_healthy
+    volumes:
+      # Source staged from ~/Downloads via stage-source.sh; rw because the
+      # bypass License.php install runs `docker cp` post-boot.
+      - ./deploy/whmcs-test/source/8.13:/var/www/html
+      - mcpw8_storage:/var/www/whmcs_storage
+    networks:
+      mcpw8-net:
+        # Bundled nginx config hard-codes `fastcgi_pass php-fpm:9000`;
+        # alias the service so the upstream lookup resolves.
+        aliases:
+          - php-fpm
+
+  mcpw8:
+    <<: *whmcs-nginx-defaults
+    depends_on:
+      mcpw8-php:
+        condition: service_started
+    environment:
+      NGINX_DOMAIN: ${WMCP_WHMCS_8_DOMAIN:-localhost}
+      TRAEFIK_SUBNET: 127.0.0.0/8
+      PUBLIC_SERVER_IP: 127.0.0.1
+    ports:
+      - "${WMCP_WHMCS_8_PORT:-8813}:80"
+    volumes:
+      - ./deploy/whmcs-test/source/8.13:/var/www/html
+      - mcpw8_storage:/var/www/whmcs_storage
+    networks:
+      - mcpw8-net
+
+  # =========================================================================
+  # WHMCS 9.0 stack (PHP 8.3) — localhost:8890
+  # =========================================================================
+
+  mcpw9-db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${WMCP_WHMCS_9_DB_ROOT_PW:-rootsecret_9}
+      MARIADB_DATABASE: ${WMCP_WHMCS_9_DB_NAME:-whmcs9}
+      MARIADB_USER: ${WMCP_WHMCS_9_DB_USER:-whmcs}
+      MARIADB_PASSWORD: ${WMCP_WHMCS_9_DB_PW:-whmcs_9_password}
+    volumes:
+      - mcpw9_db:/var/lib/mysql
+    networks:
+      - mcpw9-net
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mcpw9-php:
+    image: ${WMCP_WHMCS_9_PHP_IMAGE:-ghcr.io/edythecow/whmcs-php-fpm:php-8.3}
+    platform: linux/amd64
+    depends_on:
+      mcpw9-db:
+        condition: service_healthy
+    volumes:
+      - ./deploy/whmcs-test/source/9.0:/var/www/html
+      - mcpw9_storage:/var/www/whmcs_storage
+    networks:
+      mcpw9-net:
+        aliases:
+          - php-fpm
+
+  mcpw9:
+    <<: *whmcs-nginx-defaults
+    depends_on:
+      mcpw9-php:
+        condition: service_started
+    environment:
+      NGINX_DOMAIN: ${WMCP_WHMCS_9_DOMAIN:-localhost}
+      TRAEFIK_SUBNET: 127.0.0.0/8
+      PUBLIC_SERVER_IP: 127.0.0.1
+    ports:
+      - "${WMCP_WHMCS_9_PORT:-8890}:80"
+    volumes:
+      - ./deploy/whmcs-test/source/9.0:/var/www/html
+      - mcpw9_storage:/var/www/whmcs_storage
+    networks:
+      - mcpw9-net
+
+volumes:
+  mcpw8_db:
+  mcpw8_storage:
+  mcpw9_db:
+  mcpw9_storage:
+  # WHMCS source itself is NOT a docker volume — it lives in a host
+  # bind-mount (deploy/whmcs-test/source/{8.13,9.0}/) so it can be
+  # inspected / patched directly without docker exec.
+
+# Each stack gets its own bridge network. We don't share a network across
+# the two stacks because the bundled nginx config aliases php-fpm — if
+# both stacks shared a network, the alias would collide.
+networks:
+  mcpw8-net:
+    driver: bridge
+  mcpw9-net:
+    driver: bridge
