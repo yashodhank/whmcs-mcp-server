@@ -60,9 +60,12 @@ fixup_one() {
       UPDATE tblconfiguration SET value='$public_url' WHERE setting='Domain';
       UPDATE tblconfiguration SET value='on'         WHERE setting='DisableSessionIPCheck';
       UPDATE tblconfiguration SET value=''           WHERE setting='NetworkIssuesRequireLogin';
+      UPDATE tblconfiguration SET value='off'        WHERE setting='CaptchaSetting';
+      UPDATE tblconfiguration SET value='{}'         WHERE setting='CaptchaForms';
+      UPDATE tblconfiguration SET value=''           WHERE setting IN ('ReCAPTCHAPublicKey','ReCAPTCHAPrivateKey','hCaptchaPublicKey','hCaptchaPrivateKey');
     " >/dev/null
   echo "    SystemURL + Domain → $public_url"
-  echo "    DisableSessionIPCheck=on, NetworkIssuesRequireLogin='' (dev-only)"
+  echo "    DisableSessionIPCheck=on, NetworkIssuesRequireLogin='', CAPTCHA fully off (dev-only)"
 
   docker compose -f "$COMPOSE_FILE" exec -T "$leg" sh -lc \
     'rm -rf /var/www/whmcs_storage/templates_c/* /var/www/whmcs_storage/sessions/* 2>/dev/null || true' \

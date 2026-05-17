@@ -282,15 +282,24 @@ local WHMCS instead of read-only-against-production, this repo ships a
 self-contained dual stack (WHMCS **8.13** @ `localhost:8813` and **9.0** @
 `localhost:8890`) via `docker-compose.whmcs-test.yml` + `npm run whmcs:test:*`:
 
+No install wizard: both legs are populated by a non-wizard DB-snapshot
+restore. Pick **one** seed path:
+
 ```bash
 npm run whmcs:test:source && npm run whmcs:test:licenses
 npm run whmcs:test:up && npm run whmcs:test:license-install
-# walk each install wizard once, then:
+# Primary: prod-derived, PII-scrubbed data into both legs, then run the 8→9 migration:
+npm run whmcs:test:seed-prod && npm run whmcs:test:upgrade9
+# (or) Clean fallback: pristine fresh-install snapshot, no prod data:
+#   npm run whmcs:test:bootstrap
 npm run whmcs:test:fixup && npm run whmcs:test:snapshot
-# create API creds in the local WHMCS admin, then:
+# create/regenerate API creds in the local WHMCS admin (admin / DevOnly#2026!secure), then:
 cp .env.local.example .env.local      # fill WHMCS_IDENTIFIER / WHMCS_SECRET
 MCP_ENV=local npm run build && MCP_ENV=local npm test
 ```
+
+Prod-derived data and `deploy/whmcs-test/.prodseed/` are gitignored and never
+committed (the raw dump is deleted right after PII scrubbing).
 
 `MCP_ENV` selects the env profile (`.env.<MCP_ENV>` layered over base `.env`);
 the `local` profile targets the local stack over http (SEC-005 stays strict

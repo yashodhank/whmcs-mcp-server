@@ -39,32 +39,77 @@ npm run whmcs:test:ps              # both should reach healthy (~20s; longer und
 npm run whmcs:test:license-install # docker cp bypass License.php into both containers
 ```
 
-Walk each install wizard once in a browser:
+There is **no install wizard to walk in a browser**. Both legs are populated
+by a non-wizard DB-snapshot restore. Pick one of the two paths below.
 
-- 8.13 → <http://localhost:8813/install/install.php>
-- 9.0 → <http://localhost:8890/install/install.php>
+### Path 1 — Realistic data (primary)
 
-DB connection details for the wizard:
+```bash
+npm run whmcs:test:seed-prod    # prod-derived, PII-scrubbed data into BOTH legs
+npm run whmcs:test:upgrade9     # run the WHMCS 8→9 migration on the 9.0 leg
+```
 
-| Leg | DB host | DB name | DB user | DB password |
-|---|---|---|---|---|
-| 8.13 | `mcpw8-db` | `whmcs8` | `whmcs` | `whmcs_8_password` |
-| 9.0 | `mcpw9-db` | `whmcs9` | `whmcs` | `whmcs_9_password` |
+`whmcs:test:seed-prod` (deploy/whmcs-test/seed-from-prod.sh):
 
-Then:
+1. Pulls the prod WHMCS DB over SSH, **read-only** (`pull-prod-db.sh`).
+2. Loads the raw dump into a disposable staging DB.
+3. Applies `scrub-pii.sql`:
+   - emails → `dev+<id>@example.test`, phones → `+10000000000`, across
+     `tblclients`, `tblcontacts`, `tblusers`, `tbladmins`,
+     `tblticketreplies`, `tbltickets`
+   - `TRUNCATE`s `tblcreditcards`, `tblemails`, `tblgatewaylog`,
+     `tblactivitylog`, `tbladminlog`, `tblapilog`
+   - blanks gateway / SMTP / API secrets
+   - resets to a single dev admin
+   - clears `tblapi_credentials.ip_restriction`
+4. Exports `scrubbed.sql` and **deletes the raw dump immediately**.
+5. Loads the scrubbed data into **both** legs (whmcs8 + whmcs9) and writes
+   `configuration.php` per leg.
+
+Then `npm run whmcs:test:upgrade9` (deploy/whmcs-test/whmcs9-upgrade.sh) runs
+the WHMCS 8→9 migration on the 9.0 leg so it matches the upgrade target.
+
+**Dev admin login** (both legs): username `admin`, password `DevOnly#2026!secure`
+(override via `WMCP_DEV_ADMIN_PW` before seeding). CAPTCHA is auto-disabled
+on all forms (scrub + `post-install-fixup` clear `CaptchaSetting`/`CaptchaForms`
+and blank provider keys), so the login page has no captcha.
+(override the password via `WMCP_DEV_ADMIN_PW`).
+
+> Prod-derived data and `deploy/whmcs-test/.prodseed/` are **gitignored and
+> never committed**. The raw unscrubbed dump is deleted right after scrubbing —
+> only the scrubbed export is ever loaded into the legs.
+
+### Path 2 — Clean base (fallback / pristine)
+
+```bash
+npm run whmcs:test:bootstrap    # pristine clean install, no prod data
+```
+
+`whmcs:test:bootstrap` (deploy/whmcs-test/bootstrap-from-source-snapshot.sh)
+reuses `securiace-vps-platform`'s proven clean fresh-install snapshot via a
+**read-only copy-out**, patches `$db_host` to `mcpw8-db` / `mcpw9-db`, and
+restores it through `reset.sh`. No prod data is involved — use this when you
+want a pristine baseline.
+
+After either path:
 
 ```bash
 npm run whmcs:test:fixup     # rm install/, patch SystemURL, kill dev-hostile session-IP check, health-probe
-npm run whmcs:test:snapshot  # capture DB + configuration.php so you can reset without re-walking the wizard
+npm run whmcs:test:snapshot  # capture the seeded + upgraded state
 ```
 
 `fixup` fails loudly if any URL still serves `<title>Security Warning</title>`
 (WHMCS' install-folder boot guard) — that is the single source of truth for
 "the stack is healthy and snapshottable".
 
-## Create WHMCS API credentials
+## WHMCS API credentials
 
-In each local WHMCS admin (`/admin/`):
+With **Path 1** (`seed-prod`), prod's existing API credentials are carried
+over but their secrets are blanked and `tblapi_credentials.ip_restriction` is
+cleared. Generate (or regenerate) a credential in each local WHMCS admin and
+copy it into `.env.local`:
+
+In each local WHMCS admin (`/admin/`, log in as `admin` / `DevOnly#2026!secure`):
 
 1. **System Settings → API Credentials → Generate New API Credential**
 2. Role: a full-admin API role for dev (or scope per test).
@@ -96,9 +141,14 @@ Point at the 9.0 leg by setting `WHMCS_API_URL=http://localhost:8890` in
 ## Reset / teardown
 
 ```bash
-npm run whmcs:test:reset   # restore the snapshot WITHOUT re-walking the wizard (~5s). Canonical "start over".
+npm run whmcs:test:reset   # restore the last snapshot (~5s; nothing to re-walk). Canonical "start over".
 npm run whmcs:test:down    # tear down + purge DB/storage volumes (keeps host-side source/)
 ```
+
+`npm run whmcs:test:reset` restores the **last `npm run whmcs:test:snapshot`**
+— there is no wizard or seed step to repeat. To recapture the seeded +
+upgraded state (e.g. after `seed-prod` + `upgrade9` + `fixup`), run
+`npm run whmcs:test:snapshot`; subsequent resets return to that point.
 
 Per-leg: pass `mcpw8` / `mcpw9` to the underlying scripts
 (`bash deploy/whmcs-test/reset.sh mcpw8`).

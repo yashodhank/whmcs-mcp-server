@@ -40,3 +40,6 @@ deploy/whmcs-test/source/9.0/
 # negation works (a bare dir/ exclusion can't be re-included).
 deploy/whmcs-test/snapshot/*
 !deploy/whmcs-test/snapshot/.gitkeep
+# Prod-derived DB dumps (raw + scrubbed) + prod config — NEVER committed.
+# Raw is deleted right after scrubbing; only scrubbed data enters containers.
+deploy/whmcs-test/.prodseed/

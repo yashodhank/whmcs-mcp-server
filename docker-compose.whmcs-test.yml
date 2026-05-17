@@ -82,7 +82,7 @@ services:
       retries: 20
 
   mcpw8-php:
-    image: ${WMCP_WHMCS_8_PHP_IMAGE:-ghcr.io/edythecow/whmcs-php-fpm:php-7.4}
+    image: ${WMCP_WHMCS_8_PHP_IMAGE:-ghcr.io/edythecow/whmcs-php-fpm:php-8.3}
     platform: linux/amd64
     depends_on:
       mcpw8-db:

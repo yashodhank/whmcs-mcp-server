@@ -33,6 +33,10 @@
     "whmcs:test:fixup": "bash deploy/whmcs-test/post-install-fixup.sh",
     "whmcs:test:snapshot": "bash deploy/whmcs-test/snapshot.sh",
     "whmcs:test:reset": "bash deploy/whmcs-test/reset.sh",
+    "whmcs:test:pull-prod": "bash deploy/whmcs-test/pull-prod-db.sh",
+    "whmcs:test:seed-prod": "bash deploy/whmcs-test/seed-from-prod.sh",
+    "whmcs:test:upgrade9": "bash deploy/whmcs-test/whmcs9-upgrade.sh",
+    "whmcs:test:bootstrap": "bash deploy/whmcs-test/bootstrap-from-source-snapshot.sh",
     "whmcs:test:down": "docker compose -f docker-compose.whmcs-test.yml down -v"
   },
   "keywords": [

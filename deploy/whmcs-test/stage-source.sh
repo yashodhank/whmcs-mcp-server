@@ -71,8 +71,32 @@ stage_one() {
   echo "OK:    $label staged at $dest_dir ($(du -sh "$dest_dir" | awk '{print $1}'))"
 }
 
-stage_one "$DOWNLOADS/whmcs_v8131_full.zip" "$SOURCE_DIR/8.13" "8.13"
-stage_one "$DOWNLOADS/whmcs_v901_full.zip"  "$SOURCE_DIR/9.0"  "9.0"
+# Auto-pick the NEWEST 8.x and 9.x archive in ~/Downloads (sort -V) so this
+# never goes stale as you stage newer WHMCS releases. Override explicitly
+# with WMCP_WHMCS_8_BUNDLE / WMCP_WHMCS_9_BUNDLE if needed. We prefer the
+# `whmcs-<ver>-release.N.zip` naming; fall back to legacy `whmcs_vNNN_full.zip`.
+pick_latest() { # $1 = major (8|9)
+  ls -1 "$DOWNLOADS"/whmcs-"$1".*-release.*.zip 2>/dev/null | sort -V | tail -1
+}
+BUNDLE_8="${WMCP_WHMCS_8_BUNDLE:-$(pick_latest 8)}"
+BUNDLE_9="${WMCP_WHMCS_9_BUNDLE:-$(pick_latest 9)}"
+[[ -n "$BUNDLE_8" ]] || BUNDLE_8="$DOWNLOADS/whmcs_v8131_full.zip"
+[[ -n "$BUNDLE_9" ]] || BUNDLE_9="$DOWNLOADS/whmcs_v901_full.zip"
+echo "==> 8.x bundle: $(basename "$BUNDLE_8")"
+echo "==> 9.x bundle: $(basename "$BUNDLE_9")"
+stage_one "$BUNDLE_8" "$SOURCE_DIR/8.13" "8.13"
+stage_one "$BUNDLE_9" "$SOURCE_DIR/9.0"  "9.0"
+
+# CRITICAL: if the stack is already running, a host-side re-stage (rm -rf +
+# re-extract) SEVERS the docker bind-mount — the container keeps the old,
+# now-deleted inode and serves 403/404. Recreate the app containers so they
+# re-establish the mount to the freshly-staged source.
+COMPOSE_FILE="$REPO_ROOT/docker-compose.whmcs-test.yml"
+if docker compose -f "$COMPOSE_FILE" ps --status running --quiet mcpw8 >/dev/null 2>&1 \
+   && [ -n "$(docker compose -f "$COMPOSE_FILE" ps --status running --quiet mcpw8 2>/dev/null)" ]; then
+  echo "==> stack running — recreating app containers so the new source is mounted ..."
+  docker compose -f "$COMPOSE_FILE" up -d --force-recreate --no-deps mcpw8-php mcpw8 mcpw9-php mcpw9 >/dev/null 2>&1 || true
+fi
 
 echo
 echo "Done. Next:"
