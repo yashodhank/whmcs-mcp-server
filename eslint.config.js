@@ -8,7 +8,7 @@ export default tseslint.config(
     {
         languageOptions: {
             parserOptions: {
-                projectService: true,
+                project: ['./tsconfig.eslint.json'],
                 tsconfigRootDir: import.meta.dirname,
             },
         },
@@ -44,11 +44,16 @@ export default tseslint.config(
     {
         files: ['**/*.test.ts', 'tests/**/*.ts'],
         rules: {
-            // Relax some rules for tests
+            // Relax rules that are conventional/noise in test code
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-unsafe-assignment': 'off',
             '@typescript-eslint/no-unsafe-member-access': 'off',
             '@typescript-eslint/no-unsafe-call': 'off',
+            '@typescript-eslint/no-unsafe-argument': 'off',
+            '@typescript-eslint/no-require-imports': 'off',
+            '@typescript-eslint/no-empty-function': 'off',
+            '@typescript-eslint/require-await': 'off',
+            '@typescript-eslint/no-unnecessary-condition': 'off',
         },
     },
     {

@@ -181,7 +181,7 @@ export function rateLimited(retryAfterSeconds?: number): McpToolResponse {
  */
 export function modeRestricted(
   currentMode: string,
-  requiredMode: string = 'full'
+  requiredMode = 'full'
 ): McpToolResponse {
   return error(
     `Operation not allowed in ${currentMode} mode. Requires ${requiredMode} mode.`,

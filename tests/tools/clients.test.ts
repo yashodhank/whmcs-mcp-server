@@ -149,7 +149,7 @@ describe('Client Tools', () => {
     it('should generate secure passwords with required character types', () => {
       const crypto = require('node:crypto');
       
-      function generateSecurePassword(length: number = 16): string {
+      function generateSecurePassword(length = 16): string {
         const lowercase = 'abcdefghijklmnopqrstuvwxyz';
         const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const digits = '0123456789';

@@ -26,6 +26,11 @@ const configSchema = z.object({
     (val) => (val === undefined || val === '' ? undefined : String(val)),
     z.string().optional()
   ),
+  // SEC-005: allow http for WHMCS_API_URL only when explicitly opted in
+  WHMCS_ALLOW_HTTP: z.preprocess(
+    (val) => val === 'true' || val === '1',
+    z.boolean().default(false)
+  ),
   MCP_AUTH_TOKEN: z.preprocess(
     (val) => (val === undefined || val === '' ? undefined : String(val)),
     z.string().optional()
@@ -59,7 +64,34 @@ const configSchema = z.object({
     },
     z.array(z.string()).default([])
   ),
+  MCP_LARGE_REFUND_THRESHOLD: z.coerce.number().positive().default(1000),
 }).superRefine((val, ctx) => {
+  // SEC-005: WHMCS_API_URL must be a valid URL; require https unless WHMCS_ALLOW_HTTP=true
+  let parsedUrl: URL | undefined;
+  try {
+    parsedUrl = new URL(val.WHMCS_API_URL);
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WHMCS_API_URL'],
+      message: 'WHMCS_API_URL must be a valid absolute URL (e.g. https://billing.example.com)',
+    });
+  }
+  if (parsedUrl) {
+    const scheme = parsedUrl.protocol;
+    const httpAllowed = scheme === 'http:' && val.WHMCS_ALLOW_HTTP;
+    if (scheme !== 'https:' && !httpAllowed) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['WHMCS_API_URL'],
+        message:
+          scheme === 'http:'
+            ? 'WHMCS_API_URL uses http: credentials would be sent in clear. Use https, or set WHMCS_ALLOW_HTTP=true to override (not recommended).'
+            : `WHMCS_API_URL must use the https scheme (got "${scheme}").`,
+      });
+    }
+  }
+
   if (val.MCP_ACCESS_MODE === 'client' && val.MCP_ALLOWED_CLIENT_IDS.length === 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

@@ -167,7 +167,7 @@ export function whmcsToBool(value: unknown): boolean {
 /**
  * Safe number parser with fallback
  */
-export function parseNumber(value: unknown, fallback: number = 0): number {
+export function parseNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number') {
     return value;
   }

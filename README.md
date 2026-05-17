@@ -4,7 +4,7 @@ A production-ready **Model Context Protocol (MCP)** server that enables AI agent
 
 ## Features
 
-- **24 MCP Tools** for comprehensive WHMCS management:
+- **25 MCP Tools** for comprehensive WHMCS management:
   - Client management (create, search, get details, update)
   - Billing operations (invoices, payments, refunds, credits)
   - Order processing (products, accept orders)
@@ -25,7 +25,7 @@ A production-ready **Model Context Protocol (MCP)** server that enables AI agent
   - Rate limiting with configurable limits
   - Idempotency protection for high-risk operations
   - Tool allowlist for principle of least privilege
-  - Large refund threshold warnings ($1000)
+  - Large refund threshold warnings (configurable via `MCP_LARGE_REFUND_THRESHOLD`, default $1000)
   - Unpaid invoice warnings before service termination
   - Failed capture detection before payment retry
   - Input sanitization (HTML tags, control characters)
@@ -97,7 +97,9 @@ cp .env.example .env
 | `MCP_DEBUG`          | `false`     | Enable verbose logging                          |
 | `MCP_MAX_PAGE_SIZE`  | `100`       | Maximum pagination size                         |
 | `MCP_TOOL_ALLOWLIST` | (empty)     | Comma-separated list of allowed tools           |
+| `MCP_LARGE_REFUND_THRESHOLD` | `1000` | Refunds above this amount require `confirm_large_refund: true` |
 | `WHMCS_ACCESS_KEY`   | (empty)     | Optional WHMCS API access key (for IP restricted setups) |
+| `WHMCS_ALLOW_HTTP`   | `false`     | Allow an `http://` `WHMCS_API_URL` (not recommended; credentials sent in clear). Otherwise `https` is required. |
 
 ## Usage with Cursor
 
@@ -266,14 +268,32 @@ npm run test:coverage
 - Write operations are SKIPPED unless `MCP_TEST_WRITE_MODE=true`
 - Never run write tests against production data
 
+**Integration tests and 403 / unreachable API:**
+
+- Integration tests call the WHMCS API directly (using `.env` credentials). If the test runner's IP is not in the WHMCS API allowlist, or the API is unreachable, the API may return **403** or a network error.
+- In that case, the integration test run **skips** all live API tests with a clear message (e.g. "WHMCS API returned 403; skipping integration tests (check IP allowlist and credentials)").
+- To skip integration tests entirely (e.g. in CI where WHMCS is never reachable), set `MCP_INTEGRATION_SKIP=1`.
+
+### Verifying read-only in Cursor
+
+To confirm read-only tools and resources work against a real WHMCS instance from Cursor:
+
+1. **Prerequisites:** Run `npm run build` so `dist/index.js` exists. Ensure Cursor is using this project's MCP server (e.g. copy [cursor-mcp-config.json](cursor-mcp-config.json) into **Cursor Settings → MCP → Edit config**). If WHMCS has an API IP allowlist, ensure the machine running Cursor is allowed.
+2. **Read-only tools to try:** `list_products`, `get_ticket_departments`, `check_domain_availability`, `search_clients` (admin mode), `get_client_details`, `get_invoice`, `get_service_details` (use real IDs from your WHMCS).
+3. **Resources to try:** `whmcs://docs/ops-playbook`, `whmcs://clients/{id}/summary`, `whmcs://system/activity` (admin).
+4. **Success looks like:** Tool calls return JSON with expected shape (e.g. `clients`, `products`, `invoiceid`) and no stack traces. Resource URIs in responses do not include `?token=...`. In `read_only` mode, write tools (e.g. `mark_invoice_paid`) return a clear "not available in read_only mode" error.
+
+See [cursor-mcp-config.json](cursor-mcp-config.json) for the reference MCP config and [docs/cursor-skills.md](docs/cursor-skills.md) for recommended Cursor skills.
+
 ## Security Considerations
 
 - Never expose the MCP server directly to untrusted clients
 - Use `MCP_TOOL_ALLOWLIST` to restrict available tools per deployment
 - Start with `read_only` mode and only enable `full` when needed
-- Keep `WHMCS_SECRET` secure and rotate regularly
+- Keep `WHMCS_SECRET` and `MCP_AUTH_TOKEN` secure and rotate regularly
 - All logs go to stderr (stdout reserved for JSON-RPC)
 - Sensitive data (passwords, secrets, CVV) is automatically redacted from logs
+- Auth tokens are compared in constant time and are never returned in resource URIs (query params are stripped from responses)
 
 ## Technical Details
 
@@ -282,6 +302,16 @@ npm run test:coverage
 - **Idempotency**: High-risk operations cached for 60s to prevent duplicates
 - **Input Sanitization**: HTML tags and control characters removed from user input
 - **Graceful Shutdown**: SIGTERM/SIGINT handlers clean up timers and connections
+
+## Cursor Skills
+
+This project uses [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills) with Cursor. Install once with:
+
+```bash
+npx antigravity-awesome-skills --cursor
+```
+
+Then in Cursor chat use `@skill-name` (e.g. `@mcp-builder`, `@api-security-best-practices`, `@typescript-expert`). Recommended bundles for this repo: **Security Developer** and **Agent Architect** from [docs/BUNDLES.md](https://github.com/sickn33/antigravity-awesome-skills/blob/main/docs/BUNDLES.md). A full curated list with rationale is in [docs/cursor-skills.md](docs/cursor-skills.md).
 
 ## Development Standards
 

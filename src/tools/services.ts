@@ -238,7 +238,7 @@ export function registerServiceTools(
           
           // Check for unpaid invoices
           const clientInvoices = await whmcsClient.read<{
-            invoices?: { invoice?: Array<{ id: number; status: string; total: string }> };
+            invoices?: { invoice?: { id: number; status: string; total: string }[] };
             totalresults?: number;
           }>('GetInvoices', {
             userid: serviceDetails.clientid,

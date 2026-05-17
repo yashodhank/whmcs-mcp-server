@@ -7,7 +7,7 @@
 
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Logger } from '../logging.js';
-import { ensureResourceAuth } from '../security.js';
+import { ensureResourceAuth, stripAuthFromUri } from '../security.js';
 
 /**
  * The WHMCS Operations Playbook content
@@ -126,7 +126,7 @@ export function registerPlaybookResource(
       return {
         contents: [
           {
-            uri: uri.href,
+            uri: stripAuthFromUri(uri),
             mimeType: 'text/markdown',
             text: WHMCS_OPS_PLAYBOOK.trim(),
           }

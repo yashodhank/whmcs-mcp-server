@@ -64,20 +64,19 @@ export function registerSupportTools(
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
 
-          let clientReplyClientId: number | undefined;
           if (isClientMode()) {
             const scopeError = requireClientModeClientId(params as Record<string, unknown>);
             if (scopeError) return scopeError;
 
             if (params.related_service_id) {
               const services = await whmcsClient.read<{
-                products?: { product?: Array<{ id: number; clientid?: number }> };
+                products?: { product?: { id: number; clientid?: number }[] };
               }>('GetClientsProducts', { serviceid: params.related_service_id, limitnum: 1 });
 
               const products = normalizeToArray<{ id: number; clientid?: number }>(services.products?.product);
               const service = products[0];
 
-              if (!service || !service.clientid) {
+              if (!service?.clientid) {
                 return {
                   content: [{
                     type: 'text' as const,
@@ -172,6 +171,8 @@ export function registerSupportTools(
         try {
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
+
+          let clientReplyClientId: number | undefined;
 
           toolLogger.logToolCall('reply_ticket', params, true);
           
@@ -307,13 +308,13 @@ export function registerSupportTools(
             result: string;
             totalresults?: number;
             departments?: {
-              department?: Array<{
+              department?: {
                 id: number;
                 name: string;
                 description?: string;
                 awaitingreply?: number;
                 opentickets?: number;
-              }>;
+              }[];
             };
           }>('GetSupportDepartments');
           

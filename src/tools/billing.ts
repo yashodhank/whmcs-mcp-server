@@ -9,7 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { isToolAllowed } from '../config.js';
+import { config, isToolAllowed } from '../config.js';
 import { ensureToolAuth, clientModeDenied, isClientMode, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray, parseNumber } from '../whmcs/normalizers.js';
 
@@ -83,11 +83,10 @@ const markInvoicePaidSchema = z.object({
   send_email: z.boolean().default(false).describe('Send payment confirmation email'),
 });
 
-/**
- * Large refund threshold - amounts above this require explicit confirmation
- * Configurable via environment, defaults to $1000
- */
-const LARGE_REFUND_THRESHOLD = 1000;
+/** Large refund threshold (SEC-007): from config, amounts above this require explicit confirmation */
+function getLargeRefundThreshold(): number {
+  return config.MCP_LARGE_REFUND_THRESHOLD;
+}
 
 /**
  * Record refund input schema
@@ -107,6 +106,8 @@ const recordRefundSchema = z.object({
  */
 const capturePaymentSchema = z.object({
   invoiceid: z.number().int().positive('Invoice ID must be positive'),
+  // SEC-006: PCI-sensitive. CVV must never be logged, cached, or otherwise persisted.
+  // It is forwarded to WHMCS CapturePayment only and stripped before any logging.
   cvv: z.string().optional(),
   force: z.boolean().default(false),
 });
@@ -385,16 +386,17 @@ export function registerBillingTools(
             };
           }
           
-          // Safety guard: Require confirmation for large refunds
-          if (params.amount > LARGE_REFUND_THRESHOLD && !params.confirm_large_refund) {
+          // Safety guard: Require confirmation for large refunds (SEC-007: configurable threshold)
+          const largeRefundThreshold = getLargeRefundThreshold();
+          if (params.amount > largeRefundThreshold && !params.confirm_large_refund) {
             return {
               content: [{
                 type: 'text' as const,
                 text: JSON.stringify({
                   requires_confirmation: true,
-                  warning: `This refund of $${params.amount.toFixed(2)} exceeds the large refund threshold of $${LARGE_REFUND_THRESHOLD}. Please confirm by calling this tool again with 'confirm_large_refund: true'.`,
+                  warning: `This refund of $${params.amount.toFixed(2)} exceeds the large refund threshold of $${largeRefundThreshold}. Please confirm by calling this tool again with 'confirm_large_refund: true'.`,
                   amount: params.amount,
-                  threshold: LARGE_REFUND_THRESHOLD,
+                  threshold: largeRefundThreshold,
                   action: 'record_refund',
                 }),
               }],
@@ -542,8 +544,10 @@ export function registerBillingTools(
             return clientModeDenied('capture_payment');
           }
 
-          toolLogger.logToolCall('capture_payment', params, true);
-          
+          // SEC-006: strip CVV before logging (defense-in-depth on top of key-name redaction)
+          const { cvv: _cvv, ...loggableParams } = params;
+          toolLogger.logToolCall('capture_payment', loggableParams, true);
+
           if (!rateLimiter.tryConsume()) {
             throw new RateLimitError();
           }
@@ -749,7 +753,7 @@ export function registerBillingTools(
           
           const success = invoiceResult.result === 'success' && !!invoiceResult.invoiceid;
           
-          toolLogger.logToolResult('create_invoice', success as boolean, Date.now() - startTime);
+          toolLogger.logToolResult('create_invoice', success, Date.now() - startTime);
           
           return {
             content: [{

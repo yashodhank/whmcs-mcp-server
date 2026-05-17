@@ -286,9 +286,24 @@ export class WhmcsClient {
             const axiosError = error as AxiosError;
             
             if (axiosError.response) {
+              const status = axiosError.response.status;
+              const body = axiosError.response.data;
+              // Log 5xx response body for debugging (no secrets in typical PHP error output)
+              if (status >= 500 && body !== undefined && body !== null) {
+                this.logger.warn('WHMCS HTTP 5xx response body', {
+                  action,
+                  status,
+                  responseBody:
+                    typeof body === 'string'
+                      ? body.substring(0, 2000)
+                      : typeof body === 'object'
+                        ? JSON.stringify(body).substring(0, 2000)
+                        : String(body),
+                });
+              }
               throw new WhmcsTransportError(
-                `WHMCS HTTP error: ${axiosError.response.status}`,
-                axiosError.response.status
+                `WHMCS HTTP error: ${status}`,
+                status
               );
             }
             

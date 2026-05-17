@@ -3,21 +3,48 @@
  * - Optional shared-secret auth for tools/resources
  * - Access mode (admin vs client) gating
  * - Client scope enforcement
+ * - Constant-time token comparison (SEC-001)
+ * - No auth params in response URIs (SEC-002, SEC-004)
  */
 
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import { config } from './config.js';
+
+/** Auth query param names that must never appear in response URIs */
+const AUTH_PARAM_NAMES = ['token', 'auth_token'];
+
+/**
+ * Compare two strings in constant time to prevent timing attacks (SEC-001).
+ * Uses SHA-256 hashing so length of secrets is not leaked.
+ */
+function safeCompareTokens(a: string, b: string): boolean {
+  const hashA = crypto.createHash('sha256').update(a, 'utf8').digest();
+  const hashB = crypto.createHash('sha256').update(b, 'utf8').digest();
+  if (hashA.length !== hashB.length) return false;
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+
+/**
+ * Return URI string with auth query params stripped (SEC-002, SEC-004).
+ * Use this for any URI returned to the client so the auth token is never leaked.
+ */
+export function stripAuthFromUri(uri: URL): string {
+  const next = new URL(uri.href);
+  AUTH_PARAM_NAMES.forEach((name) => { next.searchParams.delete(name); });
+  return next.href;
+}
 
 export type AccessMode = 'admin' | 'client';
 export type AccessLevel = 'admin' | 'client' | 'shared';
 
 interface McpToolResponse {
-  content: Array<{ type: 'text'; text: string }>;
+  content: { type: 'text'; text: string }[];
   isError?: boolean;
 }
 
 interface ResourceResponse {
-  contents: Array<{ uri: string; mimeType: string; text: string }>;
+  contents: { uri: string; mimeType: string; text: string }[];
 }
 
 export const AUTH_SHAPE = {
@@ -75,17 +102,17 @@ export function ensureToolAuth(params: Record<string, unknown>): McpToolResponse
   const required = config.MCP_AUTH_TOKEN;
   if (!required) {
     if (Object.prototype.hasOwnProperty.call(params, 'auth_token')) {
-      delete (params as Record<string, unknown>).auth_token;
+      delete (params).auth_token;
     }
     return null;
   }
 
   const token = typeof params.auth_token === 'string' ? params.auth_token : undefined;
-  if (!token || token !== required) {
+  if (!token || !safeCompareTokens(token, required)) {
     return toolError('Unauthorized: missing or invalid auth_token.');
   }
 
-  delete (params as Record<string, unknown>).auth_token;
+  delete (params).auth_token;
   return null;
 }
 
@@ -96,8 +123,8 @@ export function ensureResourceAuth(uri: URL): { ok: true } | { ok: false; respon
   }
 
   const token = uri.searchParams.get('token') || uri.searchParams.get('auth_token');
-  if (!token || token !== required) {
-    return { ok: false, response: resourceError(uri.href, 'Unauthorized: missing or invalid token.') };
+  if (!token || !safeCompareTokens(token, required)) {
+    return { ok: false, response: resourceError(stripAuthFromUri(uri), 'Unauthorized: missing or invalid token.') };
   }
 
   return { ok: true };

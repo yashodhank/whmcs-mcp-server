@@ -59,7 +59,7 @@ export class RateLimiter {
     this.logger = logger;
 
     // Periodically clean up old cache entries (store interval ID for cleanup)
-    this.cleanupIntervalId = setInterval(() => this.cleanupCache(), DEFAULT_CLEANUP_INTERVAL_MS);
+    this.cleanupIntervalId = setInterval(() => { this.cleanupCache(); }, DEFAULT_CLEANUP_INTERVAL_MS);
   }
 
   /**

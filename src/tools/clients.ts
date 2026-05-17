@@ -50,7 +50,7 @@ interface WhmcsClientDetails {
   defaultgateway?: string;
   numproducts?: number;
   numdomains?: number;
-  customfields?: Array<{ id: number; value: string }>;
+  customfields?: { id: number; value: string }[];
 }
 
 /**
@@ -75,7 +75,7 @@ function normalizeEmail(email: string): string {
  * Generate a secure random password with guaranteed character diversity
  * Ensures at least one lowercase, uppercase, digit, and special character
  */
-function generateSecurePassword(length: number = 16): string {
+function generateSecurePassword(length = 16): string {
   const lowercase = 'abcdefghijklmnopqrstuvwxyz';
   const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const digits = '0123456789';
@@ -128,7 +128,7 @@ const createClientSchema = z.object({
   if (val.skip_validation) {
     return;
   }
-  const requiredFields: Array<keyof typeof val> = [
+  const requiredFields: (keyof typeof val)[] = [
     'address1',
     'city',
     'state',
@@ -221,7 +221,8 @@ async function performClientCreation(
     noemail: params.send_email ? false : true,
     skipvalidation: params.skip_validation ? true : undefined,
   }, {
-    clientid: Math.floor(Math.random() * 10000) + 1000,
+    // BP-002: deterministic placeholder for simulate mode
+    clientid: 99999,
   });
   
   return {
@@ -365,11 +366,14 @@ export function registerClientTools(
             throw new RateLimitError();
           }
           
+          // BP-003: sanitize search term before passing to WHMCS API
+          const search = params.search ? sanitizeTextInput(params.search) : undefined;
+
           const result = await whmcsClient.read<{
             clients?: { client?: WhmcsClientSummary[] };
             totalresults?: number;
           }>('GetClients', {
-            search: params.search,
+            search,
             limitstart: params.offset,
             limitnum: params.limit,
           });
@@ -628,7 +632,7 @@ export function registerClientTools(
           const result = await whmcsClient.read<{
             result: string;
             products?: {
-              product?: Array<{
+              product?: {
                 id: number;
                 clientid?: number;
                 pid?: number;
@@ -645,7 +649,7 @@ export function registerClientTools(
                 server?: string;
                 customfields?: unknown;
                 configoptions?: unknown;
-              }>;
+              }[];
             };
           }>('GetClientsProducts', {
             serviceid: params.serviceid,
