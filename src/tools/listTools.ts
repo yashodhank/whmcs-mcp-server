@@ -174,3 +174,130 @@ export function registerListTool<T>(
     handler
   );
 }
+
+/**
+ * Register the read-only client-scoped list tools on the MCP server.
+ *
+ * Wires up 5 paginated list tools backed by the shared `registerListTool`
+ * factory: services, domains, invoices, tickets, and orders.
+ */
+export function registerListTools(
+  server: McpServer,
+  whmcs: WhmcsClient,
+  logger: Logger,
+  rl: RateLimiter
+): void {
+  registerListTool(server, whmcs, logger, rl, {
+    name: 'list_client_services',
+    description:
+      "List a client's products/services (read-only). Pagination via limit/offset.",
+    action: 'GetClientsProducts',
+    clientParam: 'clientid',
+    normalizerPath: 'products',
+    extraSchema: { status: z.string().optional() },
+    mapItem: (p: any) => ({
+      serviceid: p.id,
+      pid: p.pid,
+      product: p.name,
+      domain: p.domain,
+      status: p.status,
+      billing_cycle: p.billingcycle,
+      next_due_date: p.nextduedate,
+      recurring_amount: p.recurringamount,
+      payment_method: p.paymentmethod,
+    }),
+  });
+
+  registerListTool(server, whmcs, logger, rl, {
+    name: 'list_client_domains',
+    description:
+      "List a client's domains (read-only). Pagination via limit/offset.",
+    action: 'GetClientsDomains',
+    clientParam: 'clientid',
+    normalizerPath: 'domains',
+    extraSchema: { status: z.string().optional() },
+    mapItem: (d: any) => ({
+      domainid: d.id,
+      domain: d.domainname,
+      registrar: d.registrar,
+      status: d.status,
+      regdate: d.regdate,
+      expiry_date: d.expirydate,
+      next_due_date: d.nextduedate,
+      donotrenew: d.donotrenew,
+    }),
+  });
+
+  registerListTool(server, whmcs, logger, rl, {
+    name: 'list_client_invoices',
+    description:
+      "List a client's invoices (read-only), newest first; optional status filter (Unpaid/Overdue/Paid/Cancelled/Refunded).",
+    action: 'GetInvoices',
+    clientParam: 'userid',
+    normalizerPath: 'invoices',
+    extraSchema: { status: z.string().optional() },
+    fixedParams: { orderby: 'date', order: 'desc' },
+    mapItem: (i: any) => ({
+      invoiceid: i.id,
+      invoicenum: i.invoicenum,
+      date: i.date,
+      duedate: i.duedate,
+      datepaid: i.datepaid,
+      status: i.status,
+      total: i.total,
+      balance: i.balance,
+    }),
+  });
+
+  registerListTool(server, whmcs, logger, rl, {
+    name: 'list_client_tickets',
+    description:
+      'List a client\'s support tickets (read-only). NOTE: WHMCS GetTickets clientid filter may MISS operator/admin-created tickets; for reliable retrieval use get_ticket_thread with a known ticketid/tid.',
+    action: 'GetTickets',
+    clientParam: 'clientid',
+    normalizerPath: 'tickets',
+    extraSchema: {
+      status: z.string().optional(),
+      deptid: z.number().int().optional(),
+      subject: z.string().optional(),
+    },
+    mapItem: (t: any) => ({
+      ticketid: t.id,
+      tid: t.tid,
+      subject: t.subject,
+      status: t.status,
+      deptname: t.deptname,
+      date: t.date,
+      lastreply: t.lastreply,
+    }),
+    postSort: (xs: any[]) =>
+      [...xs].sort((a, b) =>
+        String(b.lastreply || b.date).localeCompare(String(a.lastreply || a.date))
+      ),
+    extraPayload: {
+      discovery: 'best-effort',
+      note: 'GetTickets clientid discovery may miss operator/admin-created tickets; use get_ticket_thread by known ticketid/tid for reliable retrieval.',
+    },
+  });
+
+  registerListTool(server, whmcs, logger, rl, {
+    name: 'list_client_orders',
+    description:
+      "List a client's orders (read-only), newest first. Order not server-sorted by WHMCS; sorted client-side.",
+    action: 'GetOrders',
+    clientParam: 'userid',
+    normalizerPath: 'orders',
+    extraSchema: { status: z.string().optional() },
+    mapItem: (o: any) => ({
+      orderid: o.id,
+      ordernum: o.ordernum,
+      date: o.date,
+      amount: o.amount,
+      status: o.status,
+      invoiceid: o.invoiceid,
+      name: o.name,
+    }),
+    postSort: (xs: any[]) =>
+      [...xs].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+  });
+}
