@@ -31,10 +31,38 @@ describe('mapToCanonicalTransaction', () => {
     assertClassmapComplete(c);
   });
 
-  it('garbage tolerant', () => {
-    const c = mapToCanonicalTransaction(null);
-    expect(c.data.transactionId).toBeNull();
+  it('tolerates missing/partial fields (nulls, not throws)', () => {
+    const c = mapToCanonicalTransaction({ id: 7 });
+    expect(c.data).toMatchObject({
+      transactionRowId: 7,
+      transactionId: null,
+      amountIn: null,
+      description: null,
+    });
     assertClassmapComplete(c);
+  });
+
+  it('coerces wrong-typed values without throwing (string id, null amount)', () => {
+    const c = mapToCanonicalTransaction({
+      id: 'not-a-number',
+      userid: '42',
+      amountin: null,
+      fees: { nested: true },
+    });
+    expect(c.data.transactionRowId).toBeNull();
+    expect(c.data.clientId).toBe(42); // numeric string coerced
+    expect(c.data.amountIn).toBeNull();
+    expect(c.data.fees).toBeNull();
+    assertClassmapComplete(c);
+  });
+
+  it('garbage tolerant (null / string / array → nulls, no throw)', () => {
+    for (const g of [null, 'garbage', [], 123]) {
+      const c = mapToCanonicalTransaction(g);
+      expect(c.entity).toBe('transaction');
+      expect(c.data.transactionId).toBeNull();
+      assertClassmapComplete(c);
+    }
   });
 });
 
@@ -58,5 +86,21 @@ describe('mapToCanonicalTransactions (list / wrapper / numeric-keyed)', () => {
     });
     expect(single).toHaveLength(1);
     expect(single[0].data.transactionId).toBe('solo');
+  });
+
+  it('handles a proper array under transaction', () => {
+    const arr = mapToCanonicalTransactions({
+      transactions: { transaction: [{ id: 11 }, { id: 12 }] },
+    });
+    expect(arr.map((c) => c.data.transactionRowId)).toEqual([11, 12]);
+    arr.forEach(assertClassmapComplete);
+  });
+
+  it('handles empty / missing / garbage wrappers without throwing', () => {
+    expect(mapToCanonicalTransactions({})).toEqual([]);
+    expect(mapToCanonicalTransactions(null)).toEqual([]);
+    expect(mapToCanonicalTransactions([])).toEqual([]);
+    expect(mapToCanonicalTransactions('garbage')).toEqual([]);
+    expect(mapToCanonicalTransactions({ transactions: null })).toEqual([]);
   });
 });

@@ -261,3 +261,54 @@ describe('capability registry (B4)', () => {
     });
   });
 });
+
+/**
+ * Phase H — deterministic probe-cache isolation regression.
+ *
+ * This describe DELIBERATELY has NO local beforeEach/afterEach cache reset.
+ * It proves the GLOBAL per-test reset (tests/setupEach.ts, wired via
+ * vitest.config.ts `setupFiles`) is in effect: test 1 poisons the
+ * module-level `probeCache` for every Phase-H promoted action with a
+ * non-`supported` status (exactly what `probeCapability` does in real
+ * suites); test 2 — with no local cleanup of its own — asserts the static
+ * `supported` seed is visible again. Test 2 ONLY passes if a global
+ * `afterEach`/`beforeEach` cleared the cache between the two tests.
+ *
+ * Without the setupFiles wiring this block fails (cache leaks test→test),
+ * which is the same root cause that makes aggregators.test.ts /
+ * capabilityShellTools.test.ts flaky across files.
+ */
+describe('probe-cache isolation (global setupEach regression)', () => {
+  const PROMOTED = [
+    'GetTransactions',
+    'GetStats',
+    'GetToDoItems',
+    'GetAutomationLog',
+  ] as const;
+
+  it('poisons probeCache for the promoted actions (no local cleanup)', async () => {
+    // ALLOW_NONE ⇒ resolves `unsupported` and caches it, exactly like a
+    // real not-allowlisted probe would.
+    for (const action of PROMOTED) {
+      const result = await probeCapability(action, {
+        read: vi.fn(),
+        isAllowlisted: ALLOW_NONE,
+      });
+      expect(result.status).toBe('unsupported');
+      // Cache is now poisoned: getCapability prefers the cached entry.
+      expect(getCapability(action).status).toBe('unsupported');
+    }
+  });
+
+  it('still sees the static supported seed (proves global reset ran between tests)', () => {
+    for (const action of PROMOTED) {
+      expect(
+        getCapability(action).status,
+        `${action} must be supported again — the previous test poisoned the ` +
+          `cache; only the global setupEach reset can restore the seed`
+      ).toBe('supported');
+    }
+    // GetUsers remains unverified (never promoted).
+    expect(getCapability('GetUsers').status).toBe('unverified');
+  });
+});

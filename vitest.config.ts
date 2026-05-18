@@ -17,9 +17,15 @@ export default defineConfig({
     // Hook timeout (30 seconds for setup/teardown)
     hookTimeout: 30000,
     
-    // Global setup file
+    // Global setup file (runs ONCE for the whole run — env validation).
     globalSetup: './tests/setup.ts',
-    
+
+    // Per-test-file setup (imported into EVERY test file's module graph).
+    // Registers global beforeEach/afterEach that clear the module-level
+    // capability `probeCache`, so suite outcome is deterministic regardless
+    // of file order / worker reuse. See tests/setupEach.ts.
+    setupFiles: ['./tests/setupEach.ts'],
+
     // Coverage configuration
     coverage: {
       provider: 'v8',
