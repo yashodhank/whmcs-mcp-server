@@ -163,11 +163,18 @@ export interface ExecutionRequest {
 }
 
 export type ExecutionDeniedReason =
+  // Phase G: production can NEVER execute — hard environment gate, checked
+  // first, independent of mode/consumer/allowlist. (additive)
+  | 'production_execution_forbidden'
   | 'read_only_mode'
   | 'consumer_not_execution_allowed'
   | 'action_not_runtime_authorized'
   | 'intent_not_approved'
-  | 'idempotency_replay';
+  | 'idempotency_replay'
+  // Phase G: gates passed but the action is not in the dev/staging
+  // low-risk executable allowlist (billing/service/domain/etc. stay
+  // intent/validate-only). (additive)
+  | 'action_not_low_risk_executable';
 
 export type ExecutionDecision =
   | { readonly allowed: false; readonly reason: ExecutionDeniedReason }
@@ -194,11 +201,18 @@ export interface WriteToolResult {
   readonly idempotency_key: string;
   /** What WHMCS call WOULD be made — for dry-run/preview. Never executed here. */
   readonly would_call: { readonly action: string; readonly params: Readonly<Record<string, unknown>> };
-  readonly executed: false;
+  /**
+   * Phase G: widened from the Phase-F literal `false` to `boolean`. Still
+   * `false` in production / read-only / non-approved / non-low-risk paths;
+   * `true` only after a gated dev/staging low-risk mutation actually ran.
+   */
+  readonly executed: boolean;
   readonly execution: {
-    readonly attempted: false;
+    readonly attempted: boolean;
     readonly blocked_reason?: ExecutionDeniedReason;
     /** Set when gates passed but no live write path is wired (never executed). */
     readonly note?: string;
+    /** Phase G: post-action read-back verification result, when executed. */
+    readonly verified?: boolean;
   };
 }

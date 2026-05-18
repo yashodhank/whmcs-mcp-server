@@ -37,6 +37,11 @@ export function defaultExecutionAuthorizer(
   req: ExecutionRequest,
   alreadyExecuted: AlreadyExecuted = neverExecuted,
 ): ExecutionDecision {
+  // Phase G HARD GATE — production can NEVER execute, regardless of mode,
+  // consumer, runtime allowlist or approval. Checked FIRST, absolutely.
+  if (req.env === 'production') {
+    return { allowed: false, reason: 'production_execution_forbidden' };
+  }
   if (req.mcpMode === 'read_only') {
     return { allowed: false, reason: 'read_only_mode' };
   }

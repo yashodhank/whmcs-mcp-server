@@ -111,12 +111,13 @@ const RESULT_OUTPUT_SHAPE = {
   would_call: z
     .object({ action: z.string(), params: z.record(z.string(), z.unknown()) })
     .optional(),
-  executed: z.literal(false).optional(),
+  executed: z.boolean().optional(),
   execution: z
     .object({
-      attempted: z.literal(false),
+      attempted: z.boolean(),
       blocked_reason: z.string().optional(),
       note: z.string().optional(),
+      verified: z.boolean().optional(),
     })
     .optional(),
   // Diagnostic keys carried only by an `err()` result (success never sets these).
@@ -210,17 +211,22 @@ function register(
   inputShape: z.ZodRawShape,
   logger: Logger,
   rl: RateLimiter,
-  run: (params: Record<string, unknown>) => Record<string, unknown> | ReturnType<typeof err>,
+  run: (
+    params: Record<string, unknown>
+  ) =>
+    | Record<string, unknown>
+    | ReturnType<typeof err>
+    | Promise<Record<string, unknown> | ReturnType<typeof err>>,
   outputShape: z.ZodRawShape = RESULT_OUTPUT_SHAPE
 ): void {
   if (!isToolAllowed(name)) return;
-  const handler: Handler = ((params: Record<string, unknown>) => {
+  const handler: Handler = (async (params: Record<string, unknown>) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
       log.logToolCall(name, {}, false);
       if (!rl.tryConsume()) throw new RateLimitError();
-      const r = run(params);
+      const r = await run(params);
       log.logToolResult(name, true, Date.now() - t0);
       return r;
     } catch (e) {
@@ -242,12 +248,27 @@ function register(
 }
 
 /**
- * Register the Phase F controlled-write FLOW tools. `_whmcs` is accepted
- * for signature parity only — it is intentionally never used (no mutation).
+ * Phase G low-risk actions that MAY actually execute — and ONLY in
+ * dev/staging, after every gate passes (the authorizer hard-blocks
+ * production first). Billing/payment/credit/service/domain/order/module
+ * actions are deliberately ABSENT: they stay intent/validate-only.
+ */
+const LOW_RISK_EXECUTABLE = new Set<string>([
+  'AddClientNote',
+  'OpenTicket',
+  'AddTicketReply',
+  'UpdateTicket',
+]);
+
+/**
+ * Register the controlled-write FLOW tools. `whmcs` is used ONLY for a
+ * gated low-risk dev/staging mutation + post-action read-back verification;
+ * production execution is impossible (authorizer hard gate + WhmcsClient
+ * read_only MODE_RESTRICTED backstop).
  */
 export function registerWriteFlowTools(
   server: McpServer,
-  _whmcs: WhmcsClient,
+  whmcs: WhmcsClient,
   logger: Logger,
   rl: RateLimiter
 ): void {
@@ -351,11 +372,11 @@ export function registerWriteFlowTools(
   register(
     server,
     'execute_write_intent',
-    'Phase F: request execution of an approved intent. GATED & deny-by-default — in the read-only posture this NEVER mutates WHMCS and returns execution_blocked.',
+    'Phase G: execute an approved intent. Deny-by-default; production is hard-blocked (never mutates). Only low-risk ticket/note actions execute, and only in dev/staging after every gate passes.',
     { intent_id: z.string().min(1) },
     logger,
     rl,
-    (p) => {
+    async (p) => {
       const res = resolveWriteConsumer(p);
       if (!res.ok) return err(`consumer denied: ${res.reason}`);
       const intent = store.get(p.intent_id as string);
@@ -396,21 +417,79 @@ export function registerWriteFlowTools(
           })
         );
       }
-      // Gates passed — but live WHMCS mutation is intentionally NOT wired in
-      // this engagement. Record the idempotency key and return a structured
-      // "authorized, not executed" result. No whmcs.mutate() call exists here.
-      ledger.record(intent.idempotency_key, { authorized: true });
-      const next = store.transition(intent.intent_id, 'execution_blocked');
+      // Gates passed (the authorizer already hard-blocked production and
+      // read_only). Only LOW-RISK ticket/note actions may actually execute;
+      // billing/service/domain/etc. stay intent/validate-only.
+      if (!LOW_RISK_EXECUTABLE.has(intent.action)) {
+        ledger.record(intent.idempotency_key, { authorized_not_executed: true });
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(
+          auditEvent('intent.execution_blocked', blocked, 'action_not_low_risk_executable')
+        );
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: {
+              attempted: false,
+              blocked_reason: 'action_not_low_risk_executable',
+              note: `'${intent.action}' is gated to intent/validate only; not in the dev/staging low-risk executable allowlist.`,
+            },
+          })
+        );
+      }
+
+      // Dev/staging low-risk execution. Record idempotency BEFORE the call
+      // so a concurrent/retry attempt is treated as a replay. The
+      // WhmcsClient.mutate() read_only MODE_RESTRICTED check is an
+      // independent backstop beneath this gate.
+      ledger.record(intent.idempotency_key, { executing: true });
+      // approved → executed: we are now committing to the attempt (legal
+      // transition; failed/verified are only reachable from `executed`).
+      const executing = store.transition(intent.intent_id, 'executed');
+      audit.append(auditEvent('intent.executed', executing, 'attempting low-risk mutation'));
+      try {
+        await whmcs.mutate(intent.action, intent.params);
+      } catch (e) {
+        const failed = store.transition(intent.intent_id, 'failed');
+        audit.append(
+          auditEvent('intent.failed', failed, e instanceof Error ? e.message : String(e))
+        );
+        return out(
+          toToolResult(failed, 'execute', {
+            executed: false,
+            execution: {
+              attempted: true,
+              note: `Execution failed: ${e instanceof Error ? e.message : String(e)}`,
+            },
+          })
+        );
+      }
+
+      // Post-action verification: best-effort read-back. Never fails the
+      // result if verification itself is unavailable — reports verified:false
+      // and the intent stays in `executed` (only `verified` re-transitions).
+      let verified = false;
+      try {
+        if (typeof intent.preconditions.verifyAction === 'string') {
+          await whmcs.read(intent.preconditions.verifyAction, {});
+          verified = true;
+        }
+      } catch {
+        verified = false;
+      }
+      const finalIntent = verified
+        ? store.transition(intent.intent_id, 'verified')
+        : executing;
       audit.append(
-        auditEvent('intent.execution_blocked', next, 'authorized_but_execution_not_wired')
+        auditEvent(
+          verified ? 'intent.verified' : 'intent.executed',
+          finalIntent,
+          verified ? 'post-action verified' : 'executed; post-action verification unavailable'
+        )
       );
       return out(
-        toToolResult(next, 'execute', {
-          execution: {
-            attempted: false,
-            blocked_reason: undefined,
-            note: 'Authorized by gate, but no live production write path is implemented. Separate explicit runtime execution authorization + wiring required.',
-          },
+        toToolResult(finalIntent, 'execute', {
+          executed: true,
+          execution: { attempted: true, verified },
         })
       );
     }
