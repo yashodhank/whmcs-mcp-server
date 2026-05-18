@@ -28,7 +28,9 @@ import {
   type ConsumerProfile,
   type ConsumerResolution,
   type ProjectionEnv,
+  type WriteCapability,
 } from './types.js';
+import { WRITE_SCOPES } from '../write/types.js';
 
 /** The env var (JSON string) holding the per-deployment consumer registry. */
 export const CONSUMER_REGISTRY_ENV = 'MCP_CONSUMER_REGISTRY';
@@ -39,6 +41,14 @@ const ANON_PINNED_CONTRACT = 'llm_safe_summary' as const;
 const projectionEnvSchema = z.enum(['local', 'staging', 'production']);
 const contractNameSchema = z.enum(CONTRACT_NAMES);
 const writeCapabilitySchema = z.enum(WRITE_CAPABILITIES);
+
+/**
+ * Phase F (additive): a single write scope, validated against the frozen
+ * `WRITE_SCOPES` seam from src/write/types.ts. An unknown scope string is
+ * rejected at parse time with a clear message — this only models which write
+ * scopes a consumer is *authorized* for; it never enables execution.
+ */
+const writeScopeSchema = z.enum(WRITE_SCOPES);
 
 /**
  * One registry entry. `token_sha256` is the lowercase hex sha256 of the raw
@@ -55,6 +65,10 @@ const consumerEntrySchema = z
     allowedContracts: z.array(contractNameSchema).default([]),
     allowedActions: z.array(z.string().min(1)).default([]),
     writeCapability: writeCapabilitySchema,
+    // Phase F (additive, OPTIONAL): write scopes this consumer is authorized
+    // for. Absent ⇒ [] (default-deny: no write scope authorized). Each entry
+    // must be a known WRITE_SCOPES value — an unknown scope fails parse fast.
+    allowedWriteScopes: z.array(writeScopeSchema).default([]),
     envRestrictions: z.array(projectionEnvSchema).default([]),
     anonymous: z.boolean().default(false),
   })
@@ -124,9 +138,20 @@ const consumerRegistrySchema = z
 
 type ConsumerEntry = z.infer<typeof consumerEntrySchema>;
 
-/** A loaded profile keeps the token hash for lookup; never the raw token. */
+/**
+ * A loaded profile keeps the token hash for lookup; never the raw token.
+ *
+ * Least-invasive approach (the public `ConsumerProfile` in governance/types.ts
+ * is frozen): `allowedWriteScopes` is attached HERE, on the internal loaded
+ * profile object, and read back through the typed accessors below
+ * (`consumerWriteScopes` / `consumerWriteCapability` / `consumerCanDraft`).
+ * The internal `tokenSha256` is still stripped from externally-visible
+ * profiles by `resolveConsumer`; `allowedWriteScopes` is intentionally
+ * retained on the resolved profile so callers can gate writes.
+ */
 interface LoadedProfile extends ConsumerProfile {
   readonly tokenSha256: string;
+  readonly allowedWriteScopes: readonly string[];
 }
 
 /** Error thrown when the registry env var is missing/invalid. Never echoes the raw env value. */
@@ -156,7 +181,65 @@ function toProfile(entry: ConsumerEntry): LoadedProfile {
     envRestrictions: entry.envRestrictions,
     anonymous: entry.anonymous,
     tokenSha256: entry.token_sha256,
+    allowedWriteScopes: entry.allowedWriteScopes,
   };
+}
+
+/**
+ * Read the loaded entry's `allowedWriteScopes` off a (possibly resolved)
+ * profile. Default-deny: any profile that did not declare write scopes —
+ * including every legacy profile — yields `[]`. NEVER infers scopes.
+ */
+export function consumerWriteScopes(profile: ConsumerProfile): readonly string[] {
+  const scopes: readonly string[] | undefined = (profile as Partial<LoadedProfile>)
+    .allowedWriteScopes;
+  return scopes ?? [];
+}
+
+/** The consumer's modeled write capability. Inert by itself (no execution). */
+export function consumerWriteCapability(profile: ConsumerProfile): WriteCapability {
+  return profile.writeCapability;
+}
+
+/**
+ * Whether the consumer may draft writes at all: any capability other than the
+ * hard-off `'false'` / `'disabled'`. This models authorization only; it does
+ * NOT mean a write will execute (execution is gated separately, deny-by-default).
+ */
+export function consumerCanDraft(profile: ConsumerProfile): boolean {
+  const cap = profile.writeCapability;
+  return cap !== 'false' && cap !== 'disabled';
+}
+
+/** Outcome of the per-consumer write-scope gate. */
+export type WriteScopeAssertion =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: 'scope_not_allowed' | 'write_capability_false' };
+
+/**
+ * Pure, default-deny per-consumer write-scope gate other layers call before
+ * proposing a write. NEVER infers scopes and NEVER enables execution — it only
+ * answers "is this consumer authorized for this write scope?".
+ *
+ *  - `writeCapability` is `'false'`/`'disabled'`  → deny `write_capability_false`
+ *  - `scope` ∉ the consumer's `allowedWriteScopes` → deny `scope_not_allowed`
+ *  - otherwise                                     → ok
+ *
+ * `ok:true` is authorization data ONLY: a consumer with `execution_allowed`
+ * and listed scopes is still inert unless separate runtime execution
+ * authorization exists (intentionally absent in the default posture).
+ */
+export function assertWriteScopeAllowed(
+  profile: ConsumerProfile,
+  scope: string
+): WriteScopeAssertion {
+  if (!consumerCanDraft(profile)) {
+    return { ok: false, reason: 'write_capability_false' };
+  }
+  if (!consumerWriteScopes(profile).includes(scope)) {
+    return { ok: false, reason: 'scope_not_allowed' };
+  }
+  return { ok: true };
 }
 
 /**

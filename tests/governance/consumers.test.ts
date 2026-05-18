@@ -20,8 +20,28 @@ import {
   hashToken,
   loadConsumerRegistry,
   resolveConsumer,
+  consumerWriteScopes,
+  consumerWriteCapability,
+  consumerCanDraft,
+  assertWriteScopeAllowed,
 } from '../../src/governance/consumers.js';
 import type { ConsumerProfile, ProjectionEnv } from '../../src/governance/types.js';
+
+/**
+ * Locate a profile by id, failing the test loudly if absent. Avoids `!`
+ * non-null assertions and `as` casts in the assertions below (both flagged by
+ * the project eslint config).
+ */
+function findProfile(
+  registry: readonly ConsumerProfile[],
+  id: string
+): ConsumerProfile {
+  const found = registry.find((p) => p.id === id);
+  if (found === undefined) {
+    throw new Error(`test fixture missing consumer '${id}'`);
+  }
+  return found;
+}
 
 // ---- synthetic fixtures -----------------------------------------------------
 
@@ -234,5 +254,152 @@ describe('resolveConsumer', () => {
       };
       expect(() => loadConsumerRegistry(envWith([badAnon]))).toThrow(/MCP_CONSUMER_REGISTRY/);
     });
+  });
+});
+
+// ---- Phase F: allowedWriteScopes + per-consumer write-scope gate ------------
+
+const writerEntry = {
+  id: 'consumer-writer',
+  token_sha256: sha('synthetic-writer-token-DDDD4444'),
+  allowedScopes: ['read:clients'],
+  defaultContract: 'support_triage',
+  allowedContracts: ['support_triage', 'llm_safe_summary'],
+  allowedActions: ['GetTickets'],
+  writeCapability: 'execution_allowed',
+  allowedWriteScopes: ['client_note:write', 'ticket:reply'],
+  envRestrictions: [],
+};
+
+describe('allowedWriteScopes (Phase F, additive)', () => {
+  it('legacy registry with no write-scope fields still parses + behaves unchanged', () => {
+    const registry = loadConsumerRegistry(envWith([opsEntry, adminEntry]));
+    expect(registry).toHaveLength(2);
+    const ops = findProfile(registry, 'consumer-ops');
+    expect(ops.defaultContract).toBe('ops_operator');
+    expect(ops.writeCapability).toBe('disabled');
+    // No write scopes configured -> default-deny empty list.
+    expect(consumerWriteScopes(ops)).toEqual([]);
+    expect(consumerWriteCapability(ops)).toBe('disabled');
+    expect(consumerCanDraft(ops)).toBe(false);
+  });
+
+  it('fails fast on an unknown write scope without leaking the raw env value', () => {
+    const broken = {
+      ...opsEntry,
+      allowedWriteScopes: ['client_note:write', 'totally:made:up:scope'],
+    };
+    let err: unknown;
+    try {
+      loadConsumerRegistry(envWith([broken]));
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/MCP_CONSUMER_REGISTRY/);
+    expect((err as Error).message).not.toContain('synthetic-ops-token');
+  });
+
+  it('resolves a profile with valid allowedWriteScopes', () => {
+    const registry = loadConsumerRegistry(envWith([writerEntry]));
+    const writer = findProfile(registry, 'consumer-writer');
+    expect(consumerWriteScopes(writer)).toEqual([
+      'client_note:write',
+      'ticket:reply',
+    ]);
+    expect(consumerWriteCapability(writer)).toBe('execution_allowed');
+    expect(consumerCanDraft(writer)).toBe(true);
+  });
+
+  it('surfaces allowedWriteScopes through resolveConsumer', () => {
+    const registry = loadConsumerRegistry(envWith([writerEntry]));
+    const r = resolveConsumer(
+      'synthetic-writer-token-DDDD4444',
+      'production',
+      registry,
+      { allowAnon: false }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(consumerWriteScopes(r.profile)).toEqual([
+        'client_note:write',
+        'ticket:reply',
+      ]);
+    }
+  });
+});
+
+describe('assertWriteScopeAllowed (pure, default-deny)', () => {
+  const writer = findProfile(
+    loadConsumerRegistry(envWith([writerEntry])),
+    'consumer-writer'
+  );
+
+  it('allows when capability != false/disabled AND scope is listed', () => {
+    expect(assertWriteScopeAllowed(writer, 'client_note:write')).toEqual({ ok: true });
+    expect(assertWriteScopeAllowed(writer, 'ticket:reply')).toEqual({ ok: true });
+  });
+
+  it('denies scope_not_allowed when scope is not in allowedWriteScopes', () => {
+    expect(assertWriteScopeAllowed(writer, 'billing:refund:record')).toEqual({
+      ok: false,
+      reason: 'scope_not_allowed',
+    });
+  });
+
+  it("denies write_capability_false when writeCapability is 'false'", () => {
+    const noWrite = findProfile(
+      loadConsumerRegistry(
+        envWith([
+          {
+            ...writerEntry,
+            id: 'consumer-nowrite',
+            token_sha256: sha('synthetic-nowrite-token-EEEE5555'),
+            writeCapability: 'false',
+          },
+        ])
+      ),
+      'consumer-nowrite'
+    );
+    expect(assertWriteScopeAllowed(noWrite, 'client_note:write')).toEqual({
+      ok: false,
+      reason: 'write_capability_false',
+    });
+  });
+
+  it("denies write_capability_false when writeCapability is 'disabled'", () => {
+    const disabled = findProfile(
+      loadConsumerRegistry(
+        envWith([
+          {
+            ...writerEntry,
+            id: 'consumer-disabled',
+            token_sha256: sha('synthetic-disabled-token-FFFF6666'),
+            writeCapability: 'disabled',
+          },
+        ])
+      ),
+      'consumer-disabled'
+    );
+    expect(assertWriteScopeAllowed(disabled, 'client_note:write')).toEqual({
+      ok: false,
+      reason: 'write_capability_false',
+    });
+  });
+
+  it('never infers scopes: a legacy profile with empty scopes denies everything', () => {
+    const ops = findProfile(
+      loadConsumerRegistry(envWith([opsEntry])),
+      'consumer-ops'
+    );
+    expect(assertWriteScopeAllowed(ops, 'client_note:write')).toEqual({
+      ok: false,
+      reason: 'write_capability_false',
+    });
+  });
+
+  it('does not echo any raw token in its result', () => {
+    const out = JSON.stringify(assertWriteScopeAllowed(writer, 'ticket:reply'));
+    expect(out).not.toContain('synthetic-writer-token-DDDD4444');
   });
 });
