@@ -69,3 +69,25 @@ Use artifacts to produce the final readiness memo with:
 ## Notes
 - The script intentionally fails CI/run exit code when any test fails.
 - This is designed for iterative bug-hunt cycles: execute, classify, fix, rerun, compare.
+
+## Reliability sprint — preflight & known semantics
+- **Governance preflight (fail-fast):** if `MCP_GOVERNANCE_ENABLED=true` but no
+  `auth_token`/`MCP_CONSUMER_REGISTRY` is available, the harness exits with a
+  `harness_config_error` *before running any case* — blanket
+  `consumer denied: no_token` results are no longer mislabeled as product
+  failures. Governance OFF runs the legacy path; governance ON requires an
+  injected synthetic test consumer token. Tool names are validated against the
+  live `tools/list` at startup (no hardcoded drift; the dept tool is
+  `get_ticket_departments`).
+- **RCA taxonomy:** `consumer_denied`/`no_token` → `harness_config_error`
+  (P2, unless the case sets `expectsDenial`); advertised-but-unapplied filter →
+  `filter_correctness`; `pagination_drift` only for genuinely incoherent
+  count/total/offset/limit.
+- **`list_client_domains` status filter:** WHMCS `GetClientsDomains` has no
+  native status filter, so filtering is **client-side** via a bounded
+  multi-page scan. The envelope reports `filter_mode:'client_side'`,
+  `filter_applied`, `requested_status`, `scanned_count`, `matched_count`,
+  `returned_count`, `scan_complete`, and a `warning` when the scan cap is hit.
+  Pagination is honest over the filtered set.
+- **`get_ticket_departments`:** now declares an `outputSchema` and returns
+  `structuredContent` (text preserved) so strict MCP runtimes accept it.

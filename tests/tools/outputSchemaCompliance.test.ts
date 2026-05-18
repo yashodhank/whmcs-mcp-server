@@ -30,6 +30,11 @@ import { registerListTools } from '../../src/tools/listTools.js';
 import { registerClientTools } from '../../src/tools/clients.js';
 import { registerAggregatorTools } from '../../src/tools/aggregators.js';
 import { registerCapabilityShellTools } from '../../src/tools/capabilityShellTools.js';
+import { registerSupportTools } from '../../src/tools/support.js';
+import { registerBillingTools } from '../../src/tools/billing.js';
+import { registerDomainTools } from '../../src/tools/domains.js';
+import { registerOrderTools } from '../../src/tools/orders.js';
+import { registerServiceTools } from '../../src/tools/services.js';
 
 function harness() {
   const handlers: Record<string, any> = {};
@@ -76,11 +81,16 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
     registerClientTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerAggregatorTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerCapabilityShellTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerSupportTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerBillingTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerServiceTools(h.server as any, h.whmcs, h.logger, h.rl);
 
     const names = Object.keys(h.handlers).filter(
       (n) => h.configs[n]?.outputSchema
     );
-    expect(names.length).toBeGreaterThan(10);
+    expect(names.length).toBeGreaterThan(15);
 
     const failures: string[] = [];
     for (const name of names) {
@@ -106,5 +116,32 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
       }
     }
     expect(failures, failures.join('\n')).toEqual([]);
+  });
+
+  // Regression-lock the two reliability-sprint targets explicitly.
+  it('regression-lock: get_ticket_departments + list_client_domains emit schema-valid structuredContent (gov OFF)', async () => {
+    const h = harness();
+    registerListTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerSupportTools(h.server as any, h.whmcs, h.logger, h.rl);
+
+    for (const [name, args] of [
+      ['get_ticket_departments', {}],
+      ['list_client_domains', { clientid: 30, status: 'Active', limit: 25, offset: 0 }],
+    ] as const) {
+      const cfg = h.configs[name];
+      expect(cfg?.outputSchema, `${name} must declare an outputSchema`).toBeTruthy();
+      const res = await h.handlers[name](args);
+      expect(
+        res?.structuredContent,
+        `${name} must return structuredContent (RCA #4)`
+      ).not.toBeUndefined();
+      const parsed = z
+        .object(cfg.outputSchema as z.ZodRawShape)
+        .safeParse(res.structuredContent);
+      expect(
+        parsed.success,
+        `${name} structuredContent must validate its outputSchema`
+      ).toBe(true);
+    }
   });
 });
