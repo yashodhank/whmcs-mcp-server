@@ -34,6 +34,32 @@ import {
 } from '../canonical/index.js';
 
 /**
+ * Bounded-scan caps for honest client-side status filtering.
+ *
+ * WHMCS `GetClientsDomains` has NO native status filter parameter and the
+ * factory performs NO native filter for it. `list_client_domains` therefore
+ * has to page through results and post-filter. A single-page post-filter
+ * silently under-returns when more matches live on later pages, so we scan
+ * successive pages until enough matches for the requested window are
+ * collected OR the source is exhausted OR a hard bound is reached.
+ *
+ * The bound is intentionally generous but finite so the tool stays
+ * read-only-but-cheap and never loops unboundedly on a huge / pathological
+ * account:
+ *  - MAX_SCAN_ITEMS — never read more than this many rows total.
+ *  - MAX_SCAN_PAGES — never issue more than this many GetClientsDomains
+ *    read pages (defence-in-depth if a backend reports a wrong totalresults
+ *    or never shrinks the page).
+ * When a cap is hit before the source is exhausted the result is marked
+ * `scan_complete:false` with a human `warning` (more matches MAY exist).
+ */
+const MAX_SCAN_ITEMS = 2000;
+const MAX_SCAN_PAGES = 50;
+
+/** Tools that must honour `status` via the bounded client-side scan. */
+const CLIENT_SIDE_STATUS_FILTER_TOOLS = new Set(['list_client_domains']);
+
+/**
  * Standard MCP annotations for read-only list tools.
  */
 export const READ_ONLY_ANNOTATIONS = {
@@ -67,6 +93,136 @@ export const LIST_TOOL_OUTPUT_SHAPE = {
   consumer: z.string().optional(),
   contract: z.string().optional(),
 } as const;
+
+/**
+ * Extract the row array out of one WHMCS list response for a given
+ * container path, tolerating every WHMCS quirk (flat array, numeric-keyed
+ * object, single-object, empty object, `{singular: [...]}` wrapper) via the
+ * shared repo normalizer. Pure; no side effects.
+ */
+function extractRows(
+  resp: Record<string, unknown>,
+  normalizerPath: string,
+  singular: string
+): unknown[] {
+  const container = resp[normalizerPath];
+  const inner =
+    container !== null &&
+    typeof container === 'object' &&
+    !Array.isArray(container)
+      ? (container as Record<string, unknown>)[singular] ?? container
+      : container;
+  return normalizeToArray<unknown>(inner);
+}
+
+/** Read a string `status` off an unknown WHMCS row, else undefined. */
+function rowStatus(row: unknown): string | undefined {
+  if (row === null || typeof row !== 'object') return undefined;
+  const s = (row as Record<string, unknown>).status;
+  return typeof s === 'string' ? s : undefined;
+}
+
+/**
+ * Result of a bounded client-side status scan over WHMCS pages.
+ */
+interface ScanResult {
+  /** Raw WHMCS rows whose status matched (case-insensitive), in order. */
+  matched: unknown[];
+  /** Total raw rows read across all scanned pages. */
+  scannedCount: number;
+  /**
+   * True iff scanning read the ENTIRE source (WHMCS exhausted) — i.e.
+   * `matched` is the COMPLETE matching set and counts are authoritative.
+   */
+  sourceExhausted: boolean;
+  /**
+   * True iff a hard cap (MAX_SCAN_ITEMS / MAX_SCAN_PAGES) stopped the scan
+   * before the source was exhausted, so additional matches MAY exist
+   * beyond what was read. Triggers the human `warning`.
+   */
+  capped: boolean;
+}
+
+/**
+ * Page through a WHMCS list action accumulating rows whose `status` equals
+ * `requestedStatus` (case-insensitive), until EITHER enough matches for the
+ * `offset`+`limit` window are collected, OR WHMCS `totalresults` is
+ * exhausted, OR a hard bound (MAX_SCAN_ITEMS / MAX_SCAN_PAGES) is hit.
+ *
+ * Read-only: issues only bounded `action` reads. Uses the configured page
+ * size (`MCP_MAX_PAGE_SIZE`) for efficient scanning, independent of the
+ * caller's `limit` (which applies to the FILTERED set, not WHMCS paging).
+ */
+async function scanByStatus(
+  whmcs: WhmcsClient,
+  action: string,
+  baseParams: Record<string, unknown>,
+  normalizerPath: string,
+  singular: string,
+  requestedStatus: string,
+  offset: number,
+  limit: number
+): Promise<ScanResult> {
+  const want = requestedStatus.toLowerCase();
+  const pageSize = config.MCP_MAX_PAGE_SIZE;
+  // Enough matches to satisfy the requested window (offset+limit) before we
+  // can stop early; otherwise we must keep scanning so pagination is honest.
+  const need = offset + limit;
+
+  const matched: unknown[] = [];
+  let scannedCount = 0;
+  let pages = 0;
+  let start = 0;
+  let sourceExhausted = false;
+  let capped = false;
+
+  for (;;) {
+    if (pages >= MAX_SCAN_PAGES || scannedCount >= MAX_SCAN_ITEMS) {
+      capped = true; // hard bound hit before exhaustion
+      break;
+    }
+    const resp = await whmcs.read<Record<string, unknown>>(action, {
+      ...baseParams,
+      limitnum: pageSize,
+      limitstart: start,
+    });
+    pages += 1;
+    const rows = extractRows(resp, normalizerPath, singular);
+    scannedCount += rows.length;
+    for (const r of rows) {
+      const s = rowStatus(r);
+      if (s !== undefined && s.toLowerCase() === want) {
+        matched.push(r);
+      }
+    }
+
+    const totalRaw = resp.totalresults;
+    const total =
+      typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
+    const haveTotal = Number.isFinite(total);
+
+    // Source exhausted: WHMCS reports we've read everything, an empty page
+    // arrived, or a short page (< page size) signals no further rows.
+    if (
+      rows.length === 0 ||
+      (haveTotal && scannedCount >= total) ||
+      rows.length < pageSize
+    ) {
+      sourceExhausted = true;
+      break;
+    }
+    // Window already satisfiable from matches so far. We stop early WITHOUT
+    // claiming exhaustion — `total`/`scan_complete` stay conservative so
+    // counts are never over-claimed (more matches may exist on later pages,
+    // but the requested offset/limit window is fully and honestly served).
+    if (matched.length >= need) {
+      break;
+    }
+    start += pageSize;
+  }
+
+  return { matched, scannedCount, sourceExhausted, capped };
+}
 
 /**
  * Configuration for a single read-only list tool.
@@ -156,40 +312,122 @@ export function registerListTool<T>(
         if (!rl.tryConsume()) throw new RateLimitError();
 
         const { limit = 10, offset = 0, clientid } = params;
-        const apiParams: Record<string, unknown> = {
-          [c.clientParam]: clientid,
-          limitnum: limit,
-          limitstart: offset,
-          ...(c.fixedParams ?? {}),
-        };
-        for (const k of Object.keys(c.extraSchema)) {
-          if (params[k] !== undefined) apiParams[k] = params[k];
-        }
-
-        const resp = await whmcs.read<Record<string, any>>(c.action, apiParams);
-
-        const container = resp[c.normalizerPath];
         const singular =
           c.singular ??
           c.normalizerPath.replace(/ies$/, 'y').replace(/s$/, '');
-        const rows = normalizeToArray<any>(
-          container && typeof container === 'object'
-            ? container[singular] ?? container
-            : container
-        );
+
+        // Cleanly-typed views of the (schema-validated) numeric params for
+        // the new bounded-scan path — avoids propagating the handler's
+        // legacy `any` params type into the typed scan helper.
+        const pbag = params as Record<string, unknown>;
+        const limitNum =
+          typeof pbag.limit === 'number' ? pbag.limit : Number(limit);
+        const offsetNum =
+          typeof pbag.offset === 'number' ? pbag.offset : Number(offset);
+
+        const rawStatus = pbag.status;
+        const requestedStatus: string | undefined =
+          typeof rawStatus === 'string' && rawStatus.length > 0
+            ? rawStatus
+            : undefined;
+        const useClientSideStatusScan =
+          CLIENT_SIDE_STATUS_FILTER_TOOLS.has(c.name) &&
+          requestedStatus !== undefined;
+
+        let rows: unknown[];
+        let envelope: Record<string, unknown>;
+
+        if (requestedStatus !== undefined && useClientSideStatusScan) {
+          // HONEST client-side status filter via a bounded multi-page scan.
+          // WHMCS GetClientsDomains ignores any `status` param, so it is
+          // intentionally NOT forwarded — we filter the scanned rows here.
+          const clientIdNum =
+            typeof pbag.clientid === 'number'
+              ? pbag.clientid
+              : Number(clientid);
+          const baseParams: Record<string, unknown> = {
+            [c.clientParam]: clientIdNum,
+            ...(c.fixedParams ?? {}),
+          };
+          for (const k of Object.keys(c.extraSchema)) {
+            if (k === 'status') continue; // honoured client-side, not by WHMCS
+            if (pbag[k] !== undefined) baseParams[k] = pbag[k];
+          }
+
+          const scan = await scanByStatus(
+            whmcs,
+            c.action,
+            baseParams,
+            c.normalizerPath,
+            singular,
+            requestedStatus,
+            offsetNum,
+            limitNum
+          );
+
+          // Honest pagination over the FILTERED set only.
+          rows = scan.matched.slice(offsetNum, offsetNum + limitNum);
+          const matchedCount = scan.matched.length;
+          const returnedCount = rows.length;
+          // `scan_complete` is true ONLY when the whole source was read, so
+          // matched_count/total are authoritative. A capped OR early-stopped
+          // scan reports false (counts are the lower bound observed so far).
+          const scanComplete = scan.sourceExhausted;
+
+          // Counts reflect the FILTERED view. `total` is never over-claimed:
+          // it is matchedCount (authoritative when scan_complete, otherwise
+          // the conservative count of matches actually observed).
+          envelope = {
+            total: matchedCount,
+            count: returnedCount,
+            offset: offsetNum,
+            limit: limitNum,
+            ...(c.extraPayload ?? {}),
+            filter_mode: 'client_side',
+            filter_applied: true,
+            requested_status: requestedStatus,
+            scanned_count: scan.scannedCount,
+            matched_count: matchedCount,
+            returned_count: returnedCount,
+            scan_complete: scanComplete,
+          };
+          if (scan.capped) {
+            envelope.warning =
+              `Status filter scan hit a safety bound (scanned ${String(
+                scan.scannedCount
+              )} domains) before exhausting all results; more '${requestedStatus}' domains may exist beyond the returned window. ` +
+              `Narrow the query or page within the matched results shown.`;
+          }
+        } else {
+          const apiParams: Record<string, unknown> = {
+            [c.clientParam]: clientid,
+            limitnum: limit,
+            limitstart: offset,
+            ...(c.fixedParams ?? {}),
+          };
+          for (const k of Object.keys(c.extraSchema)) {
+            if (params[k] !== undefined) apiParams[k] = params[k];
+          }
+
+          const resp = await whmcs.read<Record<string, any>>(
+            c.action,
+            apiParams
+          );
+          rows = extractRows(resp, c.normalizerPath, singular);
+          envelope = {
+            total: resp.totalresults ?? rows.length,
+            count: resp.numreturned ?? rows.length,
+            offset: resp.startnumber ?? offset,
+            limit,
+            ...(c.extraPayload ?? {}),
+          };
+        }
 
         let items = rows.map(c.mapItem);
         if (c.postSort) items = c.postSort(items);
 
         log.logToolResult(c.name, true, Date.now() - t0);
 
-        const envelope = {
-          total: resp.totalresults ?? items.length,
-          count: resp.numreturned ?? items.length,
-          offset: resp.startnumber ?? offset,
-          limit,
-          ...(c.extraPayload ?? {}),
-        };
         const legacy = { items, ...envelope };
 
         return applyGovernanceOrLegacy({
