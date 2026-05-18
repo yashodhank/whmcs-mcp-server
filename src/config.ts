@@ -78,6 +78,13 @@ const configSchema = z.object({
     z.array(z.string()).default([])
   ),
   MCP_LARGE_REFUND_THRESHOLD: z.coerce.number().positive().default(1000),
+  // Phase B governance: allow the deliberate anonymous llm_safe_summary
+  // fallback for unknown/no-token callers. Never grants a privileged
+  // profile; in production an `anonymous` registry entry is still required.
+  MCP_ALLOW_ANON_LLM: z.preprocess(
+    (val) => val === 'true' || val === '1',
+    z.boolean().default(false)
+  ),
 }).superRefine((val, ctx) => {
   // SEC-005: WHMCS_API_URL must be a valid URL; require https unless WHMCS_ALLOW_HTTP=true
   let parsedUrl: URL | undefined;
