@@ -19,7 +19,11 @@ import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
 import { ensureToolAuth, AUTH_SHAPE } from '../security.js';
-import { getCapability, capabilityUnavailablePayload } from '../governance/capabilities.js';
+import {
+  getCapability,
+  capabilityUnavailablePayload,
+  CAPABILITY_REGISTRY,
+} from '../governance/capabilities.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
 
 interface ShellSpec {
@@ -157,6 +161,83 @@ function registerShell(
 /**
  * Register the five Phase-C capability-shell read tools.
  */
+/**
+ * get_capability_matrix — machine-readable capability + version status.
+ * Pure (no WHMCS call). Honest: WHMCS version is `unverified` (no
+ * allowlisted version source probed); never fabricated.
+ */
+function registerCapabilityMatrixTool(
+  server: McpServer,
+  logger: Logger,
+  rl: RateLimiter
+): void {
+  const name = 'get_capability_matrix';
+  if (!isToolAllowed(name)) return;
+
+  const handler: ToolCallback<z.ZodRawShape> = ((params: Record<string, unknown>) => {
+    const log = logger.child();
+    const t0 = Date.now();
+    try {
+      const authErr = ensureToolAuth(params);
+      if (authErr) return authErr;
+      log.logToolCall(name, params, false);
+      if (!rl.tryConsume()) throw new RateLimitError();
+
+      const capabilities = Object.values(CAPABILITY_REGISTRY).map((c) => ({
+        action: c.action,
+        capability: c.capability,
+        status: c.status,
+        note: c.note,
+      }));
+      const payload = {
+        whmcs_version: {
+          status: 'unverified' as const,
+          note: 'No allowlisted WHMCS version source is probed by this read-only build; version must be confirmed in production.',
+        },
+        capabilities,
+        compat_9x: {
+          immutable_non_draft_invoices: true,
+          credit_debit_notes: true,
+          note: 'WHMCS 9.0 GA: non-draft invoices are immutable; corrections via credit/debit notes. Reads unaffected. See whmcs://docs/compat-9x.',
+        },
+      };
+
+      log.logToolResult(name, true, Date.now() - t0);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+        structuredContent: payload as unknown as Record<string, unknown>,
+      };
+    } catch (e) {
+      log.logToolResult(
+        name,
+        false,
+        Date.now() - t0,
+        e instanceof Error ? e.message : String(e)
+      );
+      if (e instanceof RateLimitError) {
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify({ isError: true, error: e.message }) },
+          ],
+          isError: true,
+        };
+      }
+      throw e;
+    }
+  }) as unknown as ToolCallback<z.ZodRawShape>;
+
+  server.registerTool(
+    name,
+    {
+      description:
+        'Read-only machine-readable capability + WHMCS-version status matrix (supported/unverified/unsupported per action). Pure; calls no WHMCS API. WHMCS version is reported unverified until prod-probed.',
+      inputSchema: { ...AUTH_SHAPE },
+      annotations: { ...READ_ONLY_ANNOTATIONS },
+    },
+    handler
+  );
+}
+
 export function registerCapabilityShellTools(
   server: McpServer,
   _whmcs: WhmcsClient,
@@ -166,4 +247,5 @@ export function registerCapabilityShellTools(
   for (const spec of SHELLS) {
     registerShell(server, logger, rl, spec);
   }
+  registerCapabilityMatrixTool(server, logger, rl);
 }

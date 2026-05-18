@@ -24,9 +24,11 @@ const SHELLS: [tool: string, action: string][] = [
 ];
 
 describe('registerCapabilityShellTools', () => {
-  it('registers exactly the 5 Phase-C capability-shell tools', () => {
+  it('registers the 5 capability-shell tools + get_capability_matrix', () => {
     const { handlers } = harness();
-    expect(Object.keys(handlers).sort()).toEqual(SHELLS.map(([t]) => t).sort());
+    expect(Object.keys(handlers).sort()).toEqual(
+      [...SHELLS.map(([t]) => t), 'get_capability_matrix'].sort()
+    );
   });
 
   for (const [tool, action] of SHELLS) {
@@ -44,6 +46,24 @@ describe('registerCapabilityShellTools', () => {
       expect(res.isError).toBe(true);
     });
   }
+
+  it('get_capability_matrix reports the structured capability registry + unverified WHMCS version, no WHMCS call', async () => {
+    const { handlers, read } = harness();
+    const res = await handlers.get_capability_matrix({});
+    expect(read).not.toHaveBeenCalled();
+    const p = JSON.parse(res.content[0].text) as {
+      whmcs_version: { status: string };
+      capabilities: { action: string; status: string }[];
+      compat_9x: Record<string, unknown>;
+    };
+    expect(p.whmcs_version.status).toBe('unverified');
+    const byAction = Object.fromEntries(p.capabilities.map((c) => [c.action, c.status]));
+    expect(byAction.GetActivityLog).toBe('supported');
+    expect(byAction.GetTransactions).toBe('unverified');
+    expect(p.compat_9x).toMatchObject({ immutable_non_draft_invoices: true, credit_debit_notes: true });
+    expect(res.isError).toBeUndefined();
+    expect(res.structuredContent).toBeDefined();
+  });
 
   it('does not fake data and is identical with governance OFF vs ON (no data to govern)', async () => {
     const { handlers } = harness();
