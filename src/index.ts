@@ -22,6 +22,7 @@ import { registerSupportTools } from './tools/support.js';
 import { registerListTools } from './tools/listTools.js';
 import { registerTicketThreadTool } from './tools/ticketThreadTool.js';
 import { registerAggregatorTools } from './tools/aggregators.js';
+import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
 
 // Resource registrations
 import { registerResources } from './resources/index.js';
@@ -71,6 +72,7 @@ async function main(): Promise<void> {
   registerListTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
+  registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
 
   // Register resources
   logger.info('Registering MCP resources...');

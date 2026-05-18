@@ -1,0 +1,169 @@
+/**
+ * Phase C — capability-shell read tools.
+ *
+ * These five WHMCS actions (GetTransactions/GetStats/GetUsers/GetToDoItems/
+ * GetAutomationLog) are intentionally NOT in the read allowlist and are
+ * B4-seeded `unverified`. Per docs/PHASE_B_GOVERNANCE.md §6 and the user
+ * spec we register honest *capability shells*: schema-validated, governed
+ * tools that consult the B4 capability registry and return a structured
+ * `capability_unavailable` status. They NEVER call WHMCS, NEVER fake data,
+ * and do NOT broadly expand READ_ALLOWLIST. When an action is later
+ * deliberately allowlisted + prod-probed to `supported`, the shell can be
+ * promoted to a real governed read without changing its public contract.
+ */
+
+import { z } from 'zod';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { WhmcsClient } from '../whmcs/WhmcsClient.js';
+import { Logger } from '../logging.js';
+import { RateLimiter, RateLimitError } from '../rateLimiter.js';
+import { config, isToolAllowed } from '../config.js';
+import { ensureToolAuth, AUTH_SHAPE } from '../security.js';
+import { getCapability, capabilityUnavailablePayload } from '../governance/capabilities.js';
+import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+
+interface ShellSpec {
+  /** MCP tool name. */
+  name: string;
+  /** WHMCS action it would call once verified/allowlisted. */
+  action: string;
+  /** Human-readable description. */
+  description: string;
+  /** Extra zod shape (forward-compatible with the eventual real tool). */
+  extraSchema: z.ZodRawShape;
+}
+
+const SHELLS: readonly ShellSpec[] = [
+  {
+    name: 'list_client_transactions',
+    action: 'GetTransactions',
+    description:
+      "Read-only client payment transactions. WHMCS GetTransactions is not yet verified/allowlisted on this build — returns a structured capability status until prod-verified.",
+    extraSchema: {
+      clientid: z.number().int().positive().optional(),
+      invoiceid: z.number().int().positive().optional(),
+      transid: z.string().optional(),
+      limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
+      offset: z.number().int().min(0).default(0),
+    },
+  },
+  {
+    name: 'get_stats',
+    action: 'GetStats',
+    description:
+      'Read-only system/income statistics. WHMCS GetStats is not yet verified/allowlisted — returns a structured capability status until prod-verified.',
+    extraSchema: {},
+  },
+  {
+    name: 'list_users',
+    action: 'GetUsers',
+    description:
+      'Read-only user accounts (WHMCS 8+ User model). GetUsers is not yet verified/allowlisted — returns a structured capability status until prod-verified.',
+    extraSchema: {
+      search: z.string().optional(),
+      limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
+      offset: z.number().int().min(0).default(0),
+    },
+  },
+  {
+    name: 'get_todo_items',
+    action: 'GetToDoItems',
+    description:
+      'Read-only admin to-do items. GetToDoItems is not yet verified/allowlisted — returns a structured capability status until prod-verified.',
+    extraSchema: {
+      limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
+      offset: z.number().int().min(0).default(0),
+    },
+  },
+  {
+    name: 'get_automation_log',
+    action: 'GetAutomationLog',
+    description:
+      'Read-only automation/cron log. GetAutomationLog is not yet verified/allowlisted — returns a structured capability status until prod-verified.',
+    extraSchema: {
+      date: z.string().optional(),
+      limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
+      offset: z.number().int().min(0).default(0),
+    },
+  },
+];
+
+function registerShell(
+  server: McpServer,
+  logger: Logger,
+  rl: RateLimiter,
+  spec: ShellSpec
+): void {
+  if (!isToolAllowed(spec.name)) return;
+  const schema = z.object({ ...spec.extraSchema });
+
+  const handler: ToolCallback<z.ZodRawShape> = ((params: Record<string, unknown>) => {
+    const log = logger.child();
+    const t0 = Date.now();
+    try {
+      const authErr = ensureToolAuth(params);
+      if (authErr) return authErr;
+
+      log.logToolCall(spec.name, params, false);
+      if (!rl.tryConsume()) throw new RateLimitError();
+
+      // Honest capability gate: never call WHMCS, never fake data.
+      const cap = getCapability(spec.action);
+      const payload = capabilityUnavailablePayload(cap);
+
+      log.logToolResult(spec.name, true, Date.now() - t0);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+        structuredContent: payload as unknown as Record<string, unknown>,
+        isError: true,
+      };
+    } catch (e) {
+      log.logToolResult(
+        spec.name,
+        false,
+        Date.now() - t0,
+        e instanceof Error ? e.message : String(e)
+      );
+      if (e instanceof RateLimitError) {
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify({ isError: true, error: e.message }) },
+          ],
+          isError: true,
+        };
+      }
+      throw e;
+    }
+  }) as unknown as ToolCallback<z.ZodRawShape>;
+
+  server.registerTool(
+    spec.name,
+    {
+      description: spec.description,
+      inputSchema: {
+        ...schema.shape,
+        contract: z
+          .string()
+          .optional()
+          .describe('Requested data contract (honoured only once the capability is verified and the consumer permits it)'),
+        ...AUTH_SHAPE,
+      },
+      annotations: { ...READ_ONLY_ANNOTATIONS },
+    },
+    handler
+  );
+}
+
+/**
+ * Register the five Phase-C capability-shell read tools.
+ */
+export function registerCapabilityShellTools(
+  server: McpServer,
+  _whmcs: WhmcsClient,
+  logger: Logger,
+  rl: RateLimiter
+): void {
+  for (const spec of SHELLS) {
+    registerShell(server, logger, rl, spec);
+  }
+}
