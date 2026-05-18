@@ -195,5 +195,10 @@ export interface WriteToolResult {
   /** What WHMCS call WOULD be made — for dry-run/preview. Never executed here. */
   readonly would_call: { readonly action: string; readonly params: Readonly<Record<string, unknown>> };
   readonly executed: false;
-  readonly execution: { readonly attempted: false; readonly blocked_reason?: ExecutionDeniedReason };
+  readonly execution: {
+    readonly attempted: false;
+    readonly blocked_reason?: ExecutionDeniedReason;
+    /** Set when gates passed but no live write path is wired (never executed). */
+    readonly note?: string;
+  };
 }
