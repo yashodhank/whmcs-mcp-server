@@ -340,6 +340,16 @@ const AGGREGATOR_OUTPUT_SHAPE = {
   status: z.string().optional(),
 } as const;
 
+/**
+ * Registered as a single PASSTHROUGH ZodObject (one shared instance) so the
+ * SDK-derived JSON Schema permits additional properties — aggregator
+ * governance-OFF legacy payloads are heterogeneous; strict MCP runtimes
+ * (Kilo) otherwise reject extras with -32602.
+ */
+const AGGREGATOR_OUTPUT_SCHEMA = z
+  .object(AGGREGATOR_OUTPUT_SHAPE)
+  .catchall(z.unknown());
+
 interface PartialError {
   section: string;
   error: string;
@@ -584,7 +594,7 @@ function register(
     {
       description,
       inputSchema: { ...schema.shape, ...AUTH_SHAPE },
-      outputSchema: AGGREGATOR_OUTPUT_SHAPE,
+      outputSchema: AGGREGATOR_OUTPUT_SCHEMA,
       annotations: READ_ONLY_ANNOTATIONS,
     },
     handler

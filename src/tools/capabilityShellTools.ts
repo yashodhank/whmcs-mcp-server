@@ -66,6 +66,16 @@ const SHELL_OUTPUT_SHAPE = {
 } as const;
 
 /**
+ * Single shared PASSTHROUGH ZodObject. Shells emit heterogeneous payloads
+ * (capability_unavailable / governed envelope / legacy items|data); the
+ * SDK-derived JSON Schema must permit additional properties or strict MCP
+ * runtimes (Kilo) reject with -32602.
+ */
+const SHELL_OUTPUT_SCHEMA = z
+  .object(SHELL_OUTPUT_SHAPE)
+  .catchall(z.unknown());
+
+/**
  * Stable, additive output schema for `get_capability_matrix`.
  *
  * Validates BOTH runtime modes without altering them:
@@ -301,7 +311,7 @@ function registerShell(
           .describe('Requested data contract (honoured only once the capability is verified and the consumer permits it)'),
         ...AUTH_SHAPE,
       },
-      outputSchema: SHELL_OUTPUT_SHAPE,
+      outputSchema: SHELL_OUTPUT_SCHEMA,
       annotations: { ...READ_ONLY_ANNOTATIONS },
     },
     handler

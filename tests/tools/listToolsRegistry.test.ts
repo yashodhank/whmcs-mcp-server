@@ -102,18 +102,20 @@ describe('registerListTools', () => {
     expect(p.note).toContain('get_ticket_thread');
   });
 
-  it('registers a stable outputSchema (zod raw shape) describing legacy + governed envelopes', () => {
+  it('registers a stable outputSchema describing legacy + governed envelopes', () => {
     const { server, configs, logger, rateLimiter, whmcs } = harness();
     registerListTools(server as any, whmcs, logger, rateLimiter);
     const cfg = configs.list_client_services;
     expect(cfg.outputSchema).toBeDefined();
-    const shape = cfg.outputSchema as Record<string, unknown>;
-    // zod raw shape: each value is a ZodType (has a `_def`).
+    // Passthrough ZodObject (so strict MCP runtimes accept the
+    // client-side status-filter envelope metadata) — inspect its .shape.
+    const shape = (cfg.outputSchema as { shape: Record<string, unknown> })
+      .shape;
     for (const k of ['items', 'total', 'count', 'offset', 'limit', 'consumer', 'contract']) {
       expect(shape[k]).toBeDefined();
       expect((shape[k] as { _def?: unknown })._def).toBeDefined();
     }
-    // Same stable shape reused across every factory tool.
+    // Single shared schema instance reused across every factory tool.
     expect(configs.get_activity_log.outputSchema).toBe(cfg.outputSchema);
   });
 

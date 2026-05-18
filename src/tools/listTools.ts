@@ -95,6 +95,15 @@ export const LIST_TOOL_OUTPUT_SHAPE = {
 } as const;
 
 /**
+ * Single shared PASSTHROUGH ZodObject. list_client_domains adds client-side
+ * status-filter envelope metadata not in the base shape; strict MCP runtimes
+ * (Kilo) reject extra keys with -32602 unless additionalProperties is allowed.
+ */
+export const LIST_TOOL_OUTPUT_SCHEMA = z
+  .object(LIST_TOOL_OUTPUT_SHAPE)
+  .catchall(z.unknown());
+
+/**
  * Extract the row array out of one WHMCS list response for a given
  * container path, tolerating every WHMCS quirk (flat array, numeric-keyed
  * object, single-object, empty object, `{singular: [...]}` wrapper) via the
@@ -469,7 +478,7 @@ export function registerListTool<T>(
     {
       description: c.description,
       inputSchema: { ...schema.shape, ...AUTH_SHAPE },
-      outputSchema: LIST_TOOL_OUTPUT_SHAPE,
+      outputSchema: LIST_TOOL_OUTPUT_SCHEMA,
       annotations: { ...READ_ONLY_ANNOTATIONS },
     },
     handler

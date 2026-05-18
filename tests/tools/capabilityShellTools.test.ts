@@ -89,12 +89,14 @@ describe('registerCapabilityShellTools', () => {
     const { configs } = harness();
     const cfg = configs.list_users;
     expect(cfg.outputSchema).toBeDefined();
-    const shape = cfg.outputSchema as Record<string, { _def?: unknown }>;
+    // outputSchema is a passthrough ZodObject — inspect its .shape.
+    const shape = (cfg.outputSchema as z.ZodObject<z.ZodRawShape>)
+      .shape as Record<string, { _def?: unknown }>;
     for (const k of ['capability_unavailable', 'action', 'status', 'note']) {
       expect(shape[k]).toBeDefined();
       expect(shape[k]._def).toBeDefined();
     }
-    // Same stable shape reused across all shells.
+    // Single shared schema instance reused across all shells.
     expect(configs.get_stats.outputSchema).toBe(cfg.outputSchema);
   });
 
@@ -144,6 +146,15 @@ describe('registerCapabilityShellTools', () => {
 
 import { z } from 'zod';
 import { hashToken } from '../../src/governance/consumers.js';
+
+// Registered outputSchema is now a passthrough ZodObject (heterogeneous
+// shell payloads) — use as-is if built, else wrap a raw shape.
+const asSchema = (os: unknown): z.ZodType =>
+  os !== null &&
+  typeof os === 'object' &&
+  (os as { _def?: unknown })._def !== undefined
+    ? (os as z.ZodType)
+    : z.object(os as z.ZodRawShape);
 
 interface ToolResult {
   content: { type: string; text: string }[];
@@ -285,7 +296,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
       read.mockResolvedValue(wrap([{ id: 1, userid: 7 }]));
       const res = (await handlers[tool]({ clientid: 7 })) as ToolResult;
       const p = JSON.parse(res.content[0].text);
-      const schema = z.object(configs[tool].outputSchema as z.ZodRawShape);
+      const schema = asSchema(configs[tool].outputSchema);
       expect(schema.safeParse(p).success).toBe(true);
     });
   }
@@ -337,7 +348,7 @@ describe('get_stats (single) — governance OFF (legacy compat)', () => {
     read.mockResolvedValue({ income_today: '1.00' });
     const res = (await handlers.get_stats({})) as ToolResult;
     const p = JSON.parse(res.content[0].text);
-    const schema = z.object(configs.get_stats.outputSchema as z.ZodRawShape);
+    const schema = asSchema(configs.get_stats.outputSchema);
     expect(schema.safeParse(p).success).toBe(true);
   });
 });
@@ -523,7 +534,7 @@ describe('Phase H promoted tools — governance ON (contract projection + denial
       const { handlers, configs, read } = await governedHarness();
       read.mockResolvedValue(wrap([{ id: 1, userid: 7 }]));
       const res = await handlers[tool]({ clientid: 7, auth_token: TOKEN_OPS });
-      const schema = z.object(configs[tool].outputSchema as z.ZodRawShape);
+      const schema = asSchema(configs[tool].outputSchema);
       expect(schema.safeParse(JSON.parse(res.content[0].text)).success).toBe(true);
       // The consumer_denied error envelope must validate too.
       const denied = await handlers[tool]({ clientid: 7, auth_token: 'nope' });

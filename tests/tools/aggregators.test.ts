@@ -14,6 +14,16 @@ import * as cap from '../../src/governance/capabilities.js';
 // SYNTHETIC reconciliation fixtures (no real WHMCS data/PII/secrets).
 import whmcs9Fixtures from '../fixtures/whmcs9-transactions.json';
 
+// A registered outputSchema is now either a raw Zod shape OR an
+// already-built passthrough ZodObject (heterogeneous tools). Use the
+// schema as-is if built, else wrap the raw shape.
+const asSchema = (os: unknown): z.ZodType =>
+  os !== null &&
+  typeof os === 'object' &&
+  (os as { _def?: unknown })._def !== undefined
+    ? (os as z.ZodType)
+    : z.object(os as z.ZodRawShape);
+
 function harness(readImpl: (action: string, params: any) => any) {
   const handlers: Record<string, any> = {};
   const configs: Record<string, any> = {};
@@ -937,14 +947,14 @@ describe('aggregators — app-usable outputSchema contract', () => {
     'get_risk_snapshot',
   ];
 
-  it('every aggregator advertises a machine-readable outputSchema (z.ZodRawShape)', () => {
+  it('every aggregator advertises a machine-readable, usable outputSchema', () => {
     const { configs } = harness(() => ({}));
     for (const name of AGGREGATORS) {
       expect(configs[name], `${name} registered`).toBeDefined();
       const os = configs[name].outputSchema;
       expect(os, `${name} has outputSchema`).toBeDefined();
-      // It must be usable as a zod object (z.ZodRawShape).
-      expect(() => z.object(os)).not.toThrow();
+      // Must be a usable schema (passthrough ZodObject post-fix).
+      expect(asSchema(os).safeParse({}).success).toBe(true);
     }
   });
 
@@ -954,7 +964,7 @@ describe('aggregators — app-usable outputSchema contract', () => {
         return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
       return {};
     });
-    const schema = z.object(configs.get_reconciliation_snapshot.outputSchema);
+    const schema = asSchema(configs.get_reconciliation_snapshot.outputSchema);
     // Synthetic legacy payloads covering the heterogeneous shapes.
     const legacySamples: Record<string, unknown>[] = [
       {
@@ -990,7 +1000,7 @@ describe('aggregators — app-usable outputSchema contract', () => {
   it('the same outputSchema validates a GOVERNED envelope {entity,consumer,contract,data}', () => {
     const { configs } = harness(() => ({}));
     for (const name of AGGREGATORS) {
-      const schema = z.object(configs[name].outputSchema);
+      const schema = asSchema(configs[name].outputSchema);
       const governed = {
         entity: 'activity',
         consumer: 'billing_app',
@@ -1023,7 +1033,7 @@ describe('aggregators — app-usable outputSchema contract', () => {
     expect(p.source_service_ids).toEqual([545]);
     expect(Array.isArray(p.partial_errors)).toBe(true);
     // And the advertised schema accepts the unchanged runtime payload.
-    const schema = z.object(configs.get_provisioning_snapshot.outputSchema);
+    const schema = asSchema(configs.get_provisioning_snapshot.outputSchema);
     expect(schema.safeParse(p).success).toBe(true);
   });
 

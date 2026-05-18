@@ -26,6 +26,7 @@ vi.mock('../../src/security.js', () => ({
 }));
 
 import { z } from 'zod';
+import { Ajv } from 'ajv';
 import { registerListTools } from '../../src/tools/listTools.js';
 import { registerClientTools } from '../../src/tools/clients.js';
 import { registerAggregatorTools } from '../../src/tools/aggregators.js';
@@ -74,6 +75,16 @@ function argsFor(name: string): Record<string, unknown> {
   return { clientid: 30, limit: 25, offset: 0 };
 }
 
+// outputSchema may be a raw Zod shape OR an already-built ZodObject
+// (passthrough tools). Normalize for lenient structural parsing.
+function asZodSchema(os: unknown): z.ZodType {
+  return os !== null &&
+    typeof os === 'object' &&
+    (os as { _def?: unknown })._def !== undefined
+    ? (os as z.ZodType)
+    : z.object(os as z.ZodRawShape);
+}
+
 describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', () => {
   it('every registered read tool with an outputSchema returns schema-valid structuredContent', async () => {
     const h = harness();
@@ -105,8 +116,9 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
         failures.push(`${name}: no structuredContent (MCP outputSchema violation)`);
         continue;
       }
-      const schema = z.object(h.configs[name].outputSchema as z.ZodRawShape);
-      const parsed = schema.safeParse(res.structuredContent);
+      const parsed = asZodSchema(h.configs[name].outputSchema).safeParse(
+        res.structuredContent
+      );
       if (!parsed.success) {
         failures.push(
           `${name}: structuredContent fails its own outputSchema — ${parsed.error.issues
@@ -135,13 +147,117 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
         res?.structuredContent,
         `${name} must return structuredContent (RCA #4)`
       ).not.toBeUndefined();
-      const parsed = z
-        .object(cfg.outputSchema as z.ZodRawShape)
-        .safeParse(res.structuredContent);
+      const parsed = asZodSchema(cfg.outputSchema).safeParse(
+        res.structuredContent
+      );
       expect(
         parsed.success,
         `${name} structuredContent must validate its outputSchema`
       ).toBe(true);
     }
+  });
+});
+
+/**
+ * STRICT-RUNTIME fidelity guard (the REAL recurrence prevention).
+ *
+ * The lenient sweep above uses `z.object(shape).safeParse()`, which STRIPS
+ * unknown keys — it passed even though strict MCP runtimes (Kilo) reject
+ * extras with -32602 "must NOT have additional properties". Reproducing the
+ * SDK's Zod→JSON-Schema conversion by hand is version-fragile (Zod v4 routes
+ * through a different path than the vendored v3 converter). The only faithful
+ * source of truth is the JSON Schema a REAL SDK `McpServer` advertises in
+ * `tools/list` — exactly what Kilo validates against. This guard registers
+ * the read tools on a real McpServer, takes that authoritative schema, and
+ * ajv-validates real handler `structuredContent` (governance OFF) against it.
+ *
+ * Self-check: a raw-shape outputSchema advertises `additionalProperties:false`
+ * (strict) while a passthrough ZodObject advertises a permissive schema —
+ * so this guard provably DETECTS the regression class (pre-fix the
+ * aggregator/list schemas were strict-`false` and rejected; post-fix they
+ * are passthrough and accept their heterogeneous gov-OFF payloads).
+ */
+describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)', () => {
+  const ajv = new Ajv({ strict: false, allErrors: true });
+
+  it('every registered read tool: structuredContent passes the AUTHORITATIVE tools/list schema (governance OFF)', async () => {
+    // 1. Authoritative schemas from a REAL McpServer's tools/list.
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const mcp = new McpServer({ name: 'compliance', version: '1.0.0' });
+    const m = harness();
+    for (const reg of [
+      registerListTools, registerClientTools, registerAggregatorTools,
+      registerCapabilityShellTools, registerSupportTools, registerBillingTools,
+      registerDomainTools, registerOrderTools, registerServiceTools,
+    ]) {
+      try {
+        reg(mcp as any, m.whmcs, m.logger, m.rl);
+      } catch {
+        /* a group that also registers write tools via the older server.tool()
+           signature may partially throw; read tools registered before the
+           throw are still advertised — the sprint-critical groups
+           (list/aggregator/support) register cleanly. */
+      }
+    }
+    const listHandler = (mcp as any).server._requestHandlers.get('tools/list');
+    const listed = await listHandler({ method: 'tools/list', params: {} }, {});
+    const schemaByName = new Map<string, object>();
+    for (const t of listed.tools as { name: string; outputSchema?: object }[]) {
+      if (t.outputSchema) schemaByName.set(t.name, t.outputSchema);
+    }
+    expect(schemaByName.size).toBeGreaterThan(10);
+
+    // Self-check: the mechanism really distinguishes strict vs permissive.
+    const agg = schemaByName.get('get_billing_snapshot') as
+      | { additionalProperties?: unknown }
+      | undefined;
+    expect(
+      agg && agg.additionalProperties !== false,
+      'get_billing_snapshot outputSchema must permit additional properties (RCA: strict-false caused -32602)'
+    ).toBe(true);
+
+    // 2. Real handler structuredContent, validated against that schema.
+    const h = harness();
+    registerListTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerClientTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerAggregatorTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerCapabilityShellTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerSupportTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerBillingTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
+    registerServiceTools(h.server as any, h.whmcs, h.logger, h.rl);
+
+    const names = Object.keys(h.handlers).filter((n) => schemaByName.has(n));
+    const cases: [string, Record<string, unknown>][] = names.map((n) => [n, argsFor(n)]);
+    // list_client_domains + status exercises the Track B client-side-filter
+    // envelope metadata that strict runtimes previously rejected.
+    cases.push(['list_client_domains', { clientid: 30, status: 'Active', limit: 25, offset: 0 }]);
+
+    const failures: string[] = [];
+    for (const [name, args] of cases) {
+      let res: any;
+      try {
+        res = await h.handlers[name](args);
+      } catch (e) {
+        failures.push(`${name}: handler threw ${(e as Error).message}`);
+        continue;
+      }
+      if (res?.structuredContent === undefined) {
+        failures.push(`${name}: no structuredContent`);
+        continue;
+      }
+      const validate = ajv.compile(schemaByName.get(name) as object);
+      if (!validate(res.structuredContent)) {
+        const argTag = args.status ? ` [status=${String(args.status)}]` : '';
+        failures.push(
+          `${name}${argTag}: strict-runtime REJECT — ${(validate.errors ?? [])
+            .slice(0, 4)
+            .map((e) => `${e.instancePath || '/'} ${e.keyword} ${e.message}`)
+            .join('; ')}`
+        );
+      }
+    }
+    expect(failures, `\n${failures.join('\n')}\n`).toEqual([]);
   });
 });
