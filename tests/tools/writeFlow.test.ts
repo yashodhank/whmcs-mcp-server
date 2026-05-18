@@ -26,14 +26,15 @@ import { registerWriteFlowTools } from '../../src/tools/writeFlow.js';
 interface Res { content: { text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }
 function harness() {
   const handlers: Record<string, (a: Record<string, unknown>) => Res> = {};
-  const server = { registerTool: (n: string, _c: unknown, cb: unknown) => { handlers[n] = cb as never; } };
+  const configs: Record<string, { outputSchema?: Record<string, unknown> }> = {};
+  const server = { registerTool: (n: string, c: unknown, cb: unknown) => { configs[n] = c as never; handlers[n] = cb as never; } };
   const childLogger = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
   const logger = { child: () => childLogger };
   const rl = { tryConsume: () => true };
   const mutate = vi.fn();
   const read = vi.fn();
   registerWriteFlowTools(server as never, { mutate, read } as never, logger as never, rl as never);
-  return { handlers, mutate, read };
+  return { handlers, configs, mutate, read };
 }
 const tok = (id: string) => ({ auth_token: RAW(id) });
 const J = (r: Res) => JSON.parse(r.content[0].text) as Record<string, unknown>;
@@ -44,6 +45,18 @@ describe('Phase F write-flow tools (read-only posture)', () => {
     expect(Object.keys(handlers).sort()).toEqual(
       ['approve_write_intent', 'draft_write_intent', 'execute_write_intent', 'get_write_intent', 'validate_write_intent'].sort()
     );
+  });
+
+  it('get_write_intent declares an outputSchema exposing intent + audit (regression: SDK must not drop audit)', () => {
+    const { configs } = harness();
+    const gi = configs.get_write_intent.outputSchema ?? {};
+    expect(gi.intent).toBeDefined();
+    expect(gi.audit).toBeDefined();
+    // flow tools keep the result schema (no audit; has executed/would_call)
+    const df = configs.draft_write_intent.outputSchema ?? {};
+    expect(df.executed).toBeDefined();
+    expect(df.would_call).toBeDefined();
+    expect(df.audit).toBeUndefined();
   });
 
   it('unknown consumer is denied at draft (no intent)', () => {

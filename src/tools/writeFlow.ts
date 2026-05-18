@@ -114,6 +114,12 @@ function toToolResult(
   };
 }
 
+/** Output schema for get_write_intent (intent + append-only audit trail). */
+const INTENT_VIEW_OUTPUT_SHAPE = {
+  intent: z.record(z.string(), z.unknown()),
+  audit: z.array(z.record(z.string(), z.unknown())),
+} as const;
+
 type Handler = ToolCallback<z.ZodRawShape>;
 
 function register(
@@ -123,7 +129,8 @@ function register(
   inputShape: z.ZodRawShape,
   logger: Logger,
   rl: RateLimiter,
-  run: (params: Record<string, unknown>) => Record<string, unknown> | ReturnType<typeof err>
+  run: (params: Record<string, unknown>) => Record<string, unknown> | ReturnType<typeof err>,
+  outputShape: z.ZodRawShape = RESULT_OUTPUT_SHAPE
 ): void {
   if (!isToolAllowed(name)) return;
   const handler: Handler = ((params: Record<string, unknown>) => {
@@ -146,7 +153,7 @@ function register(
     {
       description,
       inputSchema: { ...inputShape, ...AUTH_SHAPE },
-      outputSchema: RESULT_OUTPUT_SHAPE,
+      outputSchema: outputShape,
       annotations: WRITE_FLOW_ANNOTATIONS,
     },
     handler
@@ -346,6 +353,7 @@ export function registerWriteFlowTools(
         intent,
         audit: audit.forIntent(intent.intent_id),
       });
-    }
+    },
+    INTENT_VIEW_OUTPUT_SHAPE
   );
 }
