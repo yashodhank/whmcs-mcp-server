@@ -34,6 +34,31 @@
 //   classification-INFERENCE on key names and annotate the report
 //   `classmap_source: 'inferred (classmap unavailable from tool output)'`.
 //
+// COVERAGE (synthetic example consumers → contracts)
+//   llm_chat            → llm_safe_summary
+//   ops_operator        → ops_operator
+//   billing_dashboard   → billing_reconciliation
+//   renewal_worker      → renewal_automation
+//   support_console     → support_triage
+//   admin_full_trusted  → admin_full_trusted
+//
+// COVERAGE (governed tools / workflows this harness knows args for)
+//   Base reads:   get_client_details, list_client_invoices,
+//                 list_client_domains, list_client_services,
+//                 get_ticket_thread
+//   Aggregators:  get_account_360, get_billing_snapshot,
+//                 get_reconciliation_snapshot, get_support_snapshot,
+//                 get_renewal_snapshot                  (args: { clientid })
+//   Promoted:     list_client_transactions, get_todo_items,
+//                 get_automation_log  (args: { clientid, limit }),
+//                 get_stats                              (args: {})
+//   Any other tool falls back to { clientid: 1 }; pass JSON argv[4+] to
+//   override. All ids are SYNTHETIC examples only.
+//
+//   To sweep EVERY consumer × tool in one run, use the companion runner
+//   scripts/mcp-exposure-audit-all.mjs (still redacted-only on stdout;
+//   raw artifacts only to ./.audit-local/ and only in mode 3).
+//
 // SAFETY
 //   - Read-only: governance ON, MCP_MODE=read_only, no writes.
 //   - stdout is ALWAYS the REDACTED report (no raw values, ever).
@@ -42,13 +67,15 @@
 //
 // HOW TO RUN
 //   Dev (synthetic), redacted report to stdout:
-//     MCP_ENV=local node scripts/mcp-exposure-audit.mjs llm_chat get_client_details
+//     MCP_ENV=local node scripts/mcp-exposure-audit.mjs llm_chat get_account_360
 //   Local operator, raw artifact to ./.audit-local/ (synthetic only):
 //     MCP_ENV=local AUDIT_LOCAL_VALUES=1 \
-//       node scripts/mcp-exposure-audit.mjs ops_operator get_client_details
+//       node scripts/mcp-exposure-audit.mjs admin_full_trusted get_stats
 //   Production read (paths + classification ONLY, never values):
 //     MCP_ENV=production MCP_MODE=read_only \
 //       node scripts/mcp-exposure-audit.mjs llm_chat get_client_details
+//   Sweep all consumers × all known tools (redacted-only stdout):
+//     MCP_ENV=local node scripts/mcp-exposure-audit-all.mjs
 //
 //   Server must be BUILT first (npm run build) — this drives dist/index.js.
 
@@ -83,6 +110,7 @@ const CONSUMERS = {
   billing_dashboard: 'billing_reconciliation',
   renewal_worker: 'renewal_automation',
   support_console: 'support_triage',
+  admin_full_trusted: 'admin_full_trusted',
 };
 const REGISTRY = JSON.stringify(
   Object.entries(CONSUMERS).map(([id, dc]) => entry(id, dc))
@@ -124,6 +152,16 @@ const POLICIES = {
     'system.audit': 'allow', 'public.safe': 'allow',
   },
   support_triage: {
+    'business.identifier': 'allow', 'financial.amount': 'allow',
+    'financial.reference': 'allow', 'pii.name': 'allow', 'pii.email': 'allow',
+    'pii.phone': 'allow', 'pii.address': 'allow', 'pii.tax': 'allow',
+    'pii.custom_field': 'allow', 'secret.credential': 'drop',
+    'untrusted.free_text': 'allow', 'internal.private_note': 'allow',
+    'system.audit': 'allow', 'public.safe': 'allow',
+  },
+  // Mirrors governance/contracts.ts ADMIN_FULL_TRUSTED exactly: everything
+  // 'allow' except secret.credential 'drop'.
+  admin_full_trusted: {
     'business.identifier': 'allow', 'financial.amount': 'allow',
     'financial.reference': 'allow', 'pii.name': 'allow', 'pii.email': 'allow',
     'pii.phone': 'allow', 'pii.address': 'allow', 'pii.tax': 'allow',
@@ -216,14 +254,25 @@ async function main() {
   }
   const policy = POLICIES[contract];
 
-  // Default tool args by tool name (small, read-only, synthetic ids).
+  // Default tool args by tool name (small, read-only, SYNTHETIC ids only).
   const defaultArgs = {
+    // base read tools
     get_client_details: { clientid: 1 },
     list_client_invoices: { clientid: 1, limit: 3 },
     list_client_domains: { clientid: 1, limit: 3 },
     list_client_services: { clientid: 1, limit: 3 },
     get_ticket_thread: { ticketid: 1 },
+    // aggregators / snapshot workflows — take { clientid }
     get_account_360: { clientid: 1, recent: 3 },
+    get_billing_snapshot: { clientid: 1 },
+    get_reconciliation_snapshot: { clientid: 1 },
+    get_support_snapshot: { clientid: 1 },
+    get_renewal_snapshot: { clientid: 1 },
+    // promoted tools — take { clientid, limit } or {} (get_stats)
+    list_client_transactions: { clientid: 1, limit: 3 },
+    get_stats: {},
+    get_todo_items: { clientid: 1, limit: 3 },
+    get_automation_log: { clientid: 1, limit: 3 },
   };
   let toolArgs = defaultArgs[tool] ?? { clientid: 1 };
   if (restArgs.length > 0) {
