@@ -15,6 +15,12 @@ import { isToolAllowed } from '../config.js';
 import { ensureToolAuth, isClientMode, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
 import { formatTicketThread } from '../whmcs/ticketThread.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+import {
+  applyGovernanceOrLegacy,
+  governedToolResult,
+  governanceEnabled,
+} from '../governance/pipeline.js';
+import { mapToCanonicalTicket } from '../canonical/index.js';
 
 /**
  * Register the read-only `get_ticket_thread` tool on the MCP server.
@@ -31,6 +37,10 @@ export function registerTicketThreadTool(
 
   const schema = z.object({
     ticketid: z.number().int().positive(),
+    contract: z
+      .string()
+      .optional()
+      .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
   });
 
   // The shared `ensure*` helpers return a local `McpToolResponse` type that
@@ -42,6 +52,13 @@ export function registerTicketThreadTool(
     const log = logger.child();
     const t0 = Date.now();
     try {
+      // Capture the bearer token before ensureToolAuth strips it.
+      const pview = params as Record<string, unknown>;
+      const authToken =
+        typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+      const requestedContract =
+        typeof pview.contract === 'string' ? pview.contract : undefined;
+
       const authErr = ensureToolAuth(params as Record<string, unknown>);
       if (authErr) return authErr;
 
@@ -75,14 +92,16 @@ export function registerTicketThreadTool(
 
       log.logToolResult('get_ticket_thread', true, Date.now() - t0);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(payload),
-          },
-        ],
-      };
+      return applyGovernanceOrLegacy({
+        enabled: governanceEnabled(),
+        legacy: payload,
+        govern: () =>
+          governedToolResult({
+            canonical: mapToCanonicalTicket(ticket),
+            authToken,
+            requestedContract,
+          }),
+      });
     } catch (e) {
       log.logToolResult(
         'get_ticket_thread',
