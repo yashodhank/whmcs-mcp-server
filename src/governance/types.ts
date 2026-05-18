@@ -122,6 +122,10 @@ export const WRITE_CAPABILITIES = [
   'draft_only',
   'approval_required',
   'disabled',
+  // Phase F (additive): a consumer explicitly cleared for gated execution.
+  // Still inert unless runtime execution authorization is also present —
+  // never grants live production mutation by itself.
+  'execution_allowed',
 ] as const;
 
 export type WriteCapability = (typeof WRITE_CAPABILITIES)[number];
