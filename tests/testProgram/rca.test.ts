@@ -130,4 +130,70 @@ describe('testProgram rca', () => {
     expect(l0).toEqual({ layer: 'L0', total: 1, failed: 0, passRatePct: 100 });
     expect(l2).toEqual({ layer: 'L2', total: 2, failed: 1, passRatePct: 50 });
   });
+
+  it('classifies a consumer_denied / no_token outcome as a P2 harness_config_error, not a P0/P1 product defect', () => {
+    const denied: TestFinding = {
+      ...base,
+      testId: 'L1-CONNECT-001',
+      suite: 'connectivity-auth',
+      layer: 'L1',
+      passed: false,
+      expected: 'tool call succeeds with structured payload',
+      actual: "consumer denied: no_token",
+      host: 'kilo',
+      mode: 'admin',
+      failureKind: 'harness_config_error',
+    };
+    // A blanket governance denial is a harness misconfiguration, NOT a
+    // product P0/P1 — it must be P2 so it never inflates defect severity.
+    expect(severityForFinding(denied)).toBe('P2');
+
+    const ledger = buildDefectLedger([denied]);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.severity).toBe('P2');
+    expect(ledger[0]?.defectId).toBe('DEF-HARNESS_CONFIG_ERROR');
+    expect(ledger[0]?.title).toMatch(/harness|config/i);
+    expect(ledger[0]?.recommendation).toMatch(/token|registry|consumer|governance/i);
+  });
+
+  it('classifies an inert / advertised-but-unapplied filter as filter_correctness (P1), NOT pagination_drift', () => {
+    const inertFilter: TestFinding = {
+      ...base,
+      testId: 'L3-OPS-001',
+      suite: 'operator-reads',
+      layer: 'L3',
+      passed: false,
+      expected: 'all returned domain statuses are Active after defensive validation',
+      actual: 'status=Active filter advertised but inactive rows returned',
+      host: 'kilo',
+      mode: 'admin',
+      failureKind: 'filter_correctness',
+    };
+    expect(severityForFinding(inertFilter)).toBe('P1');
+    const ledger = buildDefectLedger([inertFilter]);
+    expect(ledger[0]?.defectId).toBe('DEF-FILTER_CORRECTNESS');
+    expect(ledger[0]?.severity).toBe('P1');
+    expect(ledger[0]?.title).toMatch(/filter/i);
+    // Must NOT be misattributed to pagination drift.
+    expect(ledger[0]?.defectId).not.toBe('DEF-PAGINATION_DRIFT');
+  });
+
+  it('keeps pagination_drift strictly for incoherent count/total/offset/limit metadata', () => {
+    const drift: TestFinding = {
+      ...base,
+      testId: 'L5-PAGINATION-001',
+      suite: 'pagination-boundary',
+      layer: 'L5',
+      passed: false,
+      expected: 'metadata counters are coherent with returned item count',
+      actual: 'count=10 but items.length=3 (incoherent)',
+      host: 'kilo',
+      mode: 'admin',
+      failureKind: 'pagination_drift',
+    };
+    expect(severityForFinding(drift)).toBe('P1');
+    const ledger = buildDefectLedger([drift]);
+    expect(ledger[0]?.defectId).toBe('DEF-PAGINATION_DRIFT');
+    expect(ledger[0]?.title).toMatch(/pagination/i);
+  });
 });

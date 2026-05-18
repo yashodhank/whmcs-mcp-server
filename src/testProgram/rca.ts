@@ -15,10 +15,12 @@ export interface TestFinding {
     | 'write_bypass'
     | 'auth_or_network'
     | 'pagination_drift'
+    | 'filter_correctness'
     | 'ordering_nondeterministic'
     | 'validation_error'
     | 'rate_limit_or_timeout'
     | 'observability_gap'
+    | 'harness_config_error'
     | 'unknown';
 }
 
@@ -39,10 +41,15 @@ const FAILURE_PRIORITY: Record<NonNullable<TestFinding['failureKind']>, Severity
   write_bypass: 'P0',
   auth_or_network: 'P1',
   pagination_drift: 'P1',
+  filter_correctness: 'P1',
   ordering_nondeterministic: 'P2',
   validation_error: 'P1',
   rate_limit_or_timeout: 'P1',
   observability_gap: 'P2',
+  // A consumer/no-token denial or a tool-name/registry mismatch is a harness
+  // misconfiguration, not a product defect — never P0/P1, so it can never
+  // inflate defect severity or be mislabeled auth_or_network/pagination_drift.
+  harness_config_error: 'P2',
   unknown: 'P2',
 };
 
@@ -67,6 +74,8 @@ function titleFor(kind: NonNullable<TestFinding['failureKind']>): string {
       return 'Authentication/network diagnostics gap';
     case 'pagination_drift':
       return 'Pagination metadata inconsistency';
+    case 'filter_correctness':
+      return 'Advertised filter not applied (inert filter)';
     case 'ordering_nondeterministic':
       return 'Non-deterministic ordering across runs';
     case 'validation_error':
@@ -75,6 +84,8 @@ function titleFor(kind: NonNullable<TestFinding['failureKind']>): string {
       return 'Resilience weakness under stress';
     case 'observability_gap':
       return 'Operator observability/logging gap';
+    case 'harness_config_error':
+      return 'Test harness configuration error (not a product defect)';
     default:
       return 'Unclassified behavioral defect';
   }
@@ -92,6 +103,8 @@ function hypothesisFor(kind: NonNullable<TestFinding['failureKind']>): string {
       return 'Transport/auth failures are collapsed into ambiguous errors without deterministic taxonomy.';
     case 'pagination_drift':
       return 'Pagination counters are computed from different source windows or post-filter steps.';
+    case 'filter_correctness':
+      return 'A filter parameter is accepted/advertised but not applied to the result set (inert filter), so out-of-scope rows are returned.';
     case 'ordering_nondeterministic':
       return 'Sort key is unstable or not fully deterministic across equal timestamps.';
     case 'validation_error':
@@ -100,6 +113,8 @@ function hypothesisFor(kind: NonNullable<TestFinding['failureKind']>): string {
       return 'Retry/backoff policy and timeout boundaries are missing or unsafe under burst load.';
     case 'observability_gap':
       return 'Error context lacks correlation identifiers and stage-aware diagnostics.';
+    case 'harness_config_error':
+      return 'The harness invoked the server with governance ON but no consumer token/registry (blanket no_token/consumer_denied), or referenced a tool name absent from the live registry — a harness setup fault, not server behavior.';
     default:
       return 'Failure does not map to current taxonomy and requires triage expansion.';
   }
@@ -117,6 +132,8 @@ function recommendationFor(kind: NonNullable<TestFinding['failureKind']>): strin
       return 'Adopt deterministic auth/network error taxonomy with actionable operator messages.';
     case 'pagination_drift':
       return 'Compute total/count/offset/limit from one canonical view after filtering and before projection.';
+    case 'filter_correctness':
+      return 'Apply every accepted filter to the result set (or reject it), and add a golden test asserting no out-of-scope rows are returned.';
     case 'ordering_nondeterministic':
       return 'Add tie-breaker sort keys and page-boundary golden tests.';
     case 'validation_error':
@@ -125,6 +142,8 @@ function recommendationFor(kind: NonNullable<TestFinding['failureKind']>): strin
       return 'Add bounded retries for transient failures with explicit no-retry list for deterministic errors.';
     case 'observability_gap':
       return 'Emit correlation id, phase, and failure kind in every structured error.';
+    case 'harness_config_error':
+      return 'Fix the harness: supply a synthetic consumer token + MCP_CONSUMER_REGISTRY when governance is ON, validate tool names against the live tools/list, and exclude this from product defect severity.';
     default:
       return 'Expand taxonomy and add a regression test for this new defect class.';
   }
