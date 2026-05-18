@@ -27,6 +27,7 @@ import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
 // Resource registrations
 import { registerResources } from './resources/index.js';
 import { registerPlaybookResource } from './playbook/whmcsOpsPlaybook.js';
+import { registerCompat9xResource } from './resources/compat9x.js';
 
 /**
  * Main server initialization
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
   logger.info('Registering MCP resources...');
   registerResources(server, whmcsClient, logger, rateLimiter);
   registerPlaybookResource(server, logger);
+  registerCompat9xResource(server, logger);
   
   // Connect with stdio transport
   const transport = new StdioServerTransport();
