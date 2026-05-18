@@ -55,6 +55,34 @@ describe('errors', () => {
       const safe = 'Client 123 not found';
       expect(sanitizeErrorMessage(safe)).toBe(safe);
     });
+
+    it('should redact the WHMCS accesskey query parameter', () => {
+      const sensitive = 'Request failed: accesskey=AbC123xyz returned 500';
+      const sanitized = sanitizeErrorMessage(sensitive);
+      expect(sanitized).not.toContain('AbC123xyz');
+      expect(sanitized).toContain('[REDACTED]');
+    });
+
+    it('should redact JSON-style credential fields', () => {
+      const sensitive =
+        'WHMCS error body: {"secret":"sk_live_9f8e7d","identifier":"id_4242","password":"hunter2"}';
+      const sanitized = sanitizeErrorMessage(sensitive);
+      expect(sanitized).not.toContain('sk_live_9f8e7d');
+      expect(sanitized).not.toContain('id_4242');
+      expect(sanitized).not.toContain('hunter2');
+      expect(sanitized).toContain('[REDACTED]');
+    });
+
+    it('should redact Authorization Bearer and Basic headers', () => {
+      const bearer = sanitizeErrorMessage(
+        'connect failed (Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig)'
+      );
+      expect(bearer).not.toContain('eyJhbGciOiJIUzI1NiJ9.payload.sig');
+      expect(bearer).toContain('[REDACTED]');
+      const basic = sanitizeErrorMessage('header Authorization: Basic dXNlcjpwYXNz then EOF');
+      expect(basic).not.toContain('dXNlcjpwYXNz');
+      expect(basic).toContain('[REDACTED]');
+    });
   });
   
   describe('ERROR_CODES', () => {
