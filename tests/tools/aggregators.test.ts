@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { z } from 'zod';
 import { hashToken } from '../../src/governance/consumers.js';
 vi.mock('../../src/config.js', () => ({ config: { MCP_MAX_PAGE_SIZE: 100 }, isToolAllowed: () => true }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {}, ensureToolAuth: () => null, isClientMode: () => false, ensureClientAllowed: () => null }));
@@ -6,13 +7,14 @@ import { registerAggregatorTools } from '../../src/tools/aggregators.js';
 
 function harness(readImpl: (action: string, params: any) => any) {
   const handlers: Record<string, any> = {};
-  const server = { registerTool: (n: string, _c: unknown, cb: any) => { handlers[n] = cb; } };
+  const configs: Record<string, any> = {};
+  const server = { registerTool: (n: string, c: any, cb: any) => { configs[n] = c; handlers[n] = cb; } };
   const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
   const logger: any = { child: () => childLogger };
   const rateLimiter: any = { tryConsume: () => true };
   const whmcs: any = { read: vi.fn(readImpl) };
   registerAggregatorTools(server as any, whmcs, logger, rateLimiter);
-  return { handlers, whmcs };
+  return { handlers, configs, whmcs };
 }
 
 describe('get_account_360', () => {
@@ -543,5 +545,129 @@ describe('Phase D aggregators — consistency contract (regression)', () => {
     expect(Array.isArray(p.suspended_services)).toBe(true);
     expect(Array.isArray(p.partial_errors)).toBe(true);
     expect(p.partial_errors).toEqual([]);
+  });
+});
+
+describe('aggregators — app-usable outputSchema contract', () => {
+  const AGGREGATORS = [
+    'get_account_360',
+    'get_billing_snapshot',
+    'get_support_snapshot',
+    'get_renewal_snapshot',
+    'get_activity_timeline',
+    'get_reconciliation_snapshot',
+    'get_provisioning_snapshot',
+    'get_risk_snapshot',
+  ];
+
+  it('every aggregator advertises a machine-readable outputSchema (z.ZodRawShape)', () => {
+    const { configs } = harness(() => ({}));
+    for (const name of AGGREGATORS) {
+      expect(configs[name], `${name} registered`).toBeDefined();
+      const os = configs[name].outputSchema;
+      expect(os, `${name} has outputSchema`).toBeDefined();
+      // It must be usable as a zod object (z.ZodRawShape).
+      expect(() => z.object(os)).not.toThrow();
+    }
+  });
+
+  it('the outputSchema validates a LEGACY raw aggregate payload (governance OFF)', async () => {
+    const { configs, handlers } = harness((action: string) => {
+      if (action === 'GetInvoices')
+        return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
+      return {};
+    });
+    const schema = z.object(configs.get_reconciliation_snapshot.outputSchema);
+    // Synthetic legacy payloads covering the heterogeneous shapes.
+    const legacySamples: Record<string, unknown>[] = [
+      {
+        clientid: 30,
+        invoices: [{ invoiceid: 11, status: 'Unpaid' }],
+        source_invoice_ids: [11],
+        transactions: { capability_unavailable: true, action: 'GetTransactions', status: 'unverified', note: 'x' },
+        partial_errors: [{ section: 'invoices', error: 'boom' }],
+      },
+      {
+        window_days: 60,
+        horizon: '2026-07-17',
+        upcoming: [{ type: 'service', id: 1, due_date: '2026-06-01' }],
+        truncated: { services: true, domains: false },
+        partial_errors: [],
+      },
+      {
+        client: { clientid: 30, name: 'T U', email: 'e@x.test' },
+        counts: { services_active: 1 },
+        recent: { services: [], tickets: { items: [], discovery: 'best-effort' } },
+        partial_errors: [],
+      },
+    ];
+    for (const sample of legacySamples) {
+      expect(schema.safeParse(sample).success, JSON.stringify(sample)).toBe(true);
+    }
+    // It must also accept a real runtime legacy payload byte-for-byte.
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const real = JSON.parse(res.content[0].text);
+    expect(schema.safeParse(real).success).toBe(true);
+  });
+
+  it('the same outputSchema validates a GOVERNED envelope {entity,consumer,contract,data}', () => {
+    const { configs } = harness(() => ({}));
+    for (const name of AGGREGATORS) {
+      const schema = z.object(configs[name].outputSchema);
+      const governed = {
+        entity: 'activity',
+        consumer: 'billing_app',
+        contract: 'billing_reconciliation',
+        data: { clientid: 30, credit_balance: '29.51', partial_errors: [] },
+      };
+      expect(schema.safeParse(governed).success, name).toBe(true);
+      // Governed error envelope (consumer denied) must also validate.
+      const denied = { isError: true, error: 'consumer denied', status: 'consumer_denied' };
+      expect(schema.safeParse(denied).success, `${name} denied`).toBe(true);
+    }
+  });
+
+  it('outputSchema is additive: governance-OFF runtime payload is byte-identical and still schema-valid', async () => {
+    const { configs, handlers } = harness((action: string) => {
+      if (action === 'GetClientsProducts')
+        return { products: { product: [{ id: 545, name: 'Hosting', domain: 'd.test', status: 'Active', regdate: '2025-01-01', nextduedate: '2026-01-01' }] } };
+      if (action === 'GetOrders') return { orders: { order: [{ id: 7, status: 'Active', date: '2026-05-01' }] } };
+      return {};
+    });
+    const res = await handlers.get_provisioning_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    // Capability-gated section is still structured & consistent (unchanged).
+    expect(p.automation_log).toMatchObject({
+      capability_unavailable: true,
+      action: 'GetAutomationLog',
+      status: 'unverified',
+    });
+    expect(p.source_service_ids).toEqual([545]);
+    expect(Array.isArray(p.partial_errors)).toBe(true);
+    // And the advertised schema accepts the unchanged runtime payload.
+    const schema = z.object(configs.get_provisioning_snapshot.outputSchema);
+    expect(schema.safeParse(p).success).toBe(true);
+  });
+
+  it('capability-gated sections stay structured & consistent across both gated aggregators', async () => {
+    const { handlers } = harness(() => ({}));
+    const recon = JSON.parse(
+      (await handlers.get_reconciliation_snapshot({ clientid: 30 })).content[0].text
+    );
+    const prov = JSON.parse(
+      (await handlers.get_provisioning_snapshot({ clientid: 30 })).content[0].text
+    );
+    for (const sec of [recon.transactions, prov.automation_log]) {
+      expect(sec.capability_unavailable).toBe(true);
+      expect(typeof sec.action).toBe('string');
+      expect(sec.action.length).toBeGreaterThan(0);
+      expect(typeof sec.status).toBe('string');
+      expect(sec.status.length).toBeGreaterThan(0);
+    }
+    // Source-ID arrays + partial_errors present on both.
+    expect(Array.isArray(recon.source_invoice_ids)).toBe(true);
+    expect(Array.isArray(recon.partial_errors)).toBe(true);
+    expect(Array.isArray(prov.source_service_ids)).toBe(true);
+    expect(Array.isArray(prov.partial_errors)).toBe(true);
   });
 });

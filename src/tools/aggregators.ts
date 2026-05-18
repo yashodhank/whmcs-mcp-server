@@ -40,6 +40,69 @@ const TICKET_BEST_EFFORT = {
  */
 const RENEWAL_FETCH_LIMIT = 100;
 
+/**
+ * Stable, additive output schema shared by every read-only aggregator.
+ *
+ * Aggregators have NO single canonical entity: each composes many WHMCS
+ * reads into a heterogeneous nested summary. App consumers (dashboards /
+ * reconciliation) still need a machine-readable contract, so this shape
+ * describes BOTH runtime modes WITHOUT altering any payload:
+ *
+ *  - legacy (governance OFF): the raw aggregate object — `clientid` plus
+ *    various per-aggregator summary objects, a `partial_errors` array,
+ *    optional `truncated`, and capability-gated sections of the form
+ *    `{ capability_unavailable: true, action, status, note? }`.
+ *  - governed (governance ON): `{ entity, consumer, contract, data }`, or a
+ *    structured failure `{ isError, error, status }` when a consumer is
+ *    denied / the contract is env-forbidden.
+ *
+ * It is deliberately permissive: every key is optional and the small set of
+ * commonly-present keys is loosely typed (objects/arrays as opaque records),
+ * so a SINGLE shape validates accurately whether governance is on or off and
+ * across all eight aggregators. No field is masked or removed; extra
+ * per-aggregator keys are tolerated (Zod object raw-shapes ignore unknown
+ * keys by default — passthrough tolerance without over-constraining).
+ */
+const AGGREGATOR_OUTPUT_SHAPE = {
+  // Common legacy identifiers / metadata.
+  clientid: z.number().optional(),
+  count: z.number().optional(),
+  window_days: z.number().optional(),
+  horizon: z.string().optional(),
+  truncated: z.record(z.string(), z.unknown()).optional(),
+  // Fault-isolation: always an array of `{ section, error }`-ish records.
+  partial_errors: z.array(z.record(z.string(), z.unknown())).optional(),
+  // Capability-gated sections — structured, never faked, never thrown.
+  transactions: z.record(z.string(), z.unknown()).optional(),
+  automation_log: z.record(z.string(), z.unknown()).optional(),
+  // Heterogeneous per-aggregator summary blocks (opaque, never masked).
+  client: z.record(z.string(), z.unknown()).optional(),
+  counts: z.record(z.string(), z.unknown()).optional(),
+  recent: z.record(z.string(), z.unknown()).optional(),
+  risk: z.record(z.string(), z.unknown()).optional(),
+  // Common list-bearing summary keys + their source-ID arrays.
+  invoices: z.array(z.record(z.string(), z.unknown())).optional(),
+  services: z.array(z.record(z.string(), z.unknown())).optional(),
+  orders: z.array(z.record(z.string(), z.unknown())).optional(),
+  departments: z.array(z.record(z.string(), z.unknown())).optional(),
+  upcoming: z.array(z.record(z.string(), z.unknown())).optional(),
+  timeline: z.array(z.record(z.string(), z.unknown())).optional(),
+  overdue_invoices: z.array(z.record(z.string(), z.unknown())).optional(),
+  suspended_services: z.array(z.record(z.string(), z.unknown())).optional(),
+  source_invoice_ids: z.array(z.unknown()).optional(),
+  source_service_ids: z.array(z.unknown()).optional(),
+  // Governed envelope ({ entity, consumer, contract, data }) + structured
+  // failure ({ isError, error, status }). All optional so one shape
+  // validates governance ON and OFF.
+  entity: z.string().optional(),
+  consumer: z.string().optional(),
+  contract: z.string().optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  isError: z.boolean().optional(),
+  error: z.string().optional(),
+  status: z.string().optional(),
+} as const;
+
 interface PartialError {
   section: string;
   error: string;
@@ -230,6 +293,7 @@ function register(
     {
       description,
       inputSchema: { ...schema.shape, ...AUTH_SHAPE },
+      outputSchema: AGGREGATOR_OUTPUT_SHAPE,
       annotations: READ_ONLY_ANNOTATIONS,
     },
     handler
