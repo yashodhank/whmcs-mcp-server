@@ -9,6 +9,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import { AppConfig, McpMode, getWhmcsApiEndpoint } from '../config.js';
 import { Logger } from '../logging.js';
 import { normalizeWhmcsResponse, boolToWhmcs } from './normalizers.js';
+import { assertReadAction } from './actionPolicy.js';
 
 /**
  * WHMCS business-level error
@@ -346,6 +347,7 @@ export class WhmcsClient {
     action: string,
     params: Record<string, unknown> = {}
   ): Promise<T> {
+    assertReadAction(action);
     return this.call<T>(action, params, { isMutating: false });
   }
 
