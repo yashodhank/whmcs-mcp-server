@@ -77,6 +77,8 @@ const TOOLS = [
   'get_reconciliation_snapshot',
   'get_support_snapshot',
   'get_renewal_snapshot',
+  'get_activity_timeline',
+  'get_risk_snapshot',
   'list_client_transactions',
   'get_stats',
   'get_todo_items',

@@ -415,12 +415,16 @@ describe('Client read tools — governed path', () => {
     });
     const handlers = harness(read);
     const res = await handlers.search_clients({ search: 'jane', offset: 0, limit: 25 });
-    expect(res.structuredContent).toBeUndefined();
-    expect(JSON.parse(res.content[0].text)).toEqual({
+    const expected = {
       clients: [{ clientid: 7, firstname: 'Jane', lastname: 'Roe', email: 'jane@example.test', companyname: 'Acme' }],
       total: 1,
       offset: 0,
       limit: 25,
-    });
+    };
+    // content[0].text byte-identical legacy (zero behavior change) AND
+    // structuredContent mirrors it so strict MCP runtimes accept it against
+    // the declared outputSchema (RCA #4 / Phase H.1 Track G).
+    expect(JSON.parse(res.content[0].text)).toEqual(expected);
+    expect(res.structuredContent).toEqual(expected);
   });
 });

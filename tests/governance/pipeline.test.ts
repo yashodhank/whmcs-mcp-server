@@ -158,15 +158,28 @@ describe('applyGovernanceOrLegacy (backward-compat gate)', () => {
     structuredContent: { governed: true },
   };
 
-  it('governance OFF returns the legacy payload verbatim (no behavior change)', () => {
+  it('governance OFF: text is byte-identical legacy AND structuredContent mirrors it (MCP outputSchema compliance, RCA #4)', () => {
     const out = applyGovernanceOrLegacy({
       enabled: false,
       legacy,
       govern: () => governed,
     });
-    expect(out.structuredContent).toBeUndefined();
+    // content[0].text unchanged (zero behavior change for existing apps).
     expect(JSON.parse(out.content[0].text)).toEqual(legacy);
     expect(out.isError).toBeUndefined();
+    // structuredContent now mirrors the legacy object so strict MCP runtimes
+    // (Kilo) accept it against the tool's declared outputSchema.
+    expect(out.structuredContent).toEqual(legacy);
+  });
+
+  it('governance OFF: a non-object legacy payload stays text-only (no invalid structuredContent)', () => {
+    const out = applyGovernanceOrLegacy({
+      enabled: false,
+      legacy: [1, 2, 3],
+      govern: () => governed,
+    });
+    expect(JSON.parse(out.content[0].text)).toEqual([1, 2, 3]);
+    expect(out.structuredContent).toBeUndefined();
   });
 
   it('governance ON delegates to the governed result (govern thunk not called when off)', () => {

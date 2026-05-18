@@ -255,9 +255,27 @@ export function applyGovernanceOrLegacy(args: {
   govern: () => GovernedToolResult;
 }): GovernedToolResult {
   if (!args.enabled) {
-    return {
-      content: [{ type: 'text', text: JSON.stringify(args.legacy) }],
-    } as GovernedToolResult;
+    // The human-readable `content[0].text` is byte-identical to before (zero
+    // behavior change for existing apps/tests). MCP runtimes that validate a
+    // result against the tool's declared `outputSchema` (e.g. Kilo) require a
+    // `structuredContent` object — historically absent here, so EVERY
+    // outputSchema-declaring tool failed validation in the default
+    // (governance-OFF) posture. Mirror the legacy object as structuredContent
+    // so the declared contract is satisfied. Only attach when the payload is
+    // a plain object (every read tool's legacy payload is); never wrap arrays
+    // or primitives into a shape the schema would reject.
+    const text = JSON.stringify(args.legacy);
+    const result: GovernedToolResult = {
+      content: [{ type: 'text', text }],
+    };
+    if (
+      args.legacy !== null &&
+      typeof args.legacy === 'object' &&
+      !Array.isArray(args.legacy)
+    ) {
+      result.structuredContent = args.legacy as Record<string, unknown>;
+    }
+    return result;
   }
   return args.govern();
 }
