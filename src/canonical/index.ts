@@ -49,3 +49,8 @@ export {
   type CanonicalOrder,
   type CanonicalOrderLineItem,
 } from './order.js';
+export {
+  mapToCanonicalActivity,
+  mapToCanonicalActivities,
+  type CanonicalActivity,
+} from './activity.js';

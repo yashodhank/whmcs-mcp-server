@@ -15,13 +15,30 @@ function harness() {
 }
 
 describe('registerListTools', () => {
-  it('registers exactly the 5 expected list tools', () => {
+  it('registers exactly the 6 expected list tools', () => {
     const { server, handlers, logger, rateLimiter, whmcs } = harness();
     registerListTools(server as any, whmcs, logger, rateLimiter);
     expect(Object.keys(handlers).sort()).toEqual(
-      ['list_client_domains', 'list_client_invoices', 'list_client_orders', 'list_client_services', 'list_client_tickets'].sort()
+      ['get_activity_log', 'list_client_domains', 'list_client_invoices', 'list_client_orders', 'list_client_services', 'list_client_tickets'].sort()
     );
-    expect(Object.keys(handlers)).toHaveLength(5);
+    expect(Object.keys(handlers)).toHaveLength(6);
+  });
+
+  it('get_activity_log maps WHMCS GetActivityLog entries (newest first)', async () => {
+    const { server, handlers, logger, rateLimiter, read, whmcs } = harness();
+    read.mockResolvedValue({
+      totalresults: 2, numreturned: 2, startnumber: 0,
+      activity: { entry: [
+        { id: 10, date: '2026-05-17 08:00:00', user: 'admin', description: 'Older', ipaddr: '203.0.113.1' },
+        { id: 11, date: '2026-05-18 09:00:00', user: 'admin', description: 'Newer', ipaddr: '203.0.113.2' },
+      ] },
+    });
+    registerListTools(server as any, whmcs, logger, rateLimiter);
+    const res = await handlers.get_activity_log({ clientid: 9001, limit: 10, offset: 0 });
+    expect(read).toHaveBeenCalledWith('GetActivityLog', { clientid: 9001, limitnum: 10, limitstart: 0 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.items.map((e: { id: number }) => e.id)).toEqual([11, 10]);
+    expect(p.items[0]).toEqual({ id: 11, date: '2026-05-18 09:00:00', user: 'admin', description: 'Newer', ipaddr: '203.0.113.2' });
   });
 
   it('list_client_services maps WHMCS GetClientsProducts rows', async () => {

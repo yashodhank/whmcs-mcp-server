@@ -30,6 +30,7 @@ import {
   mapToCanonicalInvoice,
   mapToCanonicalTicket,
   mapToCanonicalOrder,
+  mapToCanonicalActivity,
 } from '../canonical/index.js';
 
 /**
@@ -340,5 +341,35 @@ export function registerListTools(
     postSort: (xs: any[]) =>
       [...xs].sort((a, b) => String(b.date).localeCompare(String(a.date))),
     canonicalMap: mapToCanonicalOrder,
+  });
+
+  // get_activity_log — GetActivityLog is allowlisted (actionPolicy) and
+  // capability-supported (B4); delivered through the governed factory.
+  // clientid is required here (client-scoped activity); the global log
+  // remains available via the whmcs://system/activity resource.
+  registerListTool(server, whmcs, logger, rl, {
+    name: 'get_activity_log',
+    description:
+      "Read-only client activity log (newest first). WHMCS GetActivityLog; client-scoped via clientid. Pagination via limit/offset.",
+    action: 'GetActivityLog',
+    clientParam: 'clientid',
+    normalizerPath: 'activity',
+    singular: 'entry',
+    extraSchema: {
+      date: z.string().optional(),
+      user: z.string().optional(),
+    },
+    mapItem: (e: Record<string, unknown>) => ({
+      id: e.id,
+      date: e.date,
+      user: e.user,
+      description: e.description,
+      ipaddr: e.ipaddr ?? e.ipaddress,
+    }),
+    postSort: (xs) =>
+      [...xs].sort((a, b) =>
+        String(b.date).localeCompare(String(a.date))
+      ),
+    canonicalMap: mapToCanonicalActivity,
   });
 }
