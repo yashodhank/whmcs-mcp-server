@@ -26,6 +26,53 @@ import {
 } from '../governance/capabilities.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
 
+/**
+ * Stable, additive output schema for the structured `capability_unavailable`
+ * object every shell returns. Mirrors `CapabilityUnavailable` (and stays
+ * forward-compatible with optional `capability/retriable/guidance` fields a
+ * future capability registry may emit). Metadata only — the runtime payload
+ * is unchanged.
+ */
+const CAPABILITY_UNAVAILABLE_OUTPUT_SHAPE = {
+  capability_unavailable: z.literal(true),
+  action: z.string(),
+  status: z.string(),
+  note: z.string().optional(),
+  capability: z.string().optional(),
+  retriable: z.boolean().optional(),
+  guidance: z.string().optional(),
+} as const;
+
+/**
+ * Stable, additive output schema for `get_capability_matrix`.
+ *
+ * Validates BOTH runtime modes without altering them:
+ *  - ungoverned: `{ whmcs_version:{status,note}, capabilities:[...],
+ *    compat_9x:{...} }`
+ *  - governed: the same object wrapped under `data`, alongside optional
+ *    `consumer`/`contract`. All wrapper keys are optional so a single shape
+ *    validates governance ON and OFF.
+ */
+const CAPABILITY_MATRIX_OUTPUT_SHAPE = {
+  whmcs_version: z
+    .object({ status: z.string(), note: z.string().optional() })
+    .optional(),
+  capabilities: z
+    .array(
+      z.object({
+        action: z.string(),
+        capability: z.string().optional(),
+        status: z.string(),
+        note: z.string().optional(),
+      })
+    )
+    .optional(),
+  compat_9x: z.record(z.string(), z.unknown()).optional(),
+  consumer: z.string().optional(),
+  contract: z.string().optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+} as const;
+
 interface ShellSpec {
   /** MCP tool name. */
   name: string;
@@ -152,6 +199,7 @@ function registerShell(
           .describe('Requested data contract (honoured only once the capability is verified and the consumer permits it)'),
         ...AUTH_SHAPE,
       },
+      outputSchema: CAPABILITY_UNAVAILABLE_OUTPUT_SHAPE,
       annotations: { ...READ_ONLY_ANNOTATIONS },
     },
     handler
@@ -232,6 +280,7 @@ function registerCapabilityMatrixTool(
       description:
         'Read-only machine-readable capability + WHMCS-version status matrix (supported/unverified/unsupported per action). Pure; calls no WHMCS API. WHMCS version is reported unverified until prod-probed.',
       inputSchema: { ...AUTH_SHAPE },
+      outputSchema: CAPABILITY_MATRIX_OUTPUT_SHAPE,
       annotations: { ...READ_ONLY_ANNOTATIONS },
     },
     handler

@@ -5,13 +5,14 @@ import { registerListTools } from '../../src/tools/listTools.js';
 
 function harness() {
   const handlers: Record<string, any> = {};
-  const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
+  const configs: Record<string, any> = {};
+  const server = { registerTool: (n: string, cfg: unknown, cb: any) => { configs[n] = cfg; handlers[n] = cb; } };
   const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
   const logger: any = { child: () => childLogger };
   const rateLimiter: any = { tryConsume: () => true };
   const read = vi.fn();
   const whmcs: any = { read };
-  return { server, handlers, logger, rateLimiter, read, whmcs };
+  return { server, handlers, configs, logger, rateLimiter, read, whmcs };
 }
 
 describe('registerListTools', () => {
@@ -99,6 +100,21 @@ describe('registerListTools', () => {
     expect(typeof p.note).toBe('string');
     expect(p.note).toContain('may miss operator');
     expect(p.note).toContain('get_ticket_thread');
+  });
+
+  it('registers a stable outputSchema (zod raw shape) describing legacy + governed envelopes', () => {
+    const { server, configs, logger, rateLimiter, whmcs } = harness();
+    registerListTools(server as any, whmcs, logger, rateLimiter);
+    const cfg = configs.list_client_services;
+    expect(cfg.outputSchema).toBeDefined();
+    const shape = cfg.outputSchema as Record<string, unknown>;
+    // zod raw shape: each value is a ZodType (has a `_def`).
+    for (const k of ['items', 'total', 'count', 'offset', 'limit', 'consumer', 'contract']) {
+      expect(shape[k]).toBeDefined();
+      expect((shape[k] as { _def?: unknown })._def).toBeDefined();
+    }
+    // Same stable shape reused across every factory tool.
+    expect(configs.get_activity_log.outputSchema).toBe(cfg.outputSchema);
   });
 
   it('list_client_orders maps GetOrders rows with userid and sorts by date DESC', async () => {
