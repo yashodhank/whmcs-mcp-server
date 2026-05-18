@@ -18,6 +18,9 @@ const READ_ALLOWLIST = new Set<string>([
   'GetInvoice','GetInvoices','GetTickets','GetTicket','GetSupportDepartments',
   'GetOrders','GetProducts','GetActivityLog','GetAdminDetails','GetAdminLog',
   'DomainWhois',
+  // Phase H — promoted after read-only probes confirmed `supported` on
+  // Dev WHMCS 8, Dev WHMCS 9 AND production. GetUsers NOT added (degraded).
+  'GetTransactions','GetStats','GetToDoItems','GetAutomationLog',
 ]);
 
 const WRITE_DENY_PREFIX = /^(Add|Update|Delete|Create|Module|Domain(Register|Renew|Transfer)|Send|Set)/i;

@@ -619,9 +619,28 @@ export function registerAggregatorTools(
   // ── Phase D aggregators (compose governed reads; degrade on unavailable
   //    capability; source IDs included; partial/incomplete clearly marked) ──
 
-  const capNote = (action: string) => {
+  /**
+   * Truthful capability section. If the action is now `supported`
+   * (Phase H promoted) we MUST NOT claim capability_unavailable — instead
+   * report it supported with composition pending (a future aggregator
+   * enhancement). Only an un-promoted capability is flagged unavailable.
+   */
+  const capSection = (action: string) => {
     const c = getCapability(action);
-    return { action: c.action, status: c.status, note: c.note };
+    if (c.status === 'supported') {
+      return {
+        action: c.action,
+        status: c.status,
+        composed: false,
+        note: 'Capability supported (promoted); direct composition into this aggregator is a pending enhancement.',
+      };
+    }
+    return {
+      capability_unavailable: true as const,
+      action: c.action,
+      status: c.status,
+      note: c.note,
+    };
   };
 
   register(
@@ -723,7 +742,7 @@ export function registerAggregatorTools(
         invoices,
         source_invoice_ids: invoices.map((i) => i.invoiceid),
         // Degrade gracefully: do NOT call the unverified action.
-        transactions: { capability_unavailable: true, ...capNote('GetTransactions') },
+        transactions: capSection('GetTransactions'),
         partial_errors: errs,
       };
     }
@@ -770,7 +789,7 @@ export function registerAggregatorTools(
         services,
         orders,
         source_service_ids: services.map((s) => s.serviceid),
-        automation_log: { capability_unavailable: true, ...capNote('GetAutomationLog') },
+        automation_log: capSection('GetAutomationLog'),
         partial_errors: errs,
       };
     }

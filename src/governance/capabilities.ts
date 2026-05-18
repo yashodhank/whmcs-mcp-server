@@ -42,18 +42,21 @@ const SUPPORTED_READS: readonly (readonly [action: string, capability: string])[
   ['GetAdminDetails', 'get_admin_details'],
   ['GetAdminLog', 'list_admin_log'],
   ['DomainWhois', 'domain_whois'],
-];
-
-/**
- * Phase-C-needed actions that are intentionally NOT yet in the read allowlist.
- * They stay `unverified` until a deliberate per-tool allowlist extension in
- * Phase C, at which point a probe can promote them.
- */
-const UNVERIFIED_READS: readonly (readonly [action: string, capability: string])[] = [
+  // Phase H — promoted after read-only probes confirmed `supported` on
+  // Dev WHMCS 8, Dev WHMCS 9, AND production read-only.
   ['GetTransactions', 'list_client_transactions'],
   ['GetStats', 'get_system_stats'],
   ['GetToDoItems', 'list_todo_items'],
   ['GetAutomationLog', 'list_automation_log'],
+];
+
+/**
+ * Remaining unverified. GetUsers probes returned `degraded` on Dev W8,
+ * Dev W9 AND production (likely an API-role gap — see
+ * docs/getusers-investigation.md). NOT promoted, NOT allowlisted; the
+ * shell keeps returning a structured capability_unavailable. Never faked.
+ */
+const UNVERIFIED_READS: readonly (readonly [action: string, capability: string])[] = [
   ['GetUsers', 'list_users'],
 ];
 

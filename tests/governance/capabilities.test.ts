@@ -42,16 +42,14 @@ describe('capability registry (B4)', () => {
       }
     });
 
-    it('marks Phase-C-needed-but-not-allowlisted actions as unverified', () => {
-      const unverified = [
-        'GetTransactions', 'GetStats', 'GetToDoItems', 'GetAutomationLog',
-      ];
-      for (const action of unverified) {
+    it('Phase H: the 4 production-verified actions are now supported; GetUsers stays unverified', () => {
+      for (const action of ['GetTransactions', 'GetStats', 'GetToDoItems', 'GetAutomationLog']) {
         const cap = CAPABILITY_REGISTRY[action];
         expect(cap, `${action} must be seeded`).toBeDefined();
-        expect(cap.status, `${action} status`).toBe('unverified');
+        expect(cap.status, `${action} status`).toBe('supported');
         expect(cap.capability).toMatch(/^[a-z][a-z0-9_]*$/);
       }
+      expect(CAPABILITY_REGISTRY.GetUsers.status).toBe('unverified');
     });
 
     it('seeds a user-listing capability as unverified', () => {
@@ -73,8 +71,12 @@ describe('capability registry (B4)', () => {
       expect(getCapability('GetClients').status).toBe('supported');
     });
 
-    it('returns the seeded unverified entry for GetTransactions', () => {
-      expect(getCapability('GetTransactions').status).toBe('unverified');
+    it('returns the seeded supported entry for promoted GetTransactions', () => {
+      expect(getCapability('GetTransactions').status).toBe('supported');
+    });
+
+    it('returns the seeded unverified entry for GetUsers (not promoted)', () => {
+      expect(getCapability('GetUsers').status).toBe('unverified');
     });
 
     it('synthesizes an unsupported status for an unknown action', () => {
@@ -172,11 +174,12 @@ describe('capability registry (B4)', () => {
 
   describe('capabilityUnavailablePayload', () => {
     it('produces a structured unavailable payload, never fake data', () => {
-      const cap = getCapability('GetTransactions');
+      // GetUsers is the remaining unverified action post Phase H promotion.
+      const cap = getCapability('GetUsers');
       const payload = capabilityUnavailablePayload(cap);
       // Existing shape fields are unchanged (additive fields are extra).
       expect(payload.capability_unavailable).toBe(true);
-      expect(payload.action).toBe('GetTransactions');
+      expect(payload.action).toBe('GetUsers');
       expect(payload.status).toBe('unverified');
       expect(payload.note).toBe(cap.note);
     });

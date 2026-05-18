@@ -362,7 +362,7 @@ describe('Phase D aggregators', () => {
     expect(p.partial_errors).toEqual([]);
   });
 
-  it('get_reconciliation_snapshot works WITHOUT transactions (capability degraded, not required)', async () => {
+  it('get_reconciliation_snapshot: transactions capability now supported (composition pending), not flagged unavailable', async () => {
     const { handlers } = harness((action) => {
       if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
       return {};
@@ -372,14 +372,15 @@ describe('Phase D aggregators', () => {
     expect(p.invoices[0]).toMatchObject({ invoiceid: 11, balance: '50.00' });
     expect(p.source_invoice_ids).toEqual([11]);
     expect(p.transactions).toMatchObject({
-      capability_unavailable: true,
       action: 'GetTransactions',
-      status: 'unverified',
+      status: 'supported',
+      composed: false,
     });
+    expect(p.transactions.capability_unavailable).toBeUndefined();
     expect(p.partial_errors).toEqual([]);
   });
 
-  it('get_provisioning_snapshot returns services/orders + degraded automation_log', async () => {
+  it('get_provisioning_snapshot returns services/orders + automation_log now supported (composition pending)', async () => {
     const { handlers } = harness((action) => {
       if (action === 'GetClientsProducts') return { products: { product: [{ id: 545, name: 'Hosting', domain: 'd.test', status: 'Active', regdate: '2025-01-01', nextduedate: '2026-01-01' }] } };
       if (action === 'GetOrders') return { orders: { order: [{ id: 7, status: 'Active', date: '2026-05-01' }] } };
@@ -389,7 +390,8 @@ describe('Phase D aggregators', () => {
     const p = JSON.parse(res.content[0].text);
     expect(p.services[0]).toMatchObject({ serviceid: 545, status: 'Active' });
     expect(p.source_service_ids).toEqual([545]);
-    expect(p.automation_log).toMatchObject({ capability_unavailable: true, action: 'GetAutomationLog', status: 'unverified' });
+    expect(p.automation_log).toMatchObject({ action: 'GetAutomationLog', status: 'supported', composed: false });
+    expect(p.automation_log.capability_unavailable).toBeUndefined();
   });
 
   it('get_risk_snapshot summarises overdue+suspended with no contact PII', async () => {
@@ -442,7 +444,7 @@ describe('Phase D aggregators — consistency contract (regression)', () => {
     partial_errors: unknown[];
   }
 
-  it('get_reconciliation_snapshot: capability-gated transactions has structured {capability_unavailable,action,status} + source IDs array', async () => {
+  it('get_reconciliation_snapshot: transactions section structured (supported post-promotion) + source IDs array', async () => {
     const { handlers } = harness((action: string) => {
       if (action === 'GetInvoices')
         return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
@@ -451,12 +453,11 @@ describe('Phase D aggregators — consistency contract (regression)', () => {
     const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
     const p = JSON.parse(res.content[0].text) as ReconPayload;
 
-    // structured capability shape — exactly the three required keys
-    expect(p.transactions.capability_unavailable).toBe(true);
+    // structured section — promoted ⇒ supported, NOT flagged unavailable
+    expect(p.transactions.capability_unavailable).toBeUndefined();
     expect(typeof p.transactions.action).toBe('string');
     expect(p.transactions.action).toBe('GetTransactions');
-    expect(typeof p.transactions.status).toBe('string');
-    expect(p.transactions.status.length).toBeGreaterThan(0);
+    expect(p.transactions.status).toBe('supported');
 
     // source IDs array present and correct
     expect(Array.isArray(p.source_invoice_ids)).toBe(true);
@@ -465,7 +466,7 @@ describe('Phase D aggregators — consistency contract (regression)', () => {
     expect(Array.isArray(p.partial_errors)).toBe(true);
   });
 
-  it('get_provisioning_snapshot: automation_log has structured {capability_unavailable,action,status} + source IDs array', async () => {
+  it('get_provisioning_snapshot: automation_log section structured (supported post-promotion) + source IDs array', async () => {
     const { handlers } = harness((action: string) => {
       if (action === 'GetClientsProducts')
         return { products: { product: [{ id: 545, name: 'Hosting', domain: 'd.test', status: 'Active', regdate: '2025-01-01', nextduedate: '2026-01-01' }] } };
@@ -476,11 +477,10 @@ describe('Phase D aggregators — consistency contract (regression)', () => {
     const res = await handlers.get_provisioning_snapshot({ clientid: 30 });
     const p = JSON.parse(res.content[0].text) as ProvPayload;
 
-    expect(p.automation_log.capability_unavailable).toBe(true);
+    expect(p.automation_log.capability_unavailable).toBeUndefined();
     expect(typeof p.automation_log.action).toBe('string');
     expect(p.automation_log.action).toBe('GetAutomationLog');
-    expect(typeof p.automation_log.status).toBe('string');
-    expect(p.automation_log.status.length).toBeGreaterThan(0);
+    expect(p.automation_log.status).toBe('supported');
 
     expect(Array.isArray(p.source_service_ids)).toBe(true);
     expect(p.source_service_ids).toEqual([545]);
@@ -638,10 +638,11 @@ describe('aggregators — app-usable outputSchema contract', () => {
     const p = JSON.parse(res.content[0].text);
     // Capability-gated section is still structured & consistent (unchanged).
     expect(p.automation_log).toMatchObject({
-      capability_unavailable: true,
       action: 'GetAutomationLog',
-      status: 'unverified',
+      status: 'supported',
+      composed: false,
     });
+    expect(p.automation_log.capability_unavailable).toBeUndefined();
     expect(p.source_service_ids).toEqual([545]);
     expect(Array.isArray(p.partial_errors)).toBe(true);
     // And the advertised schema accepts the unchanged runtime payload.
@@ -658,11 +659,13 @@ describe('aggregators — app-usable outputSchema contract', () => {
       (await handlers.get_provisioning_snapshot({ clientid: 30 })).content[0].text
     );
     for (const sec of [recon.transactions, prov.automation_log]) {
-      expect(sec.capability_unavailable).toBe(true);
+      // Promoted ⇒ structured & truthful: supported, composition pending,
+      // NOT flagged unavailable.
+      expect(sec.capability_unavailable).toBeUndefined();
       expect(typeof sec.action).toBe('string');
       expect(sec.action.length).toBeGreaterThan(0);
-      expect(typeof sec.status).toBe('string');
-      expect(sec.status.length).toBeGreaterThan(0);
+      expect(sec.status).toBe('supported');
+      expect(sec.composed).toBe(false);
     }
     // Source-ID arrays + partial_errors present on both.
     expect(Array.isArray(recon.source_invoice_ids)).toBe(true);

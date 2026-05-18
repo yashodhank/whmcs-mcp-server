@@ -25,22 +25,44 @@ import {
   CAPABILITY_REGISTRY,
 } from '../governance/capabilities.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+import { normalizeToArray } from '../whmcs/normalizers.js';
+import type { Canonical } from '../governance/types.js';
+import {
+  applyGovernanceOrLegacy,
+  governedToolResult,
+  governedListResult,
+  governanceEnabled,
+} from '../governance/pipeline.js';
+import {
+  mapToCanonicalTransaction,
+  mapToCanonicalToDoItem,
+  mapToCanonicalAutomationLogEntry,
+  mapToCanonicalSystemStats,
+} from '../canonical/index.js';
 
 /**
- * Stable, additive output schema for the structured `capability_unavailable`
- * object every shell returns. Mirrors `CapabilityUnavailable` (and stays
- * forward-compatible with optional `capability/retriable/guidance` fields a
- * future capability registry may emit). Metadata only — the runtime payload
- * is unchanged.
+ * Combined shell output schema: validates BOTH the capability_unavailable
+ * shell payload AND a promoted tool's governed/legacy output (so the SDK
+ * never strips fields once an action is promoted). All optional.
  */
-const CAPABILITY_UNAVAILABLE_OUTPUT_SHAPE = {
-  capability_unavailable: z.literal(true),
-  action: z.string(),
-  status: z.string(),
+const SHELL_OUTPUT_SHAPE = {
+  capability_unavailable: z.literal(true).optional(),
+  action: z.string().optional(),
+  status: z.string().optional(),
   note: z.string().optional(),
   capability: z.string().optional(),
   retriable: z.boolean().optional(),
   guidance: z.string().optional(),
+  items: z.array(z.record(z.string(), z.unknown())).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  consumer: z.string().optional(),
+  contract: z.string().optional(),
+  entity: z.string().optional(),
+  count: z.number().optional(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+  isError: z.boolean().optional(),
+  error: z.string().optional(),
 } as const;
 
 /**
@@ -82,6 +104,19 @@ interface ShellSpec {
   description: string;
   /** Extra zod shape (forward-compatible with the eventual real tool). */
   extraSchema: z.ZodRawShape;
+  /**
+   * Phase H promotion wiring. A shell becomes a REAL governed read ONLY
+   * when its capability is `supported` (deliberately allowlisted) AND a
+   * canonicalMap is present; otherwise it stays a capability_unavailable
+   * shell (e.g. list_users — no map → stays degraded/unverified).
+   */
+  kind?: 'list' | 'single';
+  /** WHMCS response container key for `list` kind (e.g. 'transactions'). */
+  normalizerPath?: string;
+  /** Singular wrapper key for `list` kind (e.g. 'transaction'). */
+  singular?: string;
+  /** Per-row (list) / whole-response (single) canonical mapper. */
+  canonicalMap?: (raw: unknown) => Canonical<unknown>;
 }
 
 const SHELLS: readonly ShellSpec[] = [
@@ -97,6 +132,10 @@ const SHELLS: readonly ShellSpec[] = [
       limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
       offset: z.number().int().min(0).default(0),
     },
+    kind: 'list',
+    normalizerPath: 'transactions',
+    singular: 'transaction',
+    canonicalMap: mapToCanonicalTransaction,
   },
   {
     name: 'get_stats',
@@ -104,6 +143,8 @@ const SHELLS: readonly ShellSpec[] = [
     description:
       'Read-only system/income statistics. WHMCS GetStats is not yet verified/allowlisted — returns a structured capability status until prod-verified.',
     extraSchema: {},
+    kind: 'single',
+    canonicalMap: mapToCanonicalSystemStats,
   },
   {
     name: 'list_users',
@@ -125,6 +166,10 @@ const SHELLS: readonly ShellSpec[] = [
       limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
       offset: z.number().int().min(0).default(0),
     },
+    kind: 'list',
+    normalizerPath: 'todoitems',
+    singular: 'todoitem',
+    canonicalMap: mapToCanonicalToDoItem,
   },
   {
     name: 'get_automation_log',
@@ -136,11 +181,16 @@ const SHELLS: readonly ShellSpec[] = [
       limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
       offset: z.number().int().min(0).default(0),
     },
+    kind: 'list',
+    normalizerPath: 'automationlog',
+    singular: 'entry',
+    canonicalMap: mapToCanonicalAutomationLogEntry,
   },
 ];
 
 function registerShell(
   server: McpServer,
+  whmcs: WhmcsClient,
   logger: Logger,
   rl: RateLimiter,
   spec: ShellSpec
@@ -148,20 +198,72 @@ function registerShell(
   if (!isToolAllowed(spec.name)) return;
   const schema = z.object({ ...spec.extraSchema });
 
-  const handler: ToolCallback<z.ZodRawShape> = ((params: Record<string, unknown>) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
+      const pview = params;
+      const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+      const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
       const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
 
       log.logToolCall(spec.name, params, false);
       if (!rl.tryConsume()) throw new RateLimitError();
 
-      // Honest capability gate: never call WHMCS, never fake data.
       const cap = getCapability(spec.action);
-      const payload = capabilityUnavailablePayload(cap);
 
+      // PROMOTED: capability verified+allowlisted AND a canonical mapper
+      // exists ⇒ real governed read. Otherwise honest capability_unavailable
+      // (e.g. list_users — no map, stays degraded; never fakes data).
+      if (cap.status === 'supported' && spec.canonicalMap !== undefined) {
+        const limit = typeof pview.limit === 'number' ? pview.limit : 25;
+        const offset = typeof pview.offset === 'number' ? pview.offset : 0;
+        const apiParams: Record<string, unknown> = {};
+        for (const k of Object.keys(spec.extraSchema)) {
+          if (pview[k] !== undefined && k !== 'limit' && k !== 'offset') apiParams[k] = pview[k];
+        }
+        if (spec.kind === 'list') {
+          apiParams.limitnum = limit;
+          apiParams.limitstart = offset;
+        }
+        const resp = await whmcs.read<Record<string, unknown>>(spec.action, apiParams);
+        const cmap = spec.canonicalMap;
+        const result =
+          spec.kind === 'list'
+            ? (() => {
+                const container = resp[spec.normalizerPath ?? ''];
+                const rows = normalizeToArray<unknown>(
+                  container && typeof container === 'object'
+                    ? ((container as Record<string, unknown>)[spec.singular ?? ''] ?? container)
+                    : container
+                );
+                const legacy = { items: rows.map((r) => cmap(r).data), count: rows.length };
+                return applyGovernanceOrLegacy({
+                  enabled: governanceEnabled(),
+                  legacy,
+                  govern: () =>
+                    governedListResult({
+                      rows,
+                      mapItem: cmap,
+                      envelope: { count: rows.length, limit, offset },
+                      authToken,
+                      requestedContract,
+                    }),
+                });
+              })()
+            : applyGovernanceOrLegacy({
+                enabled: governanceEnabled(),
+                legacy: cmap(resp).data as Record<string, unknown>,
+                govern: () =>
+                  governedToolResult({ canonical: cmap(resp), authToken, requestedContract }),
+              });
+        log.logToolResult(spec.name, true, Date.now() - t0);
+        return result;
+      }
+
+      // Honest capability gate: never call WHMCS, never fake data.
+      const payload = capabilityUnavailablePayload(cap);
       log.logToolResult(spec.name, true, Date.now() - t0);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
@@ -199,7 +301,7 @@ function registerShell(
           .describe('Requested data contract (honoured only once the capability is verified and the consumer permits it)'),
         ...AUTH_SHAPE,
       },
-      outputSchema: CAPABILITY_UNAVAILABLE_OUTPUT_SHAPE,
+      outputSchema: SHELL_OUTPUT_SHAPE,
       annotations: { ...READ_ONLY_ANNOTATIONS },
     },
     handler
@@ -289,12 +391,12 @@ function registerCapabilityMatrixTool(
 
 export function registerCapabilityShellTools(
   server: McpServer,
-  _whmcs: WhmcsClient,
+  whmcs: WhmcsClient,
   logger: Logger,
   rl: RateLimiter
 ): void {
   for (const spec of SHELLS) {
-    registerShell(server, logger, rl, spec);
+    registerShell(server, whmcs, logger, rl, spec);
   }
   registerCapabilityMatrixTool(server, logger, rl);
 }

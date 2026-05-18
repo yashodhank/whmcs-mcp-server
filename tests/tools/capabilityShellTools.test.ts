@@ -32,19 +32,36 @@ describe('registerCapabilityShellTools', () => {
     );
   });
 
-  for (const [tool, action] of SHELLS) {
-    it(`${tool} returns structured capability_unavailable (unverified) and NEVER calls WHMCS`, async () => {
+  // GetUsers stays UNVERIFIED (degraded everywhere) — still a shell.
+  it('list_users (unverified) returns structured capability_unavailable and NEVER calls WHMCS', async () => {
+    const { handlers, read } = harness();
+    const res = await handlers.list_users({ clientid: 1 });
+    expect(read).not.toHaveBeenCalled();
+    const p = JSON.parse(res.content[0].text) as Record<string, unknown>;
+    expect(p).toMatchObject({ capability_unavailable: true, action: 'GetUsers' });
+    expect(['unverified', 'degraded']).toContain(p.status);
+    expect(res.isError).toBe(true);
+  });
+
+  // Phase H: the 4 production-verified actions are PROMOTED — real
+  // governed reads (call WHMCS, return data, NOT capability_unavailable).
+  const PROMOTED: [tool: string, action: string, resp: Record<string, unknown>][] = [
+    ['list_client_transactions', 'GetTransactions', { transactions: { transaction: [{ id: 1, userid: 7, amountin: '10.00' }] } }],
+    ['get_stats', 'GetStats', { income_today: '100.00', num_clients: 5 }],
+    ['get_todo_items', 'GetToDoItems', { todoitems: { todoitem: [{ id: 1, title: 'x', status: 'New' }] } }],
+    ['get_automation_log', 'GetAutomationLog', { automationlog: { entry: [{ id: 1, name: 'cron', status: 'Success' }] } }],
+  ];
+  for (const [tool, action, resp] of PROMOTED) {
+    it(`${tool} is PROMOTED: calls WHMCS ${action}, returns governed data (not capability_unavailable)`, async () => {
       const { handlers, read } = harness();
-      const res = await handlers[tool]({ clientid: 1 });
-      expect(read).not.toHaveBeenCalled();
+      read.mockResolvedValue(resp);
+      const res = await handlers[tool]({ clientid: 7 });
+      expect(read).toHaveBeenCalledWith(action, expect.any(Object));
       const p = JSON.parse(res.content[0].text) as Record<string, unknown>;
-      expect(p).toMatchObject({
-        capability_unavailable: true,
-        action,
-        status: 'unverified',
-      });
-      expect(res.structuredContent).toMatchObject({ capability_unavailable: true, action, status: 'unverified' });
-      expect(res.isError).toBe(true);
+      expect(p.capability_unavailable).toBeUndefined();
+      expect(res.isError).toBeUndefined();
+      // legacy path (no governance): items[] for list, data object for single
+      expect(p.items !== undefined || Object.keys(p).length > 0).toBe(true);
     });
   }
 
@@ -60,7 +77,9 @@ describe('registerCapabilityShellTools', () => {
     expect(p.whmcs_version.status).toBe('unverified');
     const byAction = Object.fromEntries(p.capabilities.map((c) => [c.action, c.status]));
     expect(byAction.GetActivityLog).toBe('supported');
-    expect(byAction.GetTransactions).toBe('unverified');
+    // Phase H: GetTransactions promoted to supported; GetUsers stays unverified.
+    expect(byAction.GetTransactions).toBe('supported');
+    expect(byAction.GetUsers).toBe('unverified');
     expect(p.compat_9x).toMatchObject({ immutable_non_draft_invoices: true, credit_debit_notes: true });
     expect(res.isError).toBeUndefined();
     expect(res.structuredContent).toBeDefined();
