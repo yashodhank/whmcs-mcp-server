@@ -12,6 +12,7 @@ import { Logger } from '../logging.js';
 import { RateLimiter } from '../rateLimiter.js';
 import { isClientMode, ensureClientAllowed, ensureClientOwnership, stripAuthFromUri } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
+import { formatTicketThread } from '../whmcs/ticketThread.js';
 
 /**
  * Parse a positive integer from URI or tool param (SEC-003).
@@ -261,21 +262,6 @@ export function registerResources(
           };
         }
 
-        interface Reply {
-          replyid: number;
-          date: string;
-          name: string;
-          message: string;
-          admin?: string;
-        }
-
-        interface Note {
-          noteid: number;
-          date: string;
-          admin: string;
-          message: string;
-        }
-
         const ticket = await whmcsClient.read<{
           ticketid: number;
           tid: string;
@@ -286,8 +272,8 @@ export function registerResources(
           message: string;
           userid?: number;
           clientid?: number;
-          replies?: { reply?: Reply[] };
-          notes?: { note?: Note[] };
+          replies?: { reply?: unknown };
+          notes?: { note?: unknown };
         }>('GetTicket', { ticketid });
 
         if (isClientMode()) {
@@ -305,39 +291,13 @@ export function registerResources(
           }
         }
 
-        const allReplies = normalizeToArray<Reply>(ticket.replies?.reply);
-        const notes = normalizeToArray<Note>(ticket.notes?.note);
-        // WHMCS GetTicket returns NO top-level `message`; the opening post
-        // is replies.reply[0], and the rest are the actual replies.
-        const opening = allReplies[0];
-        const subsequentReplies = allReplies.slice(1);
+        const payload = formatTicketThread(ticket);
 
         return {
           contents: [{
             uri: safeUri,
             mimeType: 'application/json',
-            text: JSON.stringify({
-              ticketid: ticket.ticketid,
-              ticket_number: ticket.tid,
-              department: ticket.deptname,
-              subject: ticket.subject,
-              status: ticket.status,
-              date: ticket.date,
-              initial_message: opening?.message ?? ticket.message ?? '',
-              replies: subsequentReplies.map((r) => ({
-                id: r.replyid,
-                date: r.date,
-                from: r.admin || r.name,
-                is_admin: !!r.admin,
-                message: r.message,
-              })),
-              internal_notes: notes.map((n) => ({
-                id: n.noteid,
-                date: n.date,
-                admin: n.admin,
-                message: n.message,
-              })),
-            }, null, 2),
+            text: JSON.stringify(payload, null, 2),
           }],
         };
       } catch (error) {
