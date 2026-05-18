@@ -15,6 +15,7 @@ import {
   capabilityUnavailablePayload,
   __resetCapabilityCacheForTests,
 } from '../../src/governance/capabilities.js';
+import type { CapabilityStatusValue } from '../../src/governance/types.js';
 
 const ALLOW_ALL = (_a: string): boolean => true;
 const ALLOW_NONE = (_a: string): boolean => false;
@@ -173,13 +174,11 @@ describe('capability registry (B4)', () => {
     it('produces a structured unavailable payload, never fake data', () => {
       const cap = getCapability('GetTransactions');
       const payload = capabilityUnavailablePayload(cap);
-      expect(payload).toEqual({
-        capability_unavailable: true,
-        action: 'GetTransactions',
-        status: 'unverified',
-        note: cap.note,
-      });
+      // Existing shape fields are unchanged (additive fields are extra).
       expect(payload.capability_unavailable).toBe(true);
+      expect(payload.action).toBe('GetTransactions');
+      expect(payload.status).toBe('unverified');
+      expect(payload.note).toBe(cap.note);
     });
 
     it('omits note when the capability has none', () => {
@@ -188,6 +187,74 @@ describe('capability registry (B4)', () => {
       expect(payload.capability_unavailable).toBe(true);
       expect(payload.action).toBe('GetClients');
       expect(payload.status).toBe('supported');
+    });
+
+    it('carries the snake_case capability id from the status', () => {
+      const cap = getCapability('GetTransactions');
+      const payload = capabilityUnavailablePayload(cap);
+      expect(payload.capability).toBe('list_client_transactions');
+      expect(payload.capability).toMatch(/^[a-z][a-z0-9_]*$/);
+    });
+
+    it('synthesizes a capability id for an unknown action', () => {
+      const cap = getCapability('TotallyMadeUpAction');
+      const payload = capabilityUnavailablePayload(cap);
+      expect(payload.status).toBe('unsupported');
+      expect(payload.capability).toBeTruthy();
+      expect(payload.capability).toMatch(/^[a-z][a-z0-9_]*$/);
+    });
+
+    it('marks unverified and degraded as retriable, with guidance', () => {
+      const retriable: CapabilityStatusValue[] = ['unverified', 'degraded'];
+      for (const status of retriable) {
+        const payload = capabilityUnavailablePayload({
+          action: 'SomeAction',
+          status,
+          capability: 'some_action',
+        });
+        expect(payload.retriable, status).toBe(true);
+        expect(payload.guidance, status).toBeTruthy();
+        expect(typeof payload.guidance).toBe('string');
+      }
+    });
+
+    it('marks unsupported and not_authorized as non-retriable, with guidance', () => {
+      const nonRetriable: CapabilityStatusValue[] = [
+        'unsupported',
+        'not_authorized',
+      ];
+      for (const status of nonRetriable) {
+        const payload = capabilityUnavailablePayload({
+          action: 'SomeAction',
+          status,
+          capability: 'some_action',
+        });
+        expect(payload.retriable, status).toBe(false);
+        expect(payload.guidance, status).toBeTruthy();
+      }
+    });
+
+    it('provides a distinct stable guidance string per status', () => {
+      const statuses: CapabilityStatusValue[] = [
+        'supported',
+        'unsupported',
+        'not_authorized',
+        'unverified',
+        'degraded',
+        'fallback_available',
+      ];
+      const seen = new Set<string>();
+      for (const status of statuses) {
+        const payload = capabilityUnavailablePayload({
+          action: 'SomeAction',
+          status,
+          capability: 'some_action',
+        });
+        expect(payload.guidance, status).toBeTruthy();
+        seen.add(payload.guidance ?? '');
+      }
+      // Every status maps to a guidance string (stability: no throw, all set).
+      expect(seen.size).toBeGreaterThanOrEqual(5);
     });
   });
 });
