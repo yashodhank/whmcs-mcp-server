@@ -44,6 +44,31 @@ export const READ_ONLY_ANNOTATIONS = {
 } as const;
 
 /**
+ * Stable, additive output schema for every shared list-tool envelope.
+ *
+ * Describes BOTH runtime shapes without changing them:
+ *  - legacy (governance OFF): `{ items, total, count, offset, limit, ...extra }`
+ *  - governed (governance ON): `{ consumer, contract, items, total, count,
+ *    offset, limit }`
+ *
+ * Permissive by design (`items` is an array of opaque records, envelope
+ * counters are numeric, `consumer`/`contract` optional strings) so it
+ * validates accurately whether governance is enabled or not. This is
+ * metadata only — no runtime payload is altered. `.passthrough()`-style
+ * tolerance is provided by leaving extra envelope keys (e.g. `discovery`,
+ * `note`) unconstrained at the raw-shape level.
+ */
+export const LIST_TOOL_OUTPUT_SHAPE = {
+  items: z.array(z.record(z.string(), z.unknown())),
+  total: z.number(),
+  count: z.number(),
+  offset: z.number(),
+  limit: z.number(),
+  consumer: z.string().optional(),
+  contract: z.string().optional(),
+} as const;
+
+/**
  * Configuration for a single read-only list tool.
  */
 export interface ListToolConfig<T> {
@@ -206,6 +231,7 @@ export function registerListTool<T>(
     {
       description: c.description,
       inputSchema: { ...schema.shape, ...AUTH_SHAPE },
+      outputSchema: LIST_TOOL_OUTPUT_SHAPE,
       annotations: { ...READ_ONLY_ANNOTATIONS },
     },
     handler

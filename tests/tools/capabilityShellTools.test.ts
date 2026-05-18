@@ -5,14 +5,15 @@ import { registerCapabilityShellTools } from '../../src/tools/capabilityShellToo
 
 function harness() {
   const handlers: Record<string, (a: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }>> = {};
-  const server = { registerTool: (n: string, _c: unknown, cb: unknown) => { handlers[n] = cb as never; } };
+  const configs: Record<string, Record<string, unknown>> = {};
+  const server = { registerTool: (n: string, c: unknown, cb: unknown) => { configs[n] = c as Record<string, unknown>; handlers[n] = cb as never; } };
   const childLogger = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
   const logger = { child: () => childLogger };
   const rateLimiter = { tryConsume: () => true };
   const read = vi.fn();
   const whmcs = { read };
   registerCapabilityShellTools(server as never, whmcs as never, logger as never, rateLimiter as never);
-  return { handlers, read };
+  return { handlers, configs, read };
 }
 
 const SHELLS: [tool: string, action: string][] = [
@@ -63,6 +64,30 @@ describe('registerCapabilityShellTools', () => {
     expect(p.compat_9x).toMatchObject({ immutable_non_draft_invoices: true, credit_debit_notes: true });
     expect(res.isError).toBeUndefined();
     expect(res.structuredContent).toBeDefined();
+  });
+
+  it('shells register an outputSchema for the structured capability_unavailable object', () => {
+    const { configs } = harness();
+    const cfg = configs.list_users;
+    expect(cfg.outputSchema).toBeDefined();
+    const shape = cfg.outputSchema as Record<string, { _def?: unknown }>;
+    for (const k of ['capability_unavailable', 'action', 'status', 'note']) {
+      expect(shape[k]).toBeDefined();
+      expect(shape[k]._def).toBeDefined();
+    }
+    // Same stable shape reused across all shells.
+    expect(configs.get_stats.outputSchema).toBe(cfg.outputSchema);
+  });
+
+  it('get_capability_matrix registers an outputSchema validating governed + ungoverned shapes', () => {
+    const { configs } = harness();
+    const cfg = configs.get_capability_matrix;
+    expect(cfg.outputSchema).toBeDefined();
+    const shape = cfg.outputSchema as Record<string, { _def?: unknown }>;
+    for (const k of ['whmcs_version', 'capabilities', 'compat_9x', 'consumer', 'contract', 'data']) {
+      expect(shape[k]).toBeDefined();
+      expect(shape[k]._def).toBeDefined();
+    }
   });
 
   it('does not fake data and is identical with governance OFF vs ON (no data to govern)', async () => {
