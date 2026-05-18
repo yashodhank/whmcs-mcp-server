@@ -108,7 +108,31 @@ export function governProjection<T>(args: {
   }
 }
 
+/**
+ * PURE backward-compat gate. When governance is disabled the caller's
+ * existing legacy payload is returned verbatim (zero behavior change for
+ * apps/tests); when enabled the governed result is produced. The `govern`
+ * thunk is only invoked when enabled.
+ */
+export function applyGovernanceOrLegacy(args: {
+  enabled: boolean;
+  legacy: unknown;
+  govern: () => GovernedToolResult;
+}): GovernedToolResult {
+  if (!args.enabled) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify(args.legacy) }],
+    } as GovernedToolResult;
+  }
+  return args.govern();
+}
+
 /* ───────────────────────  config-bound thin wrappers  ─────────────────────── */
+
+/** Whether the consumer-aware projection boundary is active (opt-in). */
+export function governanceEnabled(): boolean {
+  return config.MCP_GOVERNANCE_ENABLED;
+}
 
 let cachedRegistry: ConsumerProfile[] | null = null;
 
@@ -125,7 +149,8 @@ export function __resetRegistryCacheForTests(): void {
 
 export interface GovernedToolResult {
   content: { type: 'text'; text: string }[];
-  structuredContent: Record<string, unknown>;
+  /** Absent for legacy passthrough; present for governed output (B7). */
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
 

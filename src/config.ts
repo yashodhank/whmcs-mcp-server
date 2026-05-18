@@ -85,6 +85,14 @@ const configSchema = z.object({
     (val) => val === 'true' || val === '1',
     z.boolean().default(false)
   ),
+  // Phase B governance is OPT-IN and backward compatible. Off (default) =>
+  // existing legacy tool output is preserved unchanged (no app/test breakage).
+  // On => read tool/resource output is routed through the consumer-aware
+  // projection boundary. Production stays read-only either way.
+  MCP_GOVERNANCE_ENABLED: z.preprocess(
+    (val) => val === 'true' || val === '1',
+    z.boolean().default(false)
+  ),
 }).superRefine((val, ctx) => {
   // SEC-005: WHMCS_API_URL must be a valid URL; require https unless WHMCS_ALLOW_HTTP=true
   let parsedUrl: URL | undefined;

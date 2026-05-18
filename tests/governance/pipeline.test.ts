@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { hashToken, loadConsumerRegistry } from '../../src/governance/consumers.js';
-import { governProjection, pickContract } from '../../src/governance/pipeline.js';
+import {
+  governProjection,
+  pickContract,
+  applyGovernanceOrLegacy,
+} from '../../src/governance/pipeline.js';
 import type { Canonical, ConsumerProfile } from '../../src/governance/types.js';
 
 interface Demo {
@@ -101,5 +105,49 @@ describe('governProjection (pure core)', () => {
     const snapshot = JSON.stringify(c);
     governProjection({ ...base, canonical: c, authToken: TOKEN_BILL });
     expect(JSON.stringify(c)).toBe(snapshot);
+  });
+});
+
+describe('applyGovernanceOrLegacy (backward-compat gate)', () => {
+  const legacy = { items: [{ id: 1 }], total: 1 };
+  const governed = {
+    content: [{ type: 'text' as const, text: '{"governed":true}' }],
+    structuredContent: { governed: true },
+  };
+
+  it('governance OFF returns the legacy payload verbatim (no behavior change)', () => {
+    const out = applyGovernanceOrLegacy({
+      enabled: false,
+      legacy,
+      govern: () => governed,
+    });
+    expect(out.structuredContent).toBeUndefined();
+    expect(JSON.parse(out.content[0].text)).toEqual(legacy);
+    expect(out.isError).toBeUndefined();
+  });
+
+  it('governance ON delegates to the governed result (govern thunk not called when off)', () => {
+    let called = 0;
+    const offOut = applyGovernanceOrLegacy({
+      enabled: false,
+      legacy,
+      govern: () => {
+        called += 1;
+        return governed;
+      },
+    });
+    expect(called).toBe(0);
+    expect(offOut).toBeDefined();
+
+    const onOut = applyGovernanceOrLegacy({
+      enabled: true,
+      legacy,
+      govern: () => {
+        called += 1;
+        return governed;
+      },
+    });
+    expect(called).toBe(1);
+    expect(onOut.structuredContent).toEqual({ governed: true });
   });
 });
