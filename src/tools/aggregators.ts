@@ -16,6 +16,7 @@ import { isToolAllowed } from '../config.js';
 import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+import { getCapability } from '../governance/capabilities.js';
 import {
   applyGovernanceOrLegacy,
   governedToolResult,
@@ -546,6 +547,219 @@ export function registerAggregatorTools(
         horizon,
         upcoming,
         truncated,
+        partial_errors: errs,
+      };
+    }
+  );
+
+  // ── Phase D aggregators (compose governed reads; degrade on unavailable
+  //    capability; source IDs included; partial/incomplete clearly marked) ──
+
+  const capNote = (action: string) => {
+    const c = getCapability(action);
+    return { action: c.action, status: c.status, note: c.note };
+  };
+
+  register(
+    server,
+    'get_activity_timeline',
+    'Read-only merged timeline: client activity log + recent invoices + recent orders, newest first. Source IDs included; sub-reads fault-isolated.',
+    { limit: z.number().int().min(1).max(50).default(20) },
+    logger,
+    rl,
+    async (params) => {
+      const p = params as Record<string, unknown>;
+      const cid = p.clientid as number;
+      const n = (p.limit as number | undefined) ?? 20;
+      const errs: PartialError[] = [];
+      const events: {
+        type: string;
+        id: unknown;
+        date: unknown;
+        summary: unknown;
+      }[] = [];
+      await safeSection('activity', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetActivityLog', {
+          clientid: cid,
+          limitnum: n,
+        });
+        for (const e of norm<Record<string, unknown>>(r.activity, 'entry')) {
+          events.push({ type: 'activity', id: e.id, date: e.date, summary: e.description });
+        }
+        return [];
+      });
+      await safeSection('invoices', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
+          userid: cid,
+          limitnum: n,
+          orderby: 'date',
+          order: 'desc',
+        });
+        for (const i of norm<Record<string, unknown>>(r.invoices, 'invoice')) {
+          events.push({
+            type: 'invoice',
+            id: i.id,
+            date: i.date,
+            summary: `invoice ${String(i.status)} total ${String(i.total)}`,
+          });
+        }
+        return [];
+      });
+      await safeSection('orders', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetOrders', {
+          userid: cid,
+          limitnum: n,
+        });
+        for (const o of norm<Record<string, unknown>>(r.orders, 'order')) {
+          events.push({
+            type: 'order',
+            id: o.id,
+            date: o.date,
+            summary: `order ${String(o.status)} amount ${String(o.amount)}`,
+          });
+        }
+        return [];
+      });
+      const timeline = events
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+        .slice(0, n);
+      return { clientid: cid, count: timeline.length, timeline, partial_errors: errs };
+    }
+  );
+
+  register(
+    server,
+    'get_reconciliation_snapshot',
+    'Read-only reconciliation: invoice balances/status with source IDs. Transactions are capability-gated (GetTransactions unverified) and reported as a structured unavailable section — the snapshot still works without them.',
+    {},
+    logger,
+    rl,
+    async (params) => {
+      const p = params as Record<string, unknown>;
+      const cid = p.clientid as number;
+      const errs: PartialError[] = [];
+      const invoices = await safeSection('invoices', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
+          userid: cid,
+          limitnum: 50,
+          orderby: 'date',
+          order: 'desc',
+        });
+        return norm<Record<string, unknown>>(r.invoices, 'invoice').map((i) => ({
+          invoiceid: i.id,
+          status: i.status,
+          total: i.total,
+          balance: i.balance,
+          date: i.date,
+          datepaid: i.datepaid,
+        }));
+      });
+      return {
+        clientid: cid,
+        invoices,
+        source_invoice_ids: invoices.map((i) => i.invoiceid),
+        // Degrade gracefully: do NOT call the unverified action.
+        transactions: { capability_unavailable: true, ...capNote('GetTransactions') },
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_provisioning_snapshot',
+    'Read-only provisioning audit: services (status/next-due) + provisioning orders, with source IDs. Automation log is capability-gated (GetAutomationLog unverified) and reported as a structured unavailable section.',
+    {},
+    logger,
+    rl,
+    async (params) => {
+      const p = params as Record<string, unknown>;
+      const cid = p.clientid as number;
+      const errs: PartialError[] = [];
+      const services = await safeSection('services', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+          clientid: cid,
+          limitnum: 100,
+        });
+        return norm<Record<string, unknown>>(r.products, 'product').map((s) => ({
+          serviceid: s.id,
+          product: s.name,
+          domain: s.domain,
+          status: s.status,
+          regdate: s.regdate,
+          next_due_date: s.nextduedate,
+        }));
+      });
+      const orders = await safeSection('orders', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetOrders', {
+          userid: cid,
+          limitnum: 25,
+        });
+        return norm<Record<string, unknown>>(r.orders, 'order').map((o) => ({
+          orderid: o.id,
+          status: o.status,
+          date: o.date,
+        }));
+      });
+      return {
+        clientid: cid,
+        services,
+        orders,
+        source_service_ids: services.map((s) => s.serviceid),
+        automation_log: { capability_unavailable: true, ...capNote('GetAutomationLog') },
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_risk_snapshot',
+    'Read-only risk summary: overdue exposure, suspended services, do-not-renew domains. IDs/amounts/status only — no contact PII. Sub-reads fault-isolated.',
+    {},
+    logger,
+    rl,
+    async (params) => {
+      const p = params as Record<string, unknown>;
+      const cid = p.clientid as number;
+      const errs: PartialError[] = [];
+      const overdue = await safeSection('overdue', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
+          userid: cid,
+          status: 'Overdue',
+          limitnum: 50,
+          orderby: 'duedate',
+          order: 'asc',
+        });
+        return norm<Record<string, unknown>>(r.invoices, 'invoice').map((i) => ({
+          invoiceid: i.id,
+          balance: i.balance,
+          duedate: i.duedate,
+        }));
+      });
+      const suspended = await safeSection('suspended_services', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+          clientid: cid,
+          limitnum: 100,
+        });
+        return norm<Record<string, unknown>>(r.products, 'product')
+          .filter((s) => String(s.status) === 'Suspended')
+          .map((s) => ({ serviceid: s.id, product: s.name, status: s.status }));
+      });
+      const overdueBalance = overdue.reduce(
+        (sum, i) => sum + (Number(i.balance) || 0),
+        0
+      );
+      return {
+        clientid: cid,
+        risk: {
+          overdue_invoice_count: overdue.length,
+          overdue_balance: overdueBalance.toFixed(2),
+          suspended_service_count: suspended.length,
+        },
+        overdue_invoices: overdue,
+        suspended_services: suspended,
+        source_invoice_ids: overdue.map((i) => i.invoiceid),
         partial_errors: errs,
       };
     }
