@@ -14,7 +14,7 @@
 | 4 | `MCP_ENV=local npx tsx test-connection.ts` | Dev WHMCS9 read-only connectivity (`GetClients limitnum:1`) |
 | 5 | `node scripts/mcp-e2e.mjs` (MCP_ENV=local) | live read-only e2e, **legacy** (governance OFF) |
 | 6 | `node scripts/mcp-governed-smoke.mjs` (MCP_ENV=local, GOVERNANCE=on) | live read-only **governed** smoke, 5 example consumers |
-| 7 | prod `test-connection.ts` | **BLOCKED by safety classifier — operator must run (see §10)** |
+| 7 | `MCP_MODE=read_only npx tsx test-connection.ts` (prod `.env`) | **PROD read-only connectivity — explicitly user-authorized, single run; SUCCESS (see §3a)** |
 
 ## 2. Test / build / typecheck / lint
 
@@ -33,6 +33,23 @@
 **Governed smoke (`mcp-governed-smoke.mjs`, governance ON): 23/23 PASS** — incl. small-limit reads + all aggregators (`search_clients` l1, `list_client_services|orders` l3, `get_activity_log` l3, `get_account_360` r3, `get_billing/support/renewal_snapshot`, `get_activity_timeline`, `get_reconciliation/provisioning/risk_snapshot`) all `isError=false`; write blocked even governed.
 
 > Note: `search_clients limit 1`, `list_client_invoices/domains limit 3` were exercised governed; tools requiring a specific known client used dev client id 1 ("Demo Account", synthetic).
+
+## 3a. Production read-only connectivity (user-authorized, single run)
+
+Explicitly authorized, scoped to a read-only connectivity probe only
+(`MCP_MODE=read_only npx tsx test-connection.ts`, prod `.env`,
+`GetClients limitnum:1`). Result:
+
+- `Mode: read_only` (unchanged) · Access Mode: admin
+- **API connection: SUCCESS** · `Response result: success`
+- A client count was returned (read path works end-to-end); exact value
+  withheld from this report by scope — **no customer PII, emails, domains,
+  invoice/ticket data, credentials, or raw response emitted**
+- No 403 / IP-allowlist / auth / network error. Single run, no retry, no
+  config change, no write command.
+
+Production read-only connectivity + credential + IP-allowlist path is
+**confirmed working**.
 
 ## 4. Governance behavior matrix (LIVE-verified on Dev)
 
@@ -85,7 +102,7 @@
 
 | Gap | Severity | Recommendation |
 |---|---|---|
-| Prod live read-only smoke not run (safety classifier blocked the prod-touching command) | Med | Operator runs §10 Stage 0/1 against prod (read-only); not a code defect |
+| Prod read-only connectivity | Resolved | User-authorized single probe passed (§3a); full Stage 0/1 smoke still recommended at rollout |
 | `get_capability_matrix` payload shape differs governed vs legacy (`data.` nesting) | Low | Document for app authors (done here) or normalize in a follow-up |
 | 5 capability-shell actions remain `unverified` | By design | Promote only via deliberate per-tool allowlist + prod read-only probe |
 | WHMCS 8 (`:8813`) not API-smoked (creds differ from w9) | Low | Optional: operator runs e2e against w8 env; governed reads are version-agnostic by design |
@@ -102,4 +119,4 @@ No functional defects found. No regressions.
 
 ## 11. Readiness verdict
 
-**READY for wider internal app integration in read-only mode.** Live Dev WHMCS9 validation (legacy 10/10 + governed 23/23) plus green baseline and clean scan confirm: backward-compatible legacy path, correct per-consumer contract projection, honest capability gating, and an intact production read-only write block. Final gate before broad prod use: operator runs the §10 prod read-only Stage 0/1 (blocked here only by the environment's prod-command safety guard, not by any code issue).
+**READY for wider internal app integration in read-only mode.** Live Dev WHMCS9 validation (legacy 10/10 + governed 23/23), green baseline, clean scan, **and a confirmed user-authorized production read-only connectivity check (§3a)** establish: backward-compatible legacy path, correct per-consumer contract projection, honest capability gating, intact production read-only write block, and working prod credential/IP path. Recommended pre-broad-rollout step remains the operator §10 Stage 0/1 small-limit prod smoke.
