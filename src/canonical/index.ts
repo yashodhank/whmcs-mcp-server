@@ -54,3 +54,9 @@ export {
   mapToCanonicalActivities,
   type CanonicalActivity,
 } from './activity.js';
+export {
+  mapToCanonicalCreditNote,
+  mapToCanonicalCreditNotes,
+  type CanonicalCreditNote,
+  type CreditNoteType,
+} from './creditNote.js';
