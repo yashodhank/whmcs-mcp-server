@@ -60,3 +60,17 @@ export {
   type CanonicalCreditNote,
   type CreditNoteType,
 } from './creditNote.js';
+export {
+  mapToCanonicalToDoItem,
+  mapToCanonicalToDoItems,
+  type CanonicalToDoItem,
+} from './todoItem.js';
+export {
+  mapToCanonicalAutomationLogEntry,
+  mapToCanonicalAutomationLogEntries,
+  type CanonicalAutomationLogEntry,
+} from './automationLog.js';
+export {
+  mapToCanonicalSystemStats,
+  type CanonicalSystemStats,
+} from './systemStats.js';
