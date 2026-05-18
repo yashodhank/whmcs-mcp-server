@@ -393,7 +393,10 @@ export function registerAggregatorTools(
         .toISOString()
         .slice(0, 10);
       const inWindow = (d?: string) =>
-        !!d && /^\d{4}-\d{2}-\d{2}/.test(d) && d.slice(0, 10) <= horizon;
+        !!d &&
+        /^\d{4}-\d{2}-\d{2}/.test(d) &&
+        d.slice(0, 10) >= '1971-01-01' &&
+        d.slice(0, 10) <= horizon;
       const svc = await safeSection('services', errs, [], async () =>
         norm<any>(
           (await whmcs.read<any>('GetClientsProducts', { clientid: cid, limitnum: 100 }))
@@ -436,5 +439,4 @@ export function registerAggregatorTools(
       };
     }
   );
-  // PHASE-2 TASKS 2-4 register(...) FOR get_billing_snapshot / get_support_snapshot / get_renewal_snapshot appended above.
 }

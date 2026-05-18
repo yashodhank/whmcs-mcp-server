@@ -119,4 +119,17 @@ describe('get_renewal_snapshot', () => {
     const p = JSON.parse(res.content[0].text);
     expect(p.upcoming).toEqual([]);
   });
+  it('excludes WHMCS 0000-00-00 sentinel dates (not treated as imminent)', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetClientsProducts') return { products: { product: [
+        { id: 1, name: 'NoDate Svc', domain: 'a', status: 'Active', nextduedate: '0000-00-00' },
+        { id: 2, name: 'Real Svc', domain: 'b', status: 'Active', nextduedate: '2026-06-01' } ] } };
+      if (action === 'GetClientsDomains') return { domains: { domain: [
+        { id: 9, domainname: 'nodate.test', status: 'Active', expirydate: '0000-00-00', nextduedate: '0000-00-00' } ] } };
+      return {};
+    });
+    const res = await handlers['get_renewal_snapshot']({ clientid: 30, days: 9999 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.upcoming.map((u: any) => `${u.type}:${u.id}`)).toEqual(['service:2']);
+  });
 });
