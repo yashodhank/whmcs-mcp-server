@@ -104,6 +104,69 @@ export function structured(result, label) {
   return parsed;
 }
 
+/**
+ * Capability-aware structured read for app code.
+ *
+ * Phase H reality: a tool can succeed with data, OR return an HONEST
+ * `{ capability_unavailable: true, action, status, retriable, guidance }`
+ * payload (e.g. `list_users` — GetUsers is NOT promoted) which the SDK marks
+ * `isError:true`. That is NOT a data result and NOT a hard failure — an app
+ * must branch on it and degrade, never crash and never treat it as data.
+ *
+ * Returns one of:
+ *   { kind: 'data',        env }      — governed envelope an app renders
+ *   { kind: 'unavailable', cap }      — structured capability_unavailable
+ *   { kind: 'error',       status, error } — denied/env-forbidden/tool error
+ *
+ * Unlike `structured()` (which throws on any error), this never throws, so an
+ * example can demonstrate the graceful-degrade path end-to-end.
+ */
+export function readCapability(result) {
+  const sc = result?.structuredContent;
+  if (sc && typeof sc === 'object') {
+    if (sc.capability_unavailable === true) {
+      return { kind: 'unavailable', cap: sc };
+    }
+    if (sc.isError) {
+      return { kind: 'error', status: sc.status, error: sc.error };
+    }
+    return { kind: 'data', env: sc };
+  }
+  // Legacy text-mirror fallback (governance OFF).
+  const txt = result?.content?.[0]?.text ?? '';
+  let parsed;
+  try {
+    parsed = JSON.parse(txt);
+  } catch {
+    parsed = txt;
+  }
+  if (parsed && typeof parsed === 'object' && parsed.capability_unavailable === true) {
+    return { kind: 'unavailable', cap: parsed };
+  }
+  if (result?.isError || parsed?.isError) {
+    return {
+      kind: 'error',
+      status: parsed?.status,
+      error: typeof parsed === 'string' ? parsed.slice(0, 160) : parsed?.error,
+    };
+  }
+  return { kind: 'data', env: parsed };
+}
+
+/**
+ * Pretty-print a structured capability_unavailable block exactly the way an
+ * app SHOULD log it before degrading. Returns nothing (side-effecting print)
+ * so example call-sites stay one line.
+ */
+export function printUnavailable(label, cap) {
+  console.log(`\n${label}: capability_unavailable (app MUST degrade, not crash)`);
+  console.log('  action    :', cap.action);
+  console.log('  status    :', cap.status);
+  console.log('  retriable :', cap.retriable);
+  if (cap.guidance) console.log('  guidance  :', cap.guidance);
+  if (cap.note) console.log('  note      :', cap.note);
+}
+
 /** Compact preview of a value (truncates long arrays/strings). */
 export function preview(v, max = 3) {
   if (Array.isArray(v)) {
