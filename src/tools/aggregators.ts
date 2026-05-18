@@ -253,5 +253,188 @@ export function registerAggregatorTools(
       };
     }
   );
-  // PHASE-2 TASKS 2-4 APPEND register(...) FOR get_billing_snapshot / get_support_snapshot / get_renewal_snapshot HERE.
+  register(
+    server,
+    'get_billing_snapshot',
+    'Read-only billing snapshot: unpaid/overdue/paid/cancelled/refunded/draft counts+amounts (from GetClientsDetails stats), credit balance, and recent unpaid/overdue invoices.',
+    {},
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = params.clientid;
+      const cd: any = await safeSection('client', errs, {}, () =>
+        whmcs.read('GetClientsDetails', { clientid: cid, stats: true })
+      );
+      const st = cd.stats ?? {};
+      const mapInv = (arr: any[]) =>
+        arr.map((i) => ({
+          invoiceid: i.id,
+          total: i.total,
+          duedate: i.duedate,
+          date: i.date,
+          status: i.status,
+        }));
+      const recent_unpaid = await safeSection('unpaid', errs, [], async () =>
+        mapInv(
+          norm<any>(
+            (
+              await whmcs.read<any>('GetInvoices', {
+                userid: cid,
+                status: 'Unpaid',
+                limitnum: 5,
+                orderby: 'duedate',
+                order: 'desc',
+              })
+            ).invoices,
+            'invoice'
+          )
+        )
+      );
+      const recent_overdue = await safeSection('overdue', errs, [], async () =>
+        mapInv(
+          norm<any>(
+            (
+              await whmcs.read<any>('GetInvoices', {
+                userid: cid,
+                status: 'Overdue',
+                limitnum: 5,
+                orderby: 'duedate',
+                order: 'desc',
+              })
+            ).invoices,
+            'invoice'
+          )
+        )
+      );
+      return {
+        currency: cd.currency_code,
+        credit_balance: st.creditbalance ?? cd.credit,
+        unpaid: {
+          count: st.numunpaidinvoices ?? 0,
+          amount: st.unpaidinvoicesamount ?? '0.00',
+        },
+        overdue: {
+          count: st.numoverdueinvoices ?? 0,
+          amount: st.overdueinvoicesbalance ?? '0.00',
+        },
+        paid: {
+          count: st.numpaidinvoices ?? 0,
+          amount: st.paidinvoicesamount ?? '0.00',
+        },
+        cancelled: { count: st.numcancelledinvoices ?? 0 },
+        refunded: { count: st.numrefundedinvoices ?? 0 },
+        draft: { count: st.numDraftInvoices ?? 0 },
+        recent_unpaid,
+        recent_overdue,
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_support_snapshot',
+    'Read-only support snapshot: global department open/awaiting counts (GetSupportDepartments — NOT client-scoped) + best-effort recent client tickets (GetTickets clientid may miss operator/admin tickets).',
+    {},
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = params.clientid;
+      const departments = await safeSection('departments', errs, [], async () =>
+        norm<any>(
+          (await whmcs.read<any>('GetSupportDepartments', {})).departments,
+          'department'
+        ).map((d) => ({
+          id: d.id,
+          name: d.name,
+          open_tickets: d.opentickets ?? 0,
+          awaiting_reply: d.awaitingreply ?? 0,
+        }))
+      );
+      const items = await safeSection('tickets', errs, [], async () =>
+        norm<any>(
+          (await whmcs.read<any>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
+          'ticket'
+        )
+          .map((t) => ({
+            ticketid: t.id,
+            tid: t.tid,
+            subject: t.subject,
+            status: t.status,
+            lastreply: t.lastreply,
+          }))
+          .sort((a, b) =>
+            String(b.lastreply || '').localeCompare(String(a.lastreply || ''))
+          )
+          .slice(0, 10)
+      );
+      return {
+        departments,
+        departments_scope: 'global (not client-scoped)',
+        client_tickets: { items, ...TICKET_BEST_EFFORT },
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_renewal_snapshot',
+    'Read-only renewal snapshot: services (next_due_date) and domains (expiry/next_due) due within `days` (default 60), sorted soonest-first. Date window filtered client-side.',
+    { days: z.number().int().min(1).max(3650).default(60) },
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = params.clientid;
+      const horizon = new Date(Date.now() + (params.days ?? 60) * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      const inWindow = (d?: string) =>
+        !!d && /^\d{4}-\d{2}-\d{2}/.test(d) && d.slice(0, 10) <= horizon;
+      const svc = await safeSection('services', errs, [], async () =>
+        norm<any>(
+          (await whmcs.read<any>('GetClientsProducts', { clientid: cid, limitnum: 100 }))
+            .products,
+          'product'
+        )
+          .filter((p) => inWindow(p.nextduedate))
+          .map((p) => ({
+            type: 'service' as const,
+            id: p.id,
+            name: p.name,
+            due_date: p.nextduedate,
+            status: p.status,
+            recurring_amount: p.recurringamount,
+          }))
+      );
+      const dom = await safeSection('domains', errs, [], async () =>
+        norm<any>(
+          (await whmcs.read<any>('GetClientsDomains', { clientid: cid, limitnum: 100 }))
+            .domains,
+          'domain'
+        )
+          .filter((d) => inWindow(d.expirydate ?? d.nextduedate))
+          .map((d) => ({
+            type: 'domain' as const,
+            id: d.id,
+            name: d.domainname,
+            due_date: d.expirydate ?? d.nextduedate,
+            status: d.status,
+          }))
+      );
+      const upcoming = [...dom, ...svc].sort((a, b) =>
+        String(a.due_date).localeCompare(String(b.due_date))
+      );
+      return {
+        window_days: params.days ?? 60,
+        horizon,
+        upcoming,
+        partial_errors: errs,
+      };
+    }
+  );
+  // PHASE-2 TASKS 2-4 register(...) FOR get_billing_snapshot / get_support_snapshot / get_renewal_snapshot appended above.
 }
