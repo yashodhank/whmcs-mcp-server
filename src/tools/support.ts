@@ -5,15 +5,42 @@
  */
 
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
 import { ensureToolAuth, isClientMode, requireClientModeClientId, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
+import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+import { applyGovernanceOrLegacy, governanceEnabled } from '../governance/pipeline.js';
 
 const TOOL_VERSION = 'v1';
+
+/**
+ * Stable MCP `outputSchema` for `get_ticket_departments`.
+ *
+ * Strict MCP runtimes (e.g. Kilo) validate a tool result against the tool's
+ * declared `outputSchema`. This tool returns a pure global, non-PII payload
+ * ({ total, departments }) — department ids / names / descriptions / counts
+ * only. The shape is intentionally permissive and tolerant (all department
+ * fields optional, no surprising extra constraints) so the SAME schema
+ * validates the success, empty, and degraded (malformed/partial WHMCS) cases.
+ * Mirrors how sibling read tools declare permissive, all-optional output
+ * shapes (e.g. the aggregator output shape).
+ */
+const GET_TICKET_DEPARTMENTS_OUTPUT_SHAPE = {
+  total: z.number(),
+  departments: z.array(
+    z.object({
+      id: z.number().optional(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      awaiting_reply: z.number().optional(),
+      open_tickets: z.number().optional(),
+    })
+  ),
+} as const;
 
 /**
  * Create ticket input schema
@@ -286,72 +313,103 @@ export function registerSupportTools(
   // Tool: get_ticket_departments
   // ============================================
   if (isToolAllowed('get_ticket_departments')) {
-    server.tool(
-      'get_ticket_departments',
-      `List all support ticket departments. Returns department IDs, names, and descriptions. Version: ${TOOL_VERSION}`,
-      { ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // `get_ticket_departments` is a PURE GLOBAL READ: department ids / names /
+    // descriptions / counts only — no client scope, no PII, no canonical
+    // entity/contract. It therefore does NOT route through `governedToolResult`
+    // (which projects/masks per-consumer canonical entities like clients or
+    // tickets); there is nothing to project. It DOES, however, route through
+    // `applyGovernanceOrLegacy` like every other read tool so that, governance
+    // ON or OFF, the result carries an `outputSchema`-valid `structuredContent`
+    // alongside the byte-identical legacy `content[0].text` (RCA #4 class fix:
+    // strict MCP runtimes such as Kilo reject results lacking
+    // `structuredContent` when an `outputSchema` is declared). Registered via
+    // `server.registerTool` (not the legacy `.tool()` signature) so the stable
+    // `outputSchema` is part of the tool contract.
+    const handler: ToolCallback<z.ZodRawShape> = (async (
+      params: Record<string, unknown>
+    ) => {
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          toolLogger.logToolCall('get_ticket_departments', {}, false);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          const result = await whmcsClient.read<{
-            result: string;
-            totalresults?: number;
-            departments?: {
-              department?: {
-                id: number;
-                name: string;
-                description?: string;
-                awaitingreply?: number;
-                opentickets?: number;
-              }[];
-            };
-          }>('GetSupportDepartments');
-          
-          const departments = result.departments?.department ?? [];
-          
-          toolLogger.logToolResult('get_ticket_departments', true, Date.now() - startTime);
-          
-          return {
-            content: [{
-              type: 'text' as const,
-              text: JSON.stringify({
-                total: result.totalresults || departments.length,
-                departments: departments.map((d) => ({
-                  id: d.id,
-                  name: d.name,
-                  description: d.description,
-                  awaiting_reply: d.awaitingreply,
-                  open_tickets: d.opentickets,
-                })),
-              }),
-            }],
-          };
-          
-        } catch (error) {
-          toolLogger.logToolResult('get_ticket_departments', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
+      try {
+        const authError = ensureToolAuth(params);
+        if (authError) return authError;
+
+        toolLogger.logToolCall('get_ticket_departments', {}, false);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
         }
+
+        const result = await whmcsClient.read<{
+          result?: string;
+          totalresults?: number;
+          departments?: {
+            department?: {
+              id: number;
+              name: string;
+              description?: string;
+              awaitingreply?: number;
+              opentickets?: number;
+            }[];
+          };
+        }>('GetSupportDepartments');
+
+        const departments = result.departments?.department ?? [];
+
+        // Byte-identical to the prior legacy text payload (zero behavior
+        // change for existing apps/tests); also surfaced as
+        // `structuredContent` via `applyGovernanceOrLegacy`.
+        const legacyPayload = {
+          total: result.totalresults || departments.length,
+          departments: departments.map((d) => ({
+            id: d.id,
+            name: d.name,
+            description: d.description,
+            awaiting_reply: d.awaitingreply,
+            open_tickets: d.opentickets,
+          })),
+        };
+
+        toolLogger.logToolResult('get_ticket_departments', true, Date.now() - startTime);
+
+        // Pure global non-PII read: governance ON has no canonical entity to
+        // project, so the governed branch returns the same legacy-shaped
+        // structured payload. Both ON and OFF yield schema-valid
+        // structuredContent + identical text.
+        return applyGovernanceOrLegacy({
+          enabled: governanceEnabled(),
+          legacy: legacyPayload,
+          govern: () => ({
+            content: [{ type: 'text' as const, text: JSON.stringify(legacyPayload) }],
+            structuredContent: legacyPayload as unknown as Record<string, unknown>,
+          }),
+        });
+
+      } catch (error) {
+        toolLogger.logToolResult('get_ticket_departments', false, Date.now() - startTime,
+          error instanceof Error ? error.message : String(error));
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
+            isError: true,
+          };
+        }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.registerTool(
+      'get_ticket_departments',
+      {
+        description: `List all support ticket departments. Returns department IDs, names, and descriptions. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...AUTH_SHAPE },
+        outputSchema: GET_TICKET_DEPARTMENTS_OUTPUT_SHAPE,
+        annotations: { ...READ_ONLY_ANNOTATIONS },
+      },
+      handler
     );
   }
 }

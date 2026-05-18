@@ -43,6 +43,12 @@ describe('reply_ticket (client mode regression)', () => {
       tool: (name: string, _desc: string, _schema: unknown, cb: any) => {
         handlers[name] = cb;
       },
+      // get_ticket_departments now registers via the SDK `registerTool`
+      // signature (it declares an outputSchema); stub it so registration of
+      // the unrelated reply_ticket tool under test still succeeds.
+      registerTool: (name: string, _cfg: unknown, cb: any) => {
+        handlers[name] = cb;
+      },
     };
 
     const mutate = vi
