@@ -50,20 +50,81 @@ const WRITE_FLOW_ANNOTATIONS = {
   openWorldHint: false,
 } as const;
 
-const RESULT_OUTPUT_SHAPE = {
-  intent: z.record(z.string(), z.unknown()),
-  stage: z.string(),
-  validation: z.record(z.string(), z.unknown()).optional(),
-  risk_flags: z.array(z.string()),
-  required_approvals: z.number(),
+/**
+ * Accurate, app-usable WriteIntent shape (mirrors `WriteIntent` in
+ * write/types.ts). Declared so the SDK never strips intent fields apps
+ * rely on (intent_id, state, scope, action, risk, idempotency_key,
+ * timestamps). Open via `.passthrough()` so additive future fields are
+ * preserved rather than dropped.
+ */
+const INTENT_OBJECT_SHAPE = z.looseObject({
+  intent_id: z.string(),
+  consumer_id: z.string(),
+  scope: z.string(),
+  action: z.string(),
+  risk: z.string(),
+  params: z.record(z.string(), z.unknown()),
   idempotency_key: z.string(),
-  would_call: z.object({ action: z.string(), params: z.record(z.string(), z.unknown()) }),
-  executed: z.literal(false),
-  execution: z.object({
-    attempted: z.literal(false),
-    blocked_reason: z.string().optional(),
-    note: z.string().optional(),
-  }),
+  preconditions: z.record(z.string(), z.unknown()),
+  projected_effect: z.string(),
+  state: z.string(),
+  created_at: z.string(),
+  expires_at: z.string(),
+  contract: z.string().optional(),
+});
+
+/** Accurate validation result shape (mirrors `ValidationResult`). */
+const VALIDATION_OBJECT_SHAPE = z.looseObject({
+  ok: z.boolean(),
+  issues: z.array(
+    z.object({
+      code: z.string(),
+      severity: z.string(),
+      message: z.string(),
+    })
+  ),
+  compat_warnings: z.array(z.string()),
+});
+
+/**
+ * Result contract for draft/validate/approve/execute. Mirrors
+ * `WriteToolResult` exactly. All success fields are present so apps get a
+ * stable machine-readable structure (idempotency_key, required_approvals,
+ * risk_flags, execution.blocked_reason, execution.note are all declared).
+ *
+ * Every success field is `.optional()` and the diagnostic keys an error
+ * result may carry (`isError`, `error`, `stage`, `scope`, `intent_id`,
+ * `writeCapability`) are declared so an `err()` result still validates
+ * against this schema WITHOUT weakening the success contract: a successful
+ * call always returns every field, the optionality only tolerates the
+ * MCP-permitted `isError` payload path. (Per MCP, an `isError` result is
+ * not strictly validated against outputSchema, but declaring these keeps
+ * the structured error machine-readable too.)
+ */
+const RESULT_OUTPUT_SHAPE = {
+  intent: INTENT_OBJECT_SHAPE.optional(),
+  stage: z.string().optional(),
+  validation: VALIDATION_OBJECT_SHAPE.optional(),
+  risk_flags: z.array(z.string()).optional(),
+  required_approvals: z.number().optional(),
+  idempotency_key: z.string().optional(),
+  would_call: z
+    .object({ action: z.string(), params: z.record(z.string(), z.unknown()) })
+    .optional(),
+  executed: z.literal(false).optional(),
+  execution: z
+    .object({
+      attempted: z.literal(false),
+      blocked_reason: z.string().optional(),
+      note: z.string().optional(),
+    })
+    .optional(),
+  // Diagnostic keys carried only by an `err()` result (success never sets these).
+  isError: z.literal(true).optional(),
+  error: z.string().optional(),
+  scope: z.string().optional(),
+  intent_id: z.string().optional(),
+  writeCapability: z.string().optional(),
 } as const;
 
 function err(message: string, extra?: Record<string, unknown>) {
@@ -114,10 +175,30 @@ function toToolResult(
   };
 }
 
-/** Output schema for get_write_intent (intent + append-only audit trail). */
+/** Accurate append-only audit event shape (mirrors `AuditEvent`). */
+const AUDIT_EVENT_SHAPE = z.looseObject({
+  event: z.string(),
+  intent_id: z.string(),
+  consumer_id: z.string(),
+  scope: z.string(),
+  action: z.string(),
+  idempotency_key: z.string(),
+  at: z.string(),
+  detail: z.string().optional(),
+});
+
+/**
+ * Output schema for get_write_intent (intent + append-only audit trail).
+ * Success always returns both `intent` and `audit`; they are `.optional()`
+ * and the `err()` diagnostic keys are declared only so an error result
+ * still validates — the success contract (intent + audit) is unchanged.
+ */
 const INTENT_VIEW_OUTPUT_SHAPE = {
-  intent: z.record(z.string(), z.unknown()),
-  audit: z.array(z.record(z.string(), z.unknown())),
+  intent: INTENT_OBJECT_SHAPE.optional(),
+  audit: z.array(AUDIT_EVENT_SHAPE).optional(),
+  isError: z.literal(true).optional(),
+  error: z.string().optional(),
+  intent_id: z.string().optional(),
 } as const;
 
 type Handler = ToolCallback<z.ZodRawShape>;

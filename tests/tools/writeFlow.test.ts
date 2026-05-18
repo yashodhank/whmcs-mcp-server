@@ -155,4 +155,79 @@ describe('Phase F write-flow tools (read-only posture)', () => {
     const mk = () => handlers.draft_write_intent({ scope: 'client_note:write', params: { clientid: 1, note: 'n' }, naturalKey: 'k-idem-stable', projected_effect: 'note', ...tok('writer') });
     expect(J(mk()).idempotency_key).toBe(J(mk()).idempotency_key);
   });
+
+  it('every write-flow tool registers a non-empty outputSchema', () => {
+    const { configs } = harness();
+    for (const name of [
+      'draft_write_intent', 'validate_write_intent', 'approve_write_intent',
+      'execute_write_intent', 'get_write_intent',
+    ]) {
+      const schema = configs[name]?.outputSchema ?? {};
+      expect(Object.keys(schema).length).toBeGreaterThan(0);
+    }
+  });
+
+  // Drive the real handlers through a complete flow, JSON-parse each
+  // structured result, and assert NO top-level key is returned-but-undeclared
+  // in that tool's own declared outputSchema raw shape. This is the exact
+  // bug class (SDK silently stripping undeclared fields) just fixed for
+  // get_write_intent — now enforced for ALL five write-flow tools.
+  it('no field returned-but-undeclared for any write-flow tool (success path)', () => {
+    const { handlers, configs } = harness();
+    const declared = (name: string) =>
+      new Set(Object.keys(configs[name]?.outputSchema ?? {}));
+
+    const d = handlers.draft_write_intent({ scope: 'client_note:write', params: { clientid: 7, note: 'hello' }, naturalKey: 'schema-cover', projected_effect: 'add client note', ...tok('writer') });
+    const id = (J(d).intent as Record<string, unknown>).intent_id as string;
+    const v = handlers.validate_write_intent({ intent_id: id, ...tok('writer') });
+    const a = handlers.approve_write_intent({ intent_id: id, approver: 'op1', decision: 'approved', ...tok('writer') });
+    const e = handlers.execute_write_intent({ intent_id: id, ...tok('writer') });
+    const g = handlers.get_write_intent({ intent_id: id, ...tok('writer') });
+
+    const cases: [string, Res][] = [
+      ['draft_write_intent', d],
+      ['validate_write_intent', v],
+      ['approve_write_intent', a],
+      ['execute_write_intent', e],
+      ['get_write_intent', g],
+    ];
+    for (const [name, res] of cases) {
+      expect(res.isError).toBeUndefined();
+      const keys = Object.keys(J(res));
+      const allow = declared(name);
+      const undeclared = keys.filter((k) => !allow.has(k));
+      expect(undeclared, `${name} returned undeclared keys: ${undeclared.join(',')}`).toEqual([]);
+    }
+  });
+
+  it('result schema declares approval/idempotency/audit-relevant app fields', () => {
+    const { configs } = harness();
+    for (const name of ['draft_write_intent', 'validate_write_intent', 'approve_write_intent', 'execute_write_intent']) {
+      const s = configs[name]?.outputSchema ?? {};
+      expect(s.idempotency_key).toBeDefined();
+      expect(s.required_approvals).toBeDefined();
+      expect(s.risk_flags).toBeDefined();
+      expect(s.execution).toBeDefined();
+      expect(s.intent).toBeDefined();
+    }
+  });
+
+  it('get_write_intent keeps intent + audit and is not the result schema', () => {
+    const { configs } = harness();
+    const gi = configs.get_write_intent?.outputSchema ?? {};
+    expect(gi.intent).toBeDefined();
+    expect(gi.audit).toBeDefined();
+    expect(gi.would_call).toBeUndefined();
+    expect(gi.executed).toBeUndefined();
+  });
+
+  it('error result still validates against the declared outputSchema', () => {
+    const { handlers, configs } = harness();
+    const r = handlers.draft_write_intent({ scope: 'client_note:write', params: {}, naturalKey: 'k-err', projected_effect: 'x', auth_token: 'bogus' });
+    expect(r.isError).toBe(true);
+    const keys = Object.keys(J(r));
+    const allow = new Set(Object.keys(configs.draft_write_intent?.outputSchema ?? {}));
+    const undeclared = keys.filter((k) => !allow.has(k));
+    expect(undeclared, `err() returned undeclared keys: ${undeclared.join(',')}`).toEqual([]);
+  });
 });
