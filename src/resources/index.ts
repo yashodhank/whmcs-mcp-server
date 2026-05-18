@@ -13,6 +13,56 @@ import { RateLimiter } from '../rateLimiter.js';
 import { isClientMode, ensureClientAllowed, ensureClientOwnership, stripAuthFromUri } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import { formatTicketThread } from '../whmcs/ticketThread.js';
+import {
+  applyGovernanceOrLegacy,
+  governedToolResult,
+  governanceEnabled,
+} from '../governance/pipeline.js';
+import {
+  mapToCanonicalClient,
+  mapToCanonicalInvoice,
+  mapToCanonicalTicket,
+} from '../canonical/index.js';
+import type { Canonical } from '../governance/types.js';
+
+/**
+ * Adapt the governed/legacy tool-result boundary onto the read-only resource
+ * envelope ({ contents: [{ uri, mimeType, text }] }).
+ *
+ * Resources carry NO auth_token (stdio resources are not token-authed per
+ * src/security.ts). When governance is OFF (default) this returns the legacy
+ * payload byte-equivalently (JSON.parse-identical) — existing resource tests
+ * pass unchanged. When governance is explicitly ON, the consumer resolves via
+ * the anonymous/deny path (authToken undefined): in production with no anon
+ * profile this is a structured `consumer_denied` — the correct safe default
+ * for an unauthenticated resource. The resource text is taken verbatim from
+ * the tool-result's content[0].text.
+ */
+function governedResourceText<T>(args: {
+  uri: string;
+  legacy: unknown;
+  canonical: () => Canonical<T>;
+}): { contents: { uri: string; mimeType: string; text: string }[] } {
+  const result = applyGovernanceOrLegacy({
+    enabled: governanceEnabled(),
+    legacy: args.legacy,
+    govern: () =>
+      governedToolResult({
+        canonical: args.canonical(),
+        authToken: undefined,
+        requestedContract: undefined,
+      }),
+  });
+  return {
+    contents: [
+      {
+        uri: args.uri,
+        mimeType: 'application/json',
+        text: result.content[0].text,
+      },
+    ],
+  };
+}
 
 /**
  * Parse a positive integer from URI or tool param (SEC-003).
@@ -97,24 +147,23 @@ export function registerResources(
           };
         }>('GetClientsDetails', { clientid, stats: true });
 
-        return {
-          contents: [{
-            uri: safeUri,
-            mimeType: 'application/json',
-            text: JSON.stringify({
-              clientid: client.id,
-              name: `${client.firstname} ${client.lastname}`,
-              email: client.email,
-              status: client.status,
-              credit_balance: client.credit,
-              currency: client.currency_code,
-              product_count: client.stats?.productsnumactive ?? 0,
-              product_count_total: client.stats?.productsnumtotal ?? 0,
-              domain_count: client.stats?.numactivedomains ?? 0,
-              domain_count_total: client.stats?.numdomains ?? 0,
-            }, null, 2),
-          }],
-        };
+        return governedResourceText({
+          uri: safeUri,
+          legacy: {
+            clientid: client.id,
+            name: `${client.firstname} ${client.lastname}`,
+            email: client.email,
+            status: client.status,
+            credit_balance: client.credit,
+            currency: client.currency_code,
+            product_count: client.stats?.productsnumactive ?? 0,
+            product_count_total: client.stats?.productsnumtotal ?? 0,
+            domain_count: client.stats?.numactivedomains ?? 0,
+            domain_count_total: client.stats?.numdomains ?? 0,
+          },
+          canonical: () =>
+            mapToCanonicalClient(client as unknown as Record<string, unknown>),
+        });
       } catch (error) {
         resourceLogger.error('Failed to fetch client summary', {
           clientid,
@@ -198,30 +247,29 @@ export function registerResources(
         const items = normalizeToArray<InvoiceItem>(invoice.items?.item);
         const transactions = normalizeToArray<Transaction>(invoice.transactions?.transaction);
 
-        return {
-          contents: [{
-            uri: safeUri,
-            mimeType: 'application/json',
-            text: JSON.stringify({
-              invoiceid: invoice.invoiceid,
-              clientid: invoice.userid,
-              date: invoice.date,
-              duedate: invoice.duedate,
-              datepaid: invoice.datepaid,
-              status: invoice.status,
-              total: invoice.total,
-              balance: invoice.balance,
-              items: items.map((i) => ({ id: i.id, description: i.description, amount: i.amount })),
-              transactions: transactions.map((t) => ({
-                id: t.id,
-                date: t.date,
-                gateway: t.gateway,
-                amount_in: t.amountin,
-                amount_out: t.amountout,
-              })),
-            }, null, 2),
-          }],
-        };
+        return governedResourceText({
+          uri: safeUri,
+          legacy: {
+            invoiceid: invoice.invoiceid,
+            clientid: invoice.userid,
+            date: invoice.date,
+            duedate: invoice.duedate,
+            datepaid: invoice.datepaid,
+            status: invoice.status,
+            total: invoice.total,
+            balance: invoice.balance,
+            items: items.map((i) => ({ id: i.id, description: i.description, amount: i.amount })),
+            transactions: transactions.map((t) => ({
+              id: t.id,
+              date: t.date,
+              gateway: t.gateway,
+              amount_in: t.amountin,
+              amount_out: t.amountout,
+            })),
+          },
+          canonical: () =>
+            mapToCanonicalInvoice(invoice as unknown as Record<string, unknown>),
+        });
       } catch (error) {
         resourceLogger.error('Failed to fetch invoice history', {
           invoiceid,
@@ -293,13 +341,12 @@ export function registerResources(
 
         const payload = formatTicketThread(ticket);
 
-        return {
-          contents: [{
-            uri: safeUri,
-            mimeType: 'application/json',
-            text: JSON.stringify(payload, null, 2),
-          }],
-        };
+        return governedResourceText({
+          uri: safeUri,
+          legacy: payload,
+          canonical: () =>
+            mapToCanonicalTicket(ticket as unknown as Record<string, unknown>),
+        });
       } catch (error) {
         resourceLogger.error('Failed to fetch ticket thread', {
           ticketid,
