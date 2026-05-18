@@ -132,4 +132,32 @@ describe('get_renewal_snapshot', () => {
     const p = JSON.parse(res.content[0].text);
     expect(p.upcoming.map((u: any) => `${u.type}:${u.id}`)).toEqual(['service:2']);
   });
+
+  it('flags truncation when the services list hits the fetch cap (renewals may be missed)', async () => {
+    const many = Array.from({ length: 100 }, (_, i) => ({
+      id: i + 1, name: `S${i}`, domain: 'a', status: 'Active',
+      nextduedate: '2026-06-01', recurringamount: '1.00',
+    }));
+    const { handlers } = harness((action) => {
+      if (action === 'GetClientsProducts') return { products: { product: many } };
+      if (action === 'GetClientsDomains') return { domains: { domain: [] } };
+      return {};
+    });
+    const res = await handlers.get_renewal_snapshot({ clientid: 30, days: 9999 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.truncated).toEqual({ services: true, domains: false });
+  });
+
+  it('reports no truncation when both lists are below the fetch cap', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetClientsProducts') return { products: { product: [
+        { id: 1, name: 'A', domain: 'a', status: 'Active', nextduedate: '2026-06-01' } ] } };
+      if (action === 'GetClientsDomains') return { domains: { domain: [
+        { id: 9, domainname: 'd.test', status: 'Active', expirydate: '2026-06-01', nextduedate: '2026-06-01' } ] } };
+      return {};
+    });
+    const res = await handlers.get_renewal_snapshot({ clientid: 30, days: 9999 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.truncated).toEqual({ services: false, domains: false });
+  });
 });

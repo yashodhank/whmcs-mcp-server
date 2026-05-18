@@ -26,6 +26,13 @@ const TICKET_BEST_EFFORT = {
   note: 'GetTickets clientid discovery may miss operator/admin-created tickets; use get_ticket_thread by known ticketid/tid for reliable retrieval.',
 };
 
+/**
+ * Per-list fetch cap for get_renewal_snapshot. If a normalized list reaches
+ * this length, more records may exist beyond it and the snapshot flags the
+ * section as truncated (some upcoming renewals could be missed).
+ */
+const RENEWAL_FETCH_LIMIT = 100;
+
 interface PartialError {
   section: string;
   error: string;
@@ -130,10 +137,9 @@ function register(
 }
 
 /**
- * Register the read-only aggregator tools on the MCP server.
- *
- * Currently wires up `get_account_360`. Additional snapshot aggregators
- * are appended here by later Phase-2 tasks.
+ * Register the read-only aggregator tools on the MCP server:
+ * get_account_360, get_billing_snapshot, get_support_snapshot,
+ * get_renewal_snapshot.
  */
 export function registerAggregatorTools(
   server: McpServer,
@@ -397,12 +403,15 @@ export function registerAggregatorTools(
         /^\d{4}-\d{2}-\d{2}/.test(d) &&
         d.slice(0, 10) >= '1971-01-01' &&
         d.slice(0, 10) <= horizon;
-      const svc = await safeSection('services', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetClientsProducts', { clientid: cid, limitnum: 100 }))
+      const truncated = { services: false, domains: false };
+      const svc = await safeSection('services', errs, [], async () => {
+        const raw = norm<any>(
+          (await whmcs.read<any>('GetClientsProducts', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
             .products,
           'product'
-        )
+        );
+        truncated.services = raw.length >= RENEWAL_FETCH_LIMIT;
+        return raw
           .filter((p) => inWindow(p.nextduedate))
           .map((p) => ({
             type: 'service' as const,
@@ -411,14 +420,16 @@ export function registerAggregatorTools(
             due_date: p.nextduedate,
             status: p.status,
             recurring_amount: p.recurringamount,
-          }))
-      );
-      const dom = await safeSection('domains', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetClientsDomains', { clientid: cid, limitnum: 100 }))
+          }));
+      });
+      const dom = await safeSection('domains', errs, [], async () => {
+        const raw = norm<any>(
+          (await whmcs.read<any>('GetClientsDomains', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
             .domains,
           'domain'
-        )
+        );
+        truncated.domains = raw.length >= RENEWAL_FETCH_LIMIT;
+        return raw
           .filter((d) => inWindow(d.expirydate ?? d.nextduedate))
           .map((d) => ({
             type: 'domain' as const,
@@ -426,8 +437,8 @@ export function registerAggregatorTools(
             name: d.domainname,
             due_date: d.expirydate ?? d.nextduedate,
             status: d.status,
-          }))
-      );
+          }));
+      });
       const upcoming = [...dom, ...svc].sort((a, b) =>
         String(a.due_date).localeCompare(String(b.due_date))
       );
@@ -435,6 +446,7 @@ export function registerAggregatorTools(
         window_days: params.days ?? 60,
         horizon,
         upcoming,
+        truncated,
         partial_errors: errs,
       };
     }
