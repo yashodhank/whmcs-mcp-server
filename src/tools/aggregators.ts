@@ -16,6 +16,12 @@ import { isToolAllowed } from '../config.js';
 import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+import {
+  applyGovernanceOrLegacy,
+  governedToolResult,
+  governanceEnabled,
+} from '../governance/pipeline.js';
+import type { Canonical, FieldClass, FieldClassMap } from '../governance/types.js';
 
 /**
  * Shared best-effort discovery caveat for ticket sections (see C2).
@@ -69,6 +75,72 @@ function norm<T>(container: any, singular: string): T[] {
 }
 
 /**
+ * Best-effort field classification for an aggregator's assembled summary.
+ *
+ * An aggregator does NOT map to a single B1 canonical entity: it composes
+ * many read-only WHMCS calls into a CUSTOM nested summary. We therefore gate
+ * the WHOLE assembled object as one ad-hoc `activity` canonical with an
+ * explicit, conservative top-level field-class map.
+ *
+ * The projection boundary (`project()`) walks ONLY the top-level keys of
+ * `canonical.data`; any top-level key absent from the returned map is DROPPED
+ * by projection (fail-safe — never leaked). Classification is pragmatic and
+ * keyword-driven; the projection layer enforces the actual safety.
+ */
+function classifyAggregateKey(key: string): FieldClass {
+  const k = key.toLowerCase();
+  // Free-text / untrusted: ticket subjects, messages, notes, ticket bundles.
+  if (
+    /ticket|subject|message|note|reply|free_text/.test(k)
+  ) {
+    return 'untrusted.free_text';
+  }
+  // Financial amounts / balances / credit.
+  if (/amount|balance|credit|total|paid|unpaid|overdue|refund|cancel|draft|recurring|currency/.test(k)) {
+    return 'financial.amount';
+  }
+  // Financial references: invoices, transactions, orders, gateways.
+  if (/invoice|transaction|order|gateway|recent_/.test(k)) {
+    return 'financial.reference';
+  }
+  // Client identity block (name/email/phone/address live inside it).
+  if (k === 'client') {
+    return 'pii.name';
+  }
+  if (k.includes('email')) return 'pii.email';
+  if (/phone|mobile/.test(k)) return 'pii.phone';
+  if (/address|street|city|postcode|zip/.test(k)) return 'pii.address';
+  // Identifiers.
+  if (/id$|_id$|clientid|serviceid|domainid/.test(k)) {
+    return 'business.identifier';
+  }
+  // Counts, dates, status, partial_errors, truncated, discovery notes,
+  // window/horizon, scope strings — non-sensitive aggregate metadata.
+  return 'public.safe';
+}
+
+/**
+ * Wrap an assembled aggregator summary as a single ad-hoc `activity`
+ * canonical with a conservative top-level field-class map. Unmapped keys
+ * are dropped by the projection layer (safe by construction).
+ */
+function aggregateCanonical(
+  entity: string,
+  payload: Record<string, unknown>
+): Canonical<unknown> {
+  void entity;
+  const classes: Record<string, FieldClass> = {};
+  for (const key of Object.keys(payload)) {
+    classes[key] = classifyAggregateKey(key);
+  }
+  return {
+    entity: 'activity' as const,
+    data: payload,
+    classes: classes as FieldClassMap,
+  };
+}
+
+/**
  * Register a single read-only aggregator tool. Mirrors the listTools
  * factory: auth/scope checks, rate limiting, structured logging, and a
  * localized boundary cast for the SDK `ToolCallback` shape.
@@ -85,7 +157,14 @@ function register(
   run: (params: any) => Promise<unknown>
 ): void {
   if (!isToolAllowed(name)) return;
-  const schema = z.object({ clientid: z.number().int().positive(), ...extra });
+  const schema = z.object({
+    clientid: z.number().int().positive(),
+    contract: z
+      .string()
+      .optional()
+      .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
+    ...extra,
+  });
 
   // The shared `ensure*` helpers return a local `McpToolResponse` type that
   // lacks the SDK's `[x: string]: unknown` index signature, so the inferred
@@ -95,6 +174,14 @@ function register(
     const log = logger.child();
     const t0 = Date.now();
     try {
+      // Capture the bearer token + requested contract before
+      // ensureToolAuth strips auth fields from params.
+      const pview = params as Record<string, unknown>;
+      const authToken =
+        typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+      const requestedContract =
+        typeof pview.contract === 'string' ? pview.contract : undefined;
+
       const authErr = ensureToolAuth(params as Record<string, unknown>);
       if (authErr) return authErr;
       if (isClientMode()) {
@@ -105,7 +192,19 @@ function register(
       if (!rl.tryConsume()) throw new RateLimitError();
       const payload = await run(params);
       log.logToolResult(name, true, Date.now() - t0);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
+      return applyGovernanceOrLegacy({
+        enabled: governanceEnabled(),
+        legacy: payload,
+        govern: () =>
+          governedToolResult({
+            canonical: aggregateCanonical(
+              name,
+              payload as Record<string, unknown>
+            ),
+            authToken,
+            requestedContract,
+          }),
+      });
     } catch (e) {
       log.logToolResult(
         name,
