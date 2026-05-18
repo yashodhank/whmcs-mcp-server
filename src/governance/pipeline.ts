@@ -108,6 +108,69 @@ export function governProjection<T>(args: {
   }
 }
 
+export interface GovernListResult {
+  readonly ok: boolean;
+  readonly status: GovernStatus;
+  readonly items?: Record<string, unknown>[];
+  readonly error?: string;
+  readonly consumer_id?: string;
+  readonly contract?: ContractName;
+}
+
+/**
+ * PURE list core. Resolves the consumer ONCE, then projects every row
+ * through the resolved contract using a per-row canonical mapper. A denied
+ * consumer or env-forbidden contract yields no rows (structured failure).
+ */
+export function governListProjection(args: {
+  rows: readonly unknown[];
+  mapItem: (raw: unknown) => Canonical<unknown>;
+  authToken: string | undefined;
+  env: ProjectionEnv;
+  registry: ConsumerProfile[];
+  allowAnon: boolean;
+  requestedContract?: string;
+}): GovernListResult {
+  const resolution = resolveConsumer(args.authToken, args.env, args.registry, {
+    allowAnon: args.allowAnon,
+  });
+  if (!resolution.ok) {
+    return {
+      ok: false,
+      status: 'consumer_denied',
+      error: `consumer denied: ${resolution.reason}`,
+    };
+  }
+
+  const profile = resolution.profile;
+  const contractName = pickContract(profile, args.requestedContract);
+  const contract = getContract(contractName);
+
+  try {
+    const items = args.rows.map((raw) =>
+      project(args.mapItem(raw), contract, args.env)
+    );
+    return {
+      ok: true,
+      status: 'projected',
+      items,
+      consumer_id: profile.id,
+      contract: contractName,
+    };
+  } catch (e) {
+    if (e instanceof ProjectionEnvError) {
+      return {
+        ok: false,
+        status: 'contract_env_forbidden',
+        error: e.message,
+        consumer_id: profile.id,
+        contract: contractName,
+      };
+    }
+    throw e;
+  }
+}
+
 /**
  * PURE backward-compat gate. When governance is disabled the caller's
  * existing legacy payload is returned verbatim (zero behavior change for
@@ -187,6 +250,50 @@ export function governedToolResult<T>(args: {
     consumer: r.consumer_id,
     contract: r.contract,
     data: r.data,
+  };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
+    structuredContent: payload,
+  };
+}
+
+/**
+ * Output boundary for a governed LIST tool. Projects each row through the
+ * resolved consumer contract and merges the projected items into the
+ * caller's envelope (total/count/offset/limit/extra). Denied consumer →
+ * structured error, never rows.
+ */
+export function governedListResult(args: {
+  rows: readonly unknown[];
+  mapItem: (raw: unknown) => Canonical<unknown>;
+  envelope: Record<string, unknown>;
+  authToken: string | undefined;
+  requestedContract?: string;
+}): GovernedToolResult {
+  const r = governListProjection({
+    rows: args.rows,
+    mapItem: args.mapItem,
+    authToken: args.authToken,
+    env: getProjectionEnv(),
+    registry: getConsumerRegistry(),
+    allowAnon: config.MCP_ALLOW_ANON_LLM,
+    requestedContract: args.requestedContract,
+  });
+
+  if (!r.ok) {
+    const payload = { isError: true, error: r.error, status: r.status };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(payload) }],
+      structuredContent: payload,
+      isError: true,
+    };
+  }
+
+  const payload = {
+    consumer: r.consumer_id,
+    contract: r.contract,
+    items: r.items,
+    ...args.envelope,
   };
   return {
     content: [{ type: 'text', text: JSON.stringify(payload) }],

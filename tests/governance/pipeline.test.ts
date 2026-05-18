@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { hashToken, loadConsumerRegistry } from '../../src/governance/consumers.js';
 import {
   governProjection,
+  governListProjection,
   pickContract,
   applyGovernanceOrLegacy,
 } from '../../src/governance/pipeline.js';
@@ -105,6 +106,48 @@ describe('governProjection (pure core)', () => {
     const snapshot = JSON.stringify(c);
     governProjection({ ...base, canonical: c, authToken: TOKEN_BILL });
     expect(JSON.stringify(c)).toBe(snapshot);
+  });
+});
+
+describe('governListProjection (per-row projection, single consumer resolve)', () => {
+  const base = { env: 'production' as const, registry: registry(), allowAnon: false };
+  const rows = [
+    { clientid: 1, email: 'a@example.test', gatewayRef: 'txn_1', password: 'sek1' },
+    { clientid: 2, email: 'b@example.test', gatewayRef: 'txn_2', password: 'sek2' },
+  ];
+  const mapItem = (raw: unknown) => {
+    const d = raw as { clientid: number; email: string; gatewayRef: string; password: string };
+    return {
+      entity: 'invoice' as const,
+      data: d,
+      classes: {
+        clientid: 'business.identifier' as const,
+        email: 'pii.email' as const,
+        gatewayRef: 'financial.reference' as const,
+        password: 'secret.credential' as const,
+      },
+    };
+  };
+
+  it('billing consumer: every row keeps financial.reference, drops secret', () => {
+    const r = governListProjection({ ...base, rows, mapItem, authToken: TOKEN_BILL });
+    expect(r.ok).toBe(true);
+    expect(r.items).toHaveLength(2);
+    expect((r.items ?? [])[0]).toMatchObject({ clientid: 1, gatewayRef: 'txn_1' });
+    expect(JSON.stringify(r.items)).not.toContain('sek1');
+    expect(JSON.stringify(r.items)).not.toContain('sek2');
+  });
+
+  it('denied consumer leaks no rows', () => {
+    const r = governListProjection({ ...base, rows, mapItem, authToken: 'nope' });
+    expect(r.ok).toBe(false);
+    expect(r.items).toBeUndefined();
+  });
+
+  it('empty rows → ok with empty items', () => {
+    const r = governListProjection({ ...base, rows: [], mapItem, authToken: TOKEN_BILL });
+    expect(r.ok).toBe(true);
+    expect(r.items).toEqual([]);
   });
 });
 

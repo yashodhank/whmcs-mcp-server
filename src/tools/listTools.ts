@@ -18,6 +18,19 @@ import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
 import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
+import type { Canonical } from '../governance/types.js';
+import {
+  applyGovernanceOrLegacy,
+  governedListResult,
+  governanceEnabled,
+} from '../governance/pipeline.js';
+import {
+  mapToCanonicalService,
+  mapToCanonicalDomain,
+  mapToCanonicalInvoice,
+  mapToCanonicalTicket,
+  mapToCanonicalOrder,
+} from '../canonical/index.js';
 
 /**
  * Standard MCP annotations for read-only list tools.
@@ -49,8 +62,14 @@ export interface ListToolConfig<T> {
   extraSchema: z.ZodRawShape;
   /** Constant params always sent to the WHMCS API. */
   fixedParams?: Record<string, unknown>;
-  /** Maps a raw WHMCS row to the public item shape. */
+  /** Maps a raw WHMCS row to the public item shape (legacy output). */
   mapItem: (raw: any) => T;
+  /**
+   * Maps a raw WHMCS row to a canonical entity for governed projection.
+   * Required for governed output; if absent, legacy output is used even
+   * when governance is enabled (safe fallback — never leaks).
+   */
+  canonicalMap?: (raw: unknown) => Canonical<unknown>;
   /** Optional post-mapping sort applied to all items. */
   postSort?: (items: T[]) => T[];
   /** Extra fields merged into the response envelope. */
@@ -75,6 +94,10 @@ export function registerListTool<T>(
     clientid: z.number().int().positive(),
     limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(10),
     offset: z.number().int().min(0).default(0),
+    contract: z
+      .string()
+      .optional()
+      .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     ...c.extraSchema,
   });
 
@@ -87,6 +110,13 @@ export function registerListTool<T>(
       const log = logger.child();
       const t0 = Date.now();
       try {
+        // Capture the bearer token before ensureToolAuth strips it.
+        const pview = params as Record<string, unknown>;
+        const authToken =
+          typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+        const requestedContract =
+          typeof pview.contract === 'string' ? pview.contract : undefined;
+
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
 
@@ -127,21 +157,27 @@ export function registerListTool<T>(
 
         log.logToolResult(c.name, true, Date.now() - t0);
 
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                items,
-                total: resp.totalresults ?? items.length,
-                count: resp.numreturned ?? items.length,
-                offset: resp.startnumber ?? offset,
-                limit,
-                ...(c.extraPayload ?? {}),
-              }),
-            },
-          ],
+        const envelope = {
+          total: resp.totalresults ?? items.length,
+          count: resp.numreturned ?? items.length,
+          offset: resp.startnumber ?? offset,
+          limit,
+          ...(c.extraPayload ?? {}),
         };
+        const legacy = { items, ...envelope };
+
+        return applyGovernanceOrLegacy({
+          enabled: governanceEnabled() && c.canonicalMap !== undefined,
+          legacy,
+          govern: () =>
+            governedListResult({
+              rows,
+              mapItem: c.canonicalMap as (raw: unknown) => Canonical<unknown>,
+              envelope,
+              authToken,
+              requestedContract,
+            }),
+        });
       } catch (e) {
         log.logToolResult(
           c.name,
@@ -206,6 +242,7 @@ export function registerListTools(
       recurring_amount: p.recurringamount,
       payment_method: p.paymentmethod,
     }),
+    canonicalMap: mapToCanonicalService,
   });
 
   registerListTool(server, whmcs, logger, rl, {
@@ -226,6 +263,7 @@ export function registerListTools(
       next_due_date: d.nextduedate,
       donotrenew: d.donotrenew,
     }),
+    canonicalMap: mapToCanonicalDomain,
   });
 
   registerListTool(server, whmcs, logger, rl, {
@@ -247,6 +285,7 @@ export function registerListTools(
       total: i.total,
       balance: i.balance,
     }),
+    canonicalMap: mapToCanonicalInvoice,
   });
 
   registerListTool(server, whmcs, logger, rl, {
@@ -278,6 +317,7 @@ export function registerListTools(
       discovery: 'best-effort',
       note: 'GetTickets clientid discovery may miss operator/admin-created tickets; use get_ticket_thread by known ticketid/tid for reliable retrieval.',
     },
+    canonicalMap: mapToCanonicalTicket,
   });
 
   registerListTool(server, whmcs, logger, rl, {
@@ -299,5 +339,6 @@ export function registerListTools(
     }),
     postSort: (xs: any[]) =>
       [...xs].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+    canonicalMap: mapToCanonicalOrder,
   });
 }
