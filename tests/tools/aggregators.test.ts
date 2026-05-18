@@ -4,6 +4,12 @@ import { hashToken } from '../../src/governance/consumers.js';
 vi.mock('../../src/config.js', () => ({ config: { MCP_MAX_PAGE_SIZE: 100 }, isToolAllowed: () => true }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {}, ensureToolAuth: () => null, isClientMode: () => false, ensureClientAllowed: () => null }));
 import { registerAggregatorTools } from '../../src/tools/aggregators.js';
+// Same (static) capability-registry instance the statically-imported
+// aggregator consults — lets the degrade test seed the probe cache without
+// a module reset (which would fork the module graph).
+import * as cap from '../../src/governance/capabilities.js';
+// SYNTHETIC reconciliation fixtures (no real WHMCS data/PII/secrets).
+import whmcs9Fixtures from '../fixtures/whmcs9-transactions.json';
 
 function harness(readImpl: (action: string, params: any) => any) {
   const handlers: Record<string, any> = {};
@@ -362,21 +368,25 @@ describe('Phase D aggregators', () => {
     expect(p.partial_errors).toEqual([]);
   });
 
-  it('get_reconciliation_snapshot: transactions capability now supported (composition pending), not flagged unavailable', async () => {
+  it('get_reconciliation_snapshot: transactions capability supported & composed (empty txn page), not flagged unavailable', async () => {
     const { handlers } = harness((action) => {
       if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
+      // GetTransactions returns nothing for this client → composed, empty.
       return {};
     });
     const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
     const p = JSON.parse(res.content[0].text);
     expect(p.invoices[0]).toMatchObject({ invoiceid: 11, balance: '50.00' });
     expect(p.source_invoice_ids).toEqual([11]);
+    // Track 2: GetTransactions is `supported` (Phase H) ⇒ actually composed.
     expect(p.transactions).toMatchObject({
       action: 'GetTransactions',
       status: 'supported',
-      composed: false,
+      composed: true,
+      count: 0,
     });
     expect(p.transactions.capability_unavailable).toBeUndefined();
+    expect(p.source_transaction_ids).toEqual([]);
     expect(p.partial_errors).toEqual([]);
   });
 
@@ -414,14 +424,20 @@ describe('Phase D aggregators', () => {
 
 describe('Phase D aggregators — consistency contract (regression)', () => {
   interface CapSection {
-    capability_unavailable: boolean;
+    capability_unavailable?: boolean;
     action: string;
     status: string;
+    composed?: boolean;
+    count?: number;
   }
   interface ReconPayload {
     invoices: { invoiceid: unknown }[];
     source_invoice_ids: unknown[];
+    source_transaction_ids?: unknown[];
     transactions: CapSection;
+    reconciliation_ledger?: Record<string, unknown>;
+    ledger_adjustments?: Record<string, unknown>;
+    whmcs9_notice?: Record<string, unknown>;
     partial_errors: unknown[];
   }
   interface ProvPayload {
@@ -548,6 +564,364 @@ describe('Phase D aggregators — consistency contract (regression)', () => {
   });
 });
 
+describe('get_reconciliation_snapshot — Track 2 (transaction & reconciliation hardening)', () => {
+  // SYNTHETIC fixtures only.
+  const FIX = whmcs9Fixtures as Record<string, unknown>;
+
+  function invoices(list: any[]) {
+    return { invoices: { invoice: list } };
+  }
+
+  it('composes transactions when GetTransactions is supported (array shape) — match/refs/source IDs', async () => {
+    const { handlers } = harness((action: string, params: any) => {
+      if (action === 'GetInvoices')
+        return invoices([
+          { id: 11, status: 'Paid', total: '50.00', balance: '0.00', date: '2026-05-09', datepaid: '2026-05-10' },
+          { id: 12, status: 'Paid', total: '20.00', balance: '0.00', date: '2026-05-11' },
+        ]);
+      if (action === 'GetTransactions') {
+        // Per-client filter must be passed through.
+        expect(params.clientid).toBe(30);
+        return FIX.array;
+      }
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+
+    expect(p.transactions).toMatchObject({
+      action: 'GetTransactions',
+      status: 'supported',
+      composed: true,
+      count: 3,
+    });
+    expect(p.transactions.capability_unavailable).toBeUndefined();
+    // Source IDs (both invoice + transaction row IDs) present.
+    expect(p.source_invoice_ids).toEqual([11, 12]);
+    expect(p.source_transaction_ids).toEqual([5001, 5002, 5003]);
+
+    // Detailed per-transaction refs live under reconciliation_ledger.
+    const led = p.reconciliation_ledger;
+    expect(Array.isArray(led.transactions)).toBe(true);
+    const t1 = led.transactions.find((t: any) => t.transactionRowId === 5001);
+    expect(t1).toMatchObject({
+      invoiceId: 11,
+      clientId: 30,
+      transactionId: 'PAYID-AAA111',
+      gateway: 'stripe',
+      amountIn: 50,
+      currency: 'INR',
+    });
+    // Refund/reversal heuristic: amountOut>0 ⇒ flagged (conservative).
+    const t2 = led.transactions.find((t: any) => t.transactionRowId === 5002);
+    expect(t2.is_refund_or_reversal).toBe(true);
+    const t3 = led.transactions.find((t: any) => t.transactionRowId === 5003);
+    expect(t3.is_refund_or_reversal).toBe(false);
+
+    // Matching: 5001→inv11, 5002→inv12, 5003→unmatched (no invoice 99).
+    const m = led.matching;
+    expect(m.matched.map((x: any) => `${x.transactionRowId}:${x.invoiceId}`).sort())
+      .toEqual(['5001:11', '5002:12']);
+    expect(m.unmatched_transaction_ids).toEqual([5003]);
+  });
+
+  it('handles numeric-keyed transactions + flags duplicate-risk (same invoice+amount+near date)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices')
+        return invoices([{ id: 21, status: 'Paid', total: '100.00', balance: '0.00', date: '2026-05-01' }]);
+      if (action === 'GetTransactions') return FIX.numeric_keyed;
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.transactions.count).toBe(2);
+    expect(p.source_transaction_ids).toEqual([6001, 6002]);
+    const dup = p.reconciliation_ledger.matching.duplicate_risk;
+    expect(Array.isArray(dup)).toBe(true);
+    // Same invoiceId(21) + amount(100) + near date ⇒ exactly one group flagged.
+    expect(dup.length).toBe(1);
+    expect(dup[0].transaction_row_ids.sort()).toEqual([6001, 6002]);
+  });
+
+  it('handles single-object transaction shape', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices')
+        return invoices([{ id: 31, status: 'Paid', total: '40.00', balance: '0.00', date: '2026-05-03' }]);
+      if (action === 'GetTransactions') return FIX.single_object;
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.transactions.count).toBe(1);
+    expect(p.source_transaction_ids).toEqual([7001]);
+    expect(p.reconciliation_ledger.matching.matched[0]).toMatchObject({
+      transactionRowId: 7001,
+      invoiceId: 31,
+    });
+  });
+
+  it('handles empty transactions page (composed, count 0, no ledger noise)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices')
+        return invoices([{ id: 1, status: 'Unpaid', total: '5.00', balance: '5.00', date: '2026-05-01' }]);
+      if (action === 'GetTransactions') return FIX.empty;
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.transactions).toMatchObject({ composed: true, count: 0 });
+    expect(p.source_transaction_ids).toEqual([]);
+    expect(p.reconciliation_ledger.transactions).toEqual([]);
+    expect(p.reconciliation_ledger.matching.matched).toEqual([]);
+  });
+
+  it('handles malformed transaction rows defensively (no throw; null-ish refs)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return invoices([]);
+      if (action === 'GetTransactions') return FIX.malformed;
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.transactions.composed).toBe(true);
+    expect(p.transactions.count).toBe(1);
+    // Defensive mapping: bad id/amounts → null; row still represented.
+    const row = p.reconciliation_ledger.transactions[0];
+    expect(row.transactionRowId).toBeNull();
+    expect(row.amountIn).toBeNull();
+    // No matching invoice id ⇒ unmatched.
+    expect(p.reconciliation_ledger.matching.unmatched_transaction_ids).toEqual([null]);
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('flags unpaid invoice that has a recent payment referencing it', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices')
+        return invoices([{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-08' }]);
+      if (action === 'GetTransactions') return FIX.array; // txn 5001 → invoice 11
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    const flagged = p.reconciliation_ledger.matching.unpaid_with_recent_payment;
+    expect(Array.isArray(flagged)).toBe(true);
+    expect(flagged.some((f: any) => f.invoiceId === 11)).toBe(true);
+  });
+
+  it('degrades cleanly when GetTransactions is NOT supported — still returns invoices', async () => {
+    // Seed the SAME (statically-imported) capability cache the aggregator
+    // consults — no module reset, so the override is observed by the
+    // aggregator. Simulate `unsupported` WITHOUT any WHMCS call.
+    cap.__resetCapabilityCacheForTests();
+    try {
+      await cap.probeCapability('GetTransactions', {
+        read: () => Promise.reject(new Error('action could not be found')),
+        isAllowlisted: () => true,
+      });
+      expect(cap.getCapability('GetTransactions').status).toBe('unsupported');
+
+      const { handlers, whmcs } = harness((action: string) => {
+        if (action === 'GetInvoices')
+          return invoices([{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }]);
+        if (action === 'GetTransactions') throw new Error('MUST NOT be called when unsupported');
+        return {};
+      });
+      const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+      const p = JSON.parse(res.content[0].text);
+      // Invoices still returned — snapshot never breaks.
+      expect(p.invoices[0]).toMatchObject({ invoiceid: 11 });
+      expect(p.source_invoice_ids).toEqual([11]);
+      // Capability section degrades to structured unavailable; no fake data.
+      expect(p.transactions.capability_unavailable).toBe(true);
+      expect(p.transactions.status).toBe('unsupported');
+      expect(p.transactions.composed).toBeUndefined();
+      // No composed reconciliation artifacts when unsupported.
+      expect(p.reconciliation_ledger).toBeUndefined();
+      expect(p.source_transaction_ids).toBeUndefined();
+      // Track 6 informational sections still present (always safe).
+      expect(p.whmcs9_notice).toBeDefined();
+      expect(p.ledger_adjustments.status).toBe('capability_unavailable');
+      // GetTransactions was NEVER invoked.
+      expect(whmcs.read).not.toHaveBeenCalledWith('GetTransactions', expect.anything());
+    } finally {
+      cap.__resetCapabilityCacheForTests();
+    }
+  });
+
+  it('emits a WHMCS 9 immutability notice (always safe / public.safe)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return invoices([{ id: 11, status: 'Paid', total: '1.00', balance: '0.00', date: '2026-05-01' }]);
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.whmcs9_notice).toMatchObject({
+      immutable_non_draft_invoices: true,
+      corrections_via_credit_debit_notes: true,
+    });
+    expect(typeof p.whmcs9_notice.note).toBe('string');
+    expect(p.whmcs9_notice.note).toMatch(/immutable/i);
+  });
+
+  it('represents WHMCS 9 ledger adjustments as capability_unavailable — never faked', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return invoices([{ id: 11, status: 'Paid', total: '1.00', balance: '0.00', date: '2026-05-01' }]);
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.ledger_adjustments).toMatchObject({
+      capability: 'whmcs9_credit_debit_notes',
+    });
+    expect(['capability_unavailable', 'candidate']).toContain(p.ledger_adjustments.status);
+    // Hard rule: NO fabricated note records. The wired mapper yields an
+    // empty canonical list (no verified read action ⇒ nothing to map).
+    expect(p.ledger_adjustments.canonical_notes).toEqual([]);
+    // No synthetic note references/identifiers leak into the payload.
+    const blob = JSON.stringify(p);
+    expect(blob).not.toMatch(/CN-000|DN-000/);
+    expect(blob).not.toMatch(/Synthetic (credit|debit) note/i);
+  });
+
+  it('mapToCanonicalCreditNotes exercised with synthetic fixtures (mapper is wired-ready)', async () => {
+    const { mapToCanonicalCreditNotes } = await import('../../src/canonical/creditNote.js');
+    const notes = mapToCanonicalCreditNotes(FIX.credit_debit_notes_synthetic);
+    expect(notes.length).toBe(2);
+    expect(notes[0].entity).toBe('transaction');
+    expect(notes[0].data).toMatchObject({ noteId: 9101, type: 'credit', invoiceId: 11, amount: 10 });
+    expect(notes[1].data).toMatchObject({ noteId: 9102, type: 'debit', invoiceId: 12, amount: 5 });
+  });
+
+  it('bounded fetch: flags `bounded:true` when the txn page hits the cap', async () => {
+    const many = Array.from({ length: 200 }, (_, i) => ({
+      id: 8000 + i, userid: 30, invoiceid: 1, transid: `B-${i}`,
+      date: '2026-05-01 00:00:00', gateway: 'stripe', currency: 'INR',
+      amountin: '1.00', amountout: '0.00', fees: '0.00', rate: '1.00000',
+      description: 'bulk',
+    }));
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return invoices([{ id: 1, status: 'Paid', total: '1.00', balance: '0.00', date: '2026-05-01' }]);
+      if (action === 'GetTransactions') return { transactions: { transaction: many } };
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.transactions.bounded).toBe(true);
+    expect(p.transactions.count).toBe(200);
+  });
+
+  it('GetTransactions failure is fault-isolated to partial_errors (snapshot survives)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return invoices([{ id: 11, status: 'Paid', total: '1.00', balance: '0.00', date: '2026-05-01' }]);
+      if (action === 'GetTransactions') throw new Error('boom-transactions');
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.invoices[0]).toMatchObject({ invoiceid: 11 });
+    expect(p.partial_errors.some((e: any) => e.section === 'transactions' && /boom-transactions/.test(e.error))).toBe(true);
+    // Composition attempted but errored ⇒ count 0, no fabricated rows.
+    expect(p.transactions.composed).toBe(true);
+    expect(p.transactions.count).toBe(0);
+  });
+});
+
+describe('get_reconciliation_snapshot — governed exposure (Track 2 contract asymmetry)', () => {
+  const TOKEN_BILL = 'tok-bill-bbbbbbbb';
+  const TOKEN_LLM = 'tok-llm-cccccccc';
+  const registryJson = JSON.stringify([
+    {
+      id: 'billing_app',
+      token_sha256: hashToken(TOKEN_BILL),
+      defaultContract: 'billing_reconciliation',
+      allowedContracts: ['billing_reconciliation'],
+      writeCapability: 'false',
+    },
+    {
+      id: 'llm_app',
+      token_sha256: hashToken(TOKEN_LLM),
+      defaultContract: 'llm_safe_summary',
+      allowedContracts: ['llm_safe_summary'],
+      writeCapability: 'false',
+    },
+  ]);
+
+  afterEach(() => {
+    vi.resetModules();
+    delete process.env.MCP_CONSUMER_REGISTRY;
+  });
+
+  async function governedHarness(readImpl: (a: string, p: any) => any) {
+    vi.resetModules();
+    process.env.MCP_CONSUMER_REGISTRY = registryJson;
+    vi.doMock('../../src/config.js', () => ({
+      config: { MCP_MAX_PAGE_SIZE: 100, MCP_GOVERNANCE_ENABLED: true, MCP_ENV: 'production', MCP_ALLOW_ANON_LLM: false },
+      isToolAllowed: () => true,
+    }));
+    vi.doMock('../../src/security.js', () => ({
+      AUTH_SHAPE: {}, ensureToolAuth: () => null, isClientMode: () => false, ensureClientAllowed: () => null,
+    }));
+    const { registerAggregatorTools: reg } = await import('../../src/tools/aggregators.js');
+    const { __resetRegistryCacheForTests } = await import('../../src/governance/pipeline.js');
+    __resetRegistryCacheForTests();
+    const handlers: Record<string, any> = {};
+    const server = { registerTool: (n: string, _c: any, cb: any) => { handlers[n] = cb; } };
+    const childLogger: Record<string, unknown> = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn() };
+    childLogger.child = (): Record<string, unknown> => childLogger;
+    const logger: Record<string, unknown> = { child: (): Record<string, unknown> => childLogger };
+    const whmcs: Record<string, unknown> = { read: vi.fn(readImpl) };
+    reg(server as never, whmcs as never, logger as never, { tryConsume: () => true } as never);
+    return { handlers };
+  }
+
+  const FIX = whmcs9Fixtures as Record<string, unknown>;
+
+  function reads(action: string) {
+    if (action === 'GetInvoices')
+      return { invoices: { invoice: [{ id: 11, status: 'Paid', total: '50.00', balance: '0.00', date: '2026-05-09' }] } };
+    if (action === 'GetTransactions') return FIX.array;
+    return {};
+  }
+
+  it('billing_reconciliation PRESERVES invoice/transaction/amount refs for matching', async () => {
+    const { handlers } = await governedHarness(reads);
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30, auth_token: TOKEN_BILL });
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent.contract).toBe('billing_reconciliation');
+    const data = res.structuredContent.data as Record<string, any>;
+    // reconciliation_ledger (system.audit) preserved for billing consumers,
+    // carrying the financial refs needed to match payments to invoices.
+    expect(data.reconciliation_ledger).toBeDefined();
+    const blob = JSON.stringify(data.reconciliation_ledger);
+    expect(blob).toContain('PAYID-AAA111'); // transid ref preserved
+    expect(blob).toContain('stripe'); // gateway preserved
+    expect(blob).toContain('"invoiceId":11'); // invoice ref preserved
+    // Source IDs preserved for downstream matching.
+    expect(data.source_invoice_ids).toEqual([11]);
+    expect(data.source_transaction_ids).toEqual([5001, 5002, 5003]);
+  });
+
+  it('llm_safe_summary does NOT leak raw gateway/transid (detailed ledger dropped)', async () => {
+    const { handlers } = await governedHarness(reads);
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30, auth_token: TOKEN_LLM });
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent.contract).toBe('llm_safe_summary');
+    const data = res.structuredContent.data as Record<string, any>;
+    const blob = JSON.stringify(res);
+    // Raw transaction references must NOT reach an LLM consumer.
+    expect(blob).not.toContain('PAYID-AAA111');
+    expect(blob).not.toContain('PAYID-BBB222');
+    expect(blob).not.toContain('stripe');
+    expect(blob).not.toContain('banktransfer');
+    // The system.audit reconciliation_ledger is dropped for llm.
+    expect(data.reconciliation_ledger).toBeUndefined();
+    // Safe summary still present (counts only, no raw refs).
+    expect(data.transactions).toMatchObject({ composed: true, count: 3 });
+    // WHMCS9 notice is public.safe ⇒ still emitted for llm.
+    expect(data.whmcs9_notice).toBeDefined();
+  });
+});
+
 describe('aggregators — app-usable outputSchema contract', () => {
   const AGGREGATORS = [
     'get_account_360',
@@ -658,17 +1032,24 @@ describe('aggregators — app-usable outputSchema contract', () => {
     const prov = JSON.parse(
       (await handlers.get_provisioning_snapshot({ clientid: 30 })).content[0].text
     );
+    // Both sections are structured & truthful: supported, NOT flagged
+    // unavailable, with a stable string `action`.
     for (const sec of [recon.transactions, prov.automation_log]) {
-      // Promoted ⇒ structured & truthful: supported, composition pending,
-      // NOT flagged unavailable.
       expect(sec.capability_unavailable).toBeUndefined();
       expect(typeof sec.action).toBe('string');
       expect(sec.action.length).toBeGreaterThan(0);
       expect(sec.status).toBe('supported');
-      expect(sec.composed).toBe(false);
     }
+    // Track 2: reconciliation now ACTUALLY composes transactions
+    // (supported ⇒ fetched), so its section is composed:true (empty page
+    // here ⇒ count 0). Provisioning's automation_log composition is still
+    // a pending enhancement (composed:false) — unchanged.
+    expect(recon.transactions.composed).toBe(true);
+    expect(recon.transactions.count).toBe(0);
+    expect(prov.automation_log.composed).toBe(false);
     // Source-ID arrays + partial_errors present on both.
     expect(Array.isArray(recon.source_invoice_ids)).toBe(true);
+    expect(Array.isArray(recon.source_transaction_ids)).toBe(true);
     expect(Array.isArray(recon.partial_errors)).toBe(true);
     expect(Array.isArray(prov.source_service_ids)).toBe(true);
     expect(Array.isArray(prov.partial_errors)).toBe(true);

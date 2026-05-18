@@ -23,6 +23,14 @@ import {
   governanceEnabled,
 } from '../governance/pipeline.js';
 import type { Canonical, FieldClass, FieldClassMap } from '../governance/types.js';
+import {
+  mapToCanonicalTransactions,
+  type CanonicalTransaction,
+} from '../canonical/transaction.js';
+import {
+  mapToCanonicalCreditNotes,
+  type CanonicalCreditNote,
+} from '../canonical/creditNote.js';
 
 /**
  * Shared best-effort discovery caveat for ticket sections (see C2).
@@ -39,6 +47,228 @@ const TICKET_BEST_EFFORT = {
  * section as truncated (some upcoming renewals could be missed).
  */
 const RENEWAL_FETCH_LIMIT = 100;
+
+/**
+ * Bounded per-client transaction fetch cap for get_reconciliation_snapshot.
+ *
+ * LIMITATION (documented): WHMCS GetTransactions accepts `clientid`/
+ * `invoiceid`/`transid` filters, but server-side pagination semantics for
+ * this action are UNOBSERVED on this build (no probed evidence of an
+ * `offset`/`page` contract for GetTransactions). We therefore fetch a single
+ * bounded page of `RECON_TX_FETCH_LIMIT` rows and, when the normalized list
+ * reaches the cap, set `transactions.bounded = true` — meaning more
+ * transactions may exist beyond this page and the reconciliation analysis is
+ * over the bounded window only (it is NOT a full-ledger guarantee). We do
+ * NOT paginate blindly or call any unverified pagination parameter.
+ */
+const RECON_TX_FETCH_LIMIT = 200;
+
+/**
+ * Window (days) within which a transaction referencing an Unpaid/Overdue
+ * invoice is treated as a "recent payment" worth flagging for human review
+ * (the invoice status may simply be stale relative to a just-recorded
+ * payment). Conservative: a wider window only adds review candidates, it
+ * never hides a discrepancy.
+ */
+const RECON_RECENT_PAYMENT_DAYS = 14;
+
+/**
+ * Day-proximity (inclusive) for the duplicate-risk heuristic: two
+ * transactions for the SAME invoice and the SAME (rounded) amount whose
+ * dates fall within this many days of each other are surfaced as a
+ * duplicate-risk GROUP for human review. This is deliberately a *risk
+ * signal*, never an assertion of an actual duplicate.
+ */
+const RECON_DUP_NEAR_DAYS = 3;
+
+/** A reconciliation-shaped view of one canonical transaction. */
+interface ReconTransaction extends CanonicalTransaction {
+  /**
+   * Conservative refund/reversal heuristic. TRUE when money clearly left
+   * the system for this row (amountOut > 0) OR a net-negative inflow
+   * (amountIn < 0) OR the free-text description contains an explicit
+   * refund/reversal/chargeback token. This is a *hint* for human review,
+   * not an authoritative WHMCS refund record.
+   */
+  is_refund_or_reversal: boolean;
+}
+
+/** Parse a WHMCS date-ish string to epoch-ms, or null if unusable. */
+function reconDateMs(d: string | null): number | null {
+  if (!d || !/^\d{4}-\d{2}-\d{2}/.test(d)) return null;
+  const ms = Date.parse(d.slice(0, 10));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+const REFUND_TOKEN = /refund|revers|chargeback|charge-back/i;
+
+/** Apply the conservative refund/reversal heuristic to a canonical txn. */
+function isRefundOrReversal(t: CanonicalTransaction): boolean {
+  if (typeof t.amountOut === 'number' && t.amountOut > 0) return true;
+  if (typeof t.amountIn === 'number' && t.amountIn < 0) return true;
+  if (typeof t.description === 'string' && REFUND_TOKEN.test(t.description)) {
+    return true;
+  }
+  return false;
+}
+
+interface InvoiceLite {
+  invoiceid: unknown;
+  status: unknown;
+  total: unknown;
+  balance: unknown;
+  date: unknown;
+  datepaid: unknown;
+}
+
+interface ReconMatching {
+  matched: { transactionRowId: number | null; invoiceId: number | null }[];
+  unmatched_transaction_ids: (number | null)[];
+  duplicate_risk: {
+    invoiceId: number | null;
+    amount: number | null;
+    transaction_row_ids: (number | null)[];
+  }[];
+  unpaid_with_recent_payment: {
+    invoiceId: number;
+    status: string;
+    transaction_row_ids: (number | null)[];
+  }[];
+}
+
+/**
+ * PURE reconciliation analysis over canonical transactions + the snapshot's
+ * invoice list. Preserves the financial references needed for matching;
+ * derives duplicate-risk, unmatched, and unpaid-with-recent-payment signals.
+ */
+function reconcile(
+  txns: ReconTransaction[],
+  invoices: InvoiceLite[]
+): ReconMatching {
+  const invoiceIds = new Set<number>();
+  const invoiceById = new Map<number, InvoiceLite>();
+  for (const inv of invoices) {
+    const id = Number(inv.invoiceid);
+    if (Number.isFinite(id)) {
+      invoiceIds.add(id);
+      invoiceById.set(id, inv);
+    }
+  }
+
+  const matched: { transactionRowId: number | null; invoiceId: number | null }[] = [];
+  const unmatched: (number | null)[] = [];
+  for (const t of txns) {
+    if (t.invoiceId !== null && invoiceIds.has(t.invoiceId)) {
+      matched.push({ transactionRowId: t.transactionRowId, invoiceId: t.invoiceId });
+    } else {
+      unmatched.push(t.transactionRowId);
+    }
+  }
+
+  // Duplicate-risk: group by invoiceId + rounded amount; within a group,
+  // flag if ≥2 rows fall within RECON_DUP_NEAR_DAYS of each other.
+  const dupGroups = new Map<string, ReconTransaction[]>();
+  for (const t of txns) {
+    if (t.invoiceId === null) continue;
+    const amt = typeof t.amountIn === 'number' && t.amountIn > 0 ? t.amountIn : null;
+    if (amt === null) continue;
+    const key = `${t.invoiceId}|${amt.toFixed(2)}`;
+    const arr = dupGroups.get(key) ?? [];
+    arr.push(t);
+    dupGroups.set(key, arr);
+  }
+  const duplicate_risk: ReconMatching['duplicate_risk'] = [];
+  for (const [key, group] of dupGroups) {
+    if (group.length < 2) continue;
+    const near = group.some((a, i) =>
+      group.some((b, j) => {
+        if (j <= i) return false;
+        const am = reconDateMs(a.date);
+        const bm = reconDateMs(b.date);
+        if (am === null || bm === null) return true; // missing date ⇒ flag
+        return Math.abs(am - bm) <= RECON_DUP_NEAR_DAYS * 86400000;
+      })
+    );
+    if (!near) continue;
+    const [invStr, amtStr] = key.split('|');
+    duplicate_risk.push({
+      invoiceId: Number(invStr),
+      amount: Number(amtStr),
+      transaction_row_ids: group.map((g) => g.transactionRowId),
+    });
+  }
+
+  // Unpaid/Overdue invoice that nonetheless has a recent inbound payment
+  // referencing it — a likely stale-status discrepancy for human review.
+  const now = Date.now();
+  const unpaid_with_recent_payment: ReconMatching['unpaid_with_recent_payment'] = [];
+  for (const id of invoiceIds) {
+    const inv = invoiceById.get(id);
+    if (!inv) continue;
+    const status =
+      typeof inv.status === 'string' || typeof inv.status === 'number'
+        ? String(inv.status)
+        : '';
+    if (!/^(unpaid|overdue)$/i.test(status)) continue;
+    const recentPayers = txns.filter((t) => {
+      if (t.invoiceId !== id) return false;
+      if (!(typeof t.amountIn === 'number' && t.amountIn > 0)) return false;
+      const ms = reconDateMs(t.date);
+      // Unknown date ⇒ still flag (conservative: surface for review).
+      if (ms === null) return true;
+      return now - ms <= RECON_RECENT_PAYMENT_DAYS * 86400000;
+    });
+    if (recentPayers.length > 0) {
+      unpaid_with_recent_payment.push({
+        invoiceId: id,
+        status,
+        transaction_row_ids: recentPayers.map((t) => t.transactionRowId),
+      });
+    }
+  }
+
+  return {
+    matched,
+    unmatched_transaction_ids: unmatched,
+    duplicate_risk,
+    unpaid_with_recent_payment,
+  };
+}
+
+/**
+ * WHMCS 9 ledger semantics notice. ALWAYS safe to emit (public.safe):
+ * informational only, never derived from a read, never fabricated data.
+ */
+const WHMCS9_NOTICE = {
+  immutable_non_draft_invoices: true as const,
+  corrections_via_credit_debit_notes: true as const,
+  note: 'On WHMCS 9 non-draft invoices are immutable; do not assume invoice edits — reconcile via credit/debit notes. Reads are unaffected by this; this is an informational reconciliation caveat only.',
+};
+
+/**
+ * WHMCS 9 credit/debit-note ledger-adjustment representation.
+ *
+ * There is NO capability-verified WHMCS read action for credit/debit notes
+ * on this build, so this is ALWAYS a structured capability marker — never a
+ * fabricated note. `mapToCanonicalCreditNotes` is imported and wired so that
+ * IF a verified read/representation path is added behind this gate it can be
+ * mapped without further structural change; until then the section carries
+ * no note data. (Referenced here to keep the wiring live.)
+ */
+function ledgerAdjustmentsSection(): Record<string, unknown> {
+  // Keep the canonical credit-note mapper referenced (wired-ready). Mapping
+  // an empty representation yields zero canonical notes — proving the path
+  // is connected WITHOUT inventing any data.
+  const wiredReady: CanonicalCreditNote[] = mapToCanonicalCreditNotes({}).map(
+    (c) => c.data
+  );
+  return {
+    capability: 'whmcs9_credit_debit_notes',
+    status: 'capability_unavailable' as const,
+    canonical_notes: wiredReady, // always [] — no verified read action
+    note: 'No capability-verified WHMCS read action for credit/debit notes on this build; represented as a structured capability marker. mapToCanonicalCreditNotes is wired behind this gate and used the moment a verified representation path exists — notes are never fabricated.',
+  };
+}
 
 /**
  * Stable, additive output schema shared by every read-only aggregator.
@@ -91,6 +321,13 @@ const AGGREGATOR_OUTPUT_SHAPE = {
   suspended_services: z.array(z.record(z.string(), z.unknown())).optional(),
   source_invoice_ids: z.array(z.unknown()).optional(),
   source_service_ids: z.array(z.unknown()).optional(),
+  source_transaction_ids: z.array(z.unknown()).optional(),
+  // Track 2/6 reconciliation sections (structured, never faked). The
+  // detailed `reconciliation_ledger` is classified system.audit so it is
+  // preserved for billing reconcilers but dropped for LLM consumers.
+  reconciliation_ledger: z.record(z.string(), z.unknown()).optional(),
+  ledger_adjustments: z.record(z.string(), z.unknown()).optional(),
+  whmcs9_notice: z.record(z.string(), z.unknown()).optional(),
   // Governed envelope ({ entity, consumer, contract, data }) + structured
   // failure ({ isError, error, status }). All optional so one shape
   // validates governance ON and OFF.
@@ -153,6 +390,28 @@ function norm<T>(container: any, singular: string): T[] {
  */
 function classifyAggregateKey(key: string): FieldClass {
   const k = key.toLowerCase();
+  // Reconciliation ledger (Track 2): the DETAILED per-transaction match
+  // structure carries raw financial references (gateway/transid) plus the
+  // payment↔invoice matching analysis. It is classified `system.audit` so
+  // the contract policy creates the required exposure asymmetry:
+  //   - `billing_reconciliation` ⇒ `system.audit` = allow  (refs preserved
+  //     so a billing consumer can reconcile payments to invoices), while
+  //   - `llm_safe_summary`       ⇒ `system.audit` = drop   (raw gateway /
+  //     transid are NEVER exposed to an LLM consumer).
+  // Only this exact key is treated as an audit ledger; the safe summary
+  // lives under `transactions` (financial.reference, both allow) and the
+  // public WHMCS-9 notice lives under `whmcs9_notice` (public.safe).
+  if (k === 'reconciliation_ledger') {
+    return 'system.audit';
+  }
+  // Track 6: the WHMCS-9 immutability notice and the credit/debit-note
+  // capability marker are non-sensitive informational metadata that MUST
+  // always be emittable (every contract allows `public.safe`). Pin them
+  // explicitly BEFORE the free-text regex — note: 'whmcs9_notice' would
+  // otherwise match `/note/` and be mis-classed untrusted.free_text.
+  if (k === 'whmcs9_notice' || k === 'ledger_adjustments') {
+    return 'public.safe';
+  }
   // Free-text / untrusted: ticket subjects, messages, notes, ticket bundles.
   if (
     /ticket|subject|message|note|reply|free_text/.test(k)
@@ -713,7 +972,7 @@ export function registerAggregatorTools(
   register(
     server,
     'get_reconciliation_snapshot',
-    'Read-only reconciliation: invoice balances/status with source IDs. Transactions are capability-gated (GetTransactions unverified) and reported as a structured unavailable section — the snapshot still works without them.',
+    'Read-only reconciliation: invoice balances/status + (when GetTransactions is supported) per-client transactions matched to invoices with duplicate-risk / unmatched / unpaid-with-recent-payment signals. Detailed payment refs are scoped so a billing consumer can reconcile while an LLM consumer never sees raw gateway/transid. Includes a WHMCS 9 immutability notice and a structured (never faked) credit/debit-note capability marker. Degrades cleanly if GetTransactions is not supported.',
     {},
     logger,
     rl,
@@ -737,13 +996,90 @@ export function registerAggregatorTools(
           datepaid: i.datepaid,
         }));
       });
-      return {
+
+      const base: Record<string, unknown> = {
         clientid: cid,
         invoices,
         source_invoice_ids: invoices.map((i) => i.invoiceid),
-        // Degrade gracefully: do NOT call the unverified action.
-        transactions: capSection('GetTransactions'),
+        // Track 6: ALWAYS-safe informational sections (public.safe). Reads
+        // are unaffected; these never carry fabricated data.
+        whmcs9_notice: WHMCS9_NOTICE,
+        ledger_adjustments: ledgerAdjustmentsSection(),
         partial_errors: errs,
+      };
+
+      // ── Track 2: transactions are the HIGHEST-sensitivity data here ──
+      // Capability gate FIRST. Only compose if GetTransactions is
+      // `supported` (Phase H promoted). Otherwise degrade to the existing
+      // structured capability section and NEVER call the action — the
+      // snapshot still returns invoices.
+      const cap = getCapability('GetTransactions');
+      if (cap.status !== 'supported') {
+        return { ...base, transactions: capSection('GetTransactions') };
+      }
+
+      // Composed path. Fault-isolated: a GetTransactions failure becomes a
+      // partial_errors entry and yields an empty (never fabricated) page.
+      // The section returns BOTH rows and the bounded flag so there is no
+      // closure-mutated `let` (which control-flow narrowing would otherwise
+      // pin to a literal `false`).
+      const txnResult = await safeSection<{
+        rows: ReconTransaction[];
+        bounded: boolean;
+      }>('transactions', errs, { rows: [], bounded: false }, async () => {
+        const r = await whmcs.read<Record<string, unknown>>(
+          'GetTransactions',
+          {
+            // Per-client filter — the snapshot is per-client. WHMCS
+            // GetTransactions supports clientid/invoiceid/transid filters.
+            clientid: cid,
+            limitnum: RECON_TX_FETCH_LIMIT,
+          }
+        );
+        const canon = mapToCanonicalTransactions(r);
+        return {
+          rows: canon.map((c) => ({
+            ...c.data,
+            is_refund_or_reversal: isRefundOrReversal(c.data),
+          })),
+          bounded: canon.length >= RECON_TX_FETCH_LIMIT,
+        };
+      });
+      const reconTxns = txnResult.rows;
+      const txnPageBounded = txnResult.bounded;
+
+      const matching = reconcile(reconTxns, invoices as InvoiceLite[]);
+
+      const boundedNote = txnPageBounded
+        ? {
+            bounded_note: `Transaction page capped at ${String(RECON_TX_FETCH_LIMIT)} rows; more may exist. Reconciliation is over the bounded window only (GetTransactions pagination is unobserved on this build).`,
+          }
+        : {};
+
+      return {
+        ...base,
+        // Safe summary (financial.reference ⇒ allowed for billing AND llm):
+        // capability metadata + counts only. NO raw gateway/transid here.
+        transactions: {
+          action: cap.action,
+          status: cap.status,
+          composed: true as const,
+          count: reconTxns.length,
+          bounded: txnPageBounded,
+        },
+        // Numeric source row IDs (business.identifier-ish; allowed) so a
+        // consumer can re-fetch a specific transaction by id.
+        source_transaction_ids: reconTxns.map((t) => t.transactionRowId),
+        // DETAILED payment refs + matching analysis. Classified
+        // `system.audit` (see classifyAggregateKey): preserved for
+        // `billing_reconciliation` (matching needs the refs) but DROPPED
+        // for `llm_safe_summary` (raw gateway/transid never reach an LLM).
+        reconciliation_ledger: {
+          transactions: reconTxns,
+          matching,
+          bounded: txnPageBounded,
+          ...boundedNote,
+        },
       };
     }
   );
