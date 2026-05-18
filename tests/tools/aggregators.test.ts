@@ -407,3 +407,141 @@ describe('Phase D aggregators', () => {
     expect(blob).not.toMatch(/email|phone|address|firstname|lastname/i);
   });
 });
+
+describe('Phase D aggregators — consistency contract (regression)', () => {
+  interface CapSection {
+    capability_unavailable: boolean;
+    action: string;
+    status: string;
+  }
+  interface ReconPayload {
+    invoices: { invoiceid: unknown }[];
+    source_invoice_ids: unknown[];
+    transactions: CapSection;
+    partial_errors: unknown[];
+  }
+  interface ProvPayload {
+    services: { serviceid: unknown }[];
+    orders: unknown[];
+    source_service_ids: unknown[];
+    automation_log: CapSection;
+    partial_errors: unknown[];
+  }
+  interface TimelinePayload {
+    clientid: number;
+    count: number;
+    timeline: { type: string; id: unknown }[];
+    partial_errors: unknown[];
+  }
+  interface RiskPayload {
+    source_invoice_ids: unknown[];
+    overdue_invoices: unknown[];
+    suspended_services: unknown[];
+    partial_errors: unknown[];
+  }
+
+  it('get_reconciliation_snapshot: capability-gated transactions has structured {capability_unavailable,action,status} + source IDs array', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices')
+        return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text) as ReconPayload;
+
+    // structured capability shape — exactly the three required keys
+    expect(p.transactions.capability_unavailable).toBe(true);
+    expect(typeof p.transactions.action).toBe('string');
+    expect(p.transactions.action).toBe('GetTransactions');
+    expect(typeof p.transactions.status).toBe('string');
+    expect(p.transactions.status.length).toBeGreaterThan(0);
+
+    // source IDs array present and correct
+    expect(Array.isArray(p.source_invoice_ids)).toBe(true);
+    expect(p.source_invoice_ids).toEqual([11]);
+    expect(p.invoices[0].invoiceid).toBe(11);
+    expect(Array.isArray(p.partial_errors)).toBe(true);
+  });
+
+  it('get_provisioning_snapshot: automation_log has structured {capability_unavailable,action,status} + source IDs array', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetClientsProducts')
+        return { products: { product: [{ id: 545, name: 'Hosting', domain: 'd.test', status: 'Active', regdate: '2025-01-01', nextduedate: '2026-01-01' }] } };
+      if (action === 'GetOrders')
+        return { orders: { order: [{ id: 7, status: 'Active', date: '2026-05-01' }] } };
+      return {};
+    });
+    const res = await handlers.get_provisioning_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text) as ProvPayload;
+
+    expect(p.automation_log.capability_unavailable).toBe(true);
+    expect(typeof p.automation_log.action).toBe('string');
+    expect(p.automation_log.action).toBe('GetAutomationLog');
+    expect(typeof p.automation_log.status).toBe('string');
+    expect(p.automation_log.status.length).toBeGreaterThan(0);
+
+    expect(Array.isArray(p.source_service_ids)).toBe(true);
+    expect(p.source_service_ids).toEqual([545]);
+    expect(p.services[0].serviceid).toBe(545);
+    expect(Array.isArray(p.orders)).toBe(true);
+    expect(Array.isArray(p.partial_errors)).toBe(true);
+  });
+
+  it('get_activity_timeline: includes source IDs (per-event id) and partial_errors array', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetActivityLog') return { activity: { entry: [{ id: 5, date: '2026-05-10 10:00:00', description: 'Login' }] } };
+      if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 90, date: '2026-05-18', status: 'Paid', total: '10.00' }] } };
+      if (action === 'GetOrders') return { orders: { order: [{ id: 7, date: '2026-05-12', status: 'Active', amount: '0.00' }] } };
+      return {};
+    });
+    const res = await handlers.get_activity_timeline({ clientid: 30, limit: 10 });
+    const p = JSON.parse(res.content[0].text) as TimelinePayload;
+
+    expect(Array.isArray(p.timeline)).toBe(true);
+    // every timeline event carries a source id + type (the source IDs)
+    for (const e of p.timeline) {
+      expect(e.id).toBeDefined();
+      expect(typeof e.type).toBe('string');
+    }
+    expect(p.timeline.map((e) => `${e.type}:${String(e.id)}`)).toEqual([
+      'invoice:90', 'order:7', 'activity:5',
+    ]);
+    expect(p.clientid).toBe(30);
+    expect(p.count).toBe(3);
+    expect(Array.isArray(p.partial_errors)).toBe(true);
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('get_activity_timeline: a failing sub-read surfaces in partial_errors (not thrown)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetActivityLog') throw new Error('boom-activity');
+      if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 90, date: '2026-05-18', status: 'Paid', total: '10.00' }] } };
+      if (action === 'GetOrders') return { orders: { order: [] } };
+      return {};
+    });
+    const res = await handlers.get_activity_timeline({ clientid: 30, limit: 10 });
+    const p = JSON.parse(res.content[0].text) as TimelinePayload & {
+      partial_errors: { section: string; error: string }[];
+    };
+    expect(p.partial_errors.some((e) => e.section === 'activity' && /boom-activity/.test(e.error))).toBe(true);
+    // surviving section still produced its source id
+    expect(p.timeline.map((e) => `${e.type}:${String(e.id)}`)).toEqual(['invoice:90']);
+  });
+
+  it('get_risk_snapshot: includes source_invoice_ids and partial_errors arrays', async () => {
+    const { handlers } = harness((action: string, params: { status?: string }) => {
+      if (action === 'GetInvoices' && params.status === 'Overdue') return { invoices: { invoice: [{ id: 12, balance: '300.00', duedate: '2026-04-01' }] } };
+      if (action === 'GetClientsProducts') return { products: { product: [{ id: 1, name: 'A', status: 'Suspended' }] } };
+      return {};
+    });
+    const res = await handlers.get_risk_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text) as RiskPayload;
+
+    expect(Array.isArray(p.source_invoice_ids)).toBe(true);
+    expect(p.source_invoice_ids).toEqual([12]);
+    expect(Array.isArray(p.overdue_invoices)).toBe(true);
+    expect(Array.isArray(p.suspended_services)).toBe(true);
+    expect(Array.isArray(p.partial_errors)).toBe(true);
+    expect(p.partial_errors).toEqual([]);
+  });
+});
