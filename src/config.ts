@@ -18,8 +18,8 @@ import { z } from 'zod';
  * keys, so we load the env-specific file FIRST, then the base `.env`.
  */
 const MCP_ENV = process.env.MCP_ENV ?? 'production';
-loadEnv({ path: `.env.${MCP_ENV}` });
-loadEnv(); // base .env fallback
+loadEnv({ path: `.env.${MCP_ENV}`, quiet: true });
+loadEnv({ quiet: true }); // base .env fallback
 
 /**
  * MCP operation modes
