@@ -331,3 +331,79 @@ describe('aggregators — governed path', () => {
     expect(blob).not.toContain('9000.00');
   });
 });
+
+describe('Phase D aggregators', () => {
+  it('registers the 4 Phase-D aggregators', () => {
+    const { handlers } = harness(() => ({}));
+    for (const t of [
+      'get_activity_timeline',
+      'get_reconciliation_snapshot',
+      'get_provisioning_snapshot',
+      'get_risk_snapshot',
+    ]) {
+      expect(typeof handlers[t]).toBe('function');
+    }
+  });
+
+  it('get_activity_timeline merges activity+invoices+orders newest-first with source IDs', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetActivityLog') return { activity: { entry: [{ id: 5, date: '2026-05-10 10:00:00', description: 'Login' }] } };
+      if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 90, date: '2026-05-18', status: 'Paid', total: '10.00' }] } };
+      if (action === 'GetOrders') return { orders: { order: [{ id: 7, date: '2026-05-12', status: 'Active', amount: '0.00' }] } };
+      return {};
+    });
+    const res = await handlers.get_activity_timeline({ clientid: 30, limit: 10 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.timeline.map((e: { type: string; id: unknown }) => `${e.type}:${String(e.id)}`)).toEqual([
+      'invoice:90', 'order:7', 'activity:5',
+    ]);
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('get_reconciliation_snapshot works WITHOUT transactions (capability degraded, not required)', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
+      return {};
+    });
+    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.invoices[0]).toMatchObject({ invoiceid: 11, balance: '50.00' });
+    expect(p.source_invoice_ids).toEqual([11]);
+    expect(p.transactions).toMatchObject({
+      capability_unavailable: true,
+      action: 'GetTransactions',
+      status: 'unverified',
+    });
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('get_provisioning_snapshot returns services/orders + degraded automation_log', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetClientsProducts') return { products: { product: [{ id: 545, name: 'Hosting', domain: 'd.test', status: 'Active', regdate: '2025-01-01', nextduedate: '2026-01-01' }] } };
+      if (action === 'GetOrders') return { orders: { order: [{ id: 7, status: 'Active', date: '2026-05-01' }] } };
+      return {};
+    });
+    const res = await handlers.get_provisioning_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.services[0]).toMatchObject({ serviceid: 545, status: 'Active' });
+    expect(p.source_service_ids).toEqual([545]);
+    expect(p.automation_log).toMatchObject({ capability_unavailable: true, action: 'GetAutomationLog', status: 'unverified' });
+  });
+
+  it('get_risk_snapshot summarises overdue+suspended with no contact PII', async () => {
+    const { handlers } = harness((action, params) => {
+      if (action === 'GetInvoices' && params.status === 'Overdue') return { invoices: { invoice: [{ id: 12, balance: '300.00', duedate: '2026-04-01' }] } };
+      if (action === 'GetClientsProducts') return { products: { product: [
+        { id: 1, name: 'A', status: 'Suspended' },
+        { id: 2, name: 'B', status: 'Active' } ] } };
+      return {};
+    });
+    const res = await handlers.get_risk_snapshot({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.risk).toMatchObject({ overdue_invoice_count: 1, overdue_balance: '300.00', suspended_service_count: 1 });
+    expect(p.suspended_services).toEqual([{ serviceid: 1, product: 'A', status: 'Suspended' }]);
+    expect(p.source_invoice_ids).toEqual([12]);
+    const blob = JSON.stringify(res);
+    expect(blob).not.toMatch(/email|phone|address|firstname|lastname/i);
+  });
+});
