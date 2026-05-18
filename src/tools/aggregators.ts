@@ -388,57 +388,89 @@ function norm<T>(container: any, singular: string): T[] {
  * by projection (fail-safe — never leaked). Classification is pragmatic and
  * keyword-driven; the projection layer enforces the actual safety.
  */
-function classifyAggregateKey(key: string): FieldClass {
+export function classifyAggregateKey(key: string): FieldClass {
   const k = key.toLowerCase();
-  // Reconciliation ledger (Track 2): the DETAILED per-transaction match
-  // structure carries raw financial references (gateway/transid) plus the
-  // payment↔invoice matching analysis. It is classified `system.audit` so
-  // the contract policy creates the required exposure asymmetry:
-  //   - `billing_reconciliation` ⇒ `system.audit` = allow  (refs preserved
-  //     so a billing consumer can reconcile payments to invoices), while
-  //   - `llm_safe_summary`       ⇒ `system.audit` = drop   (raw gateway /
-  //     transid are NEVER exposed to an LLM consumer).
-  // Only this exact key is treated as an audit ledger; the safe summary
-  // lives under `transactions` (financial.reference, both allow) and the
-  // public WHMCS-9 notice lives under `whmcs9_notice` (public.safe).
-  if (k === 'reconciliation_ledger') {
-    return 'system.audit';
-  }
-  // Track 6: the WHMCS-9 immutability notice and the credit/debit-note
-  // capability marker are non-sensitive informational metadata that MUST
-  // always be emittable (every contract allows `public.safe`). Pin them
-  // explicitly BEFORE the free-text regex — note: 'whmcs9_notice' would
-  // otherwise match `/note/` and be mis-classed untrusted.free_text.
-  if (k === 'whmcs9_notice' || k === 'ledger_adjustments') {
-    return 'public.safe';
-  }
-  // Free-text / untrusted: ticket subjects, messages, notes, ticket bundles.
-  if (
-    /ticket|subject|message|note|reply|free_text/.test(k)
-  ) {
-    return 'untrusted.free_text';
-  }
-  // Financial amounts / balances / credit.
-  if (/amount|balance|credit|total|paid|unpaid|overdue|refund|cancel|draft|recurring|currency/.test(k)) {
-    return 'financial.amount';
-  }
-  // Financial references: invoices, transactions, orders, gateways.
-  if (/invoice|transaction|order|gateway|recent_/.test(k)) {
-    return 'financial.reference';
-  }
-  // Client identity block (name/email/phone/address live inside it).
+
+  // ── 1. PII FIRST. A real PII key is NEVER downgraded to a more-
+  //    permissive class by a later structural rule. The client identity
+  //    block carries name/email/phone/address inside it.
   if (k === 'client') {
     return 'pii.name';
   }
   if (k.includes('email')) return 'pii.email';
   if (/phone|mobile/.test(k)) return 'pii.phone';
   if (/address|street|city|postcode|zip/.test(k)) return 'pii.address';
-  // Identifiers.
+
+  // ── 2. Exact structural / status / label / id keys (Track B). These are
+  //    pinned BEFORE the keyword regexes so a status/label is no longer
+  //    mis-classed (the pilot showed false "under-masked" on labels and
+  //    `violations == unknown_fields` on status flags).
+
+  // Reconciliation ledger (Track 2): the DETAILED per-transaction match
+  // structure carries raw financial refs (gateway/transid) + matching
+  // analysis. `system.audit` creates the required exposure asymmetry:
+  //   billing_reconciliation ⇒ allow (refs preserved to reconcile),
+  //   llm_safe_summary       ⇒ drop  (raw gateway/transid never to an LLM).
+  if (k === 'reconciliation_ledger') {
+    return 'system.audit';
+  }
+  // Raw internal error strings (e.g. partial_errors[].error). Conservative:
+  // dropped for LLM/portal, summarized for the automations, raw only for a
+  // trusted operator/admin/local (see system.diagnostic in contracts.ts).
+  if (k === 'partial_errors') {
+    return 'system.diagnostic';
+  }
+  // Capability / partial-error PRESENCE, truncated/composed/bounded flags,
+  // counts, risk roll-ups, ledger-adjustment status marker — operational
+  // STATUS only (no PII, no raw refs) ⇒ safe in every contract.
+  if (
+    k === 'counts' ||
+    k === 'risk' ||
+    k === 'truncated' ||
+    k === 'ledger_adjustments'
+  ) {
+    return 'system.status';
+  }
+  // Source-id arrays so a consumer can re-fetch by id.
+  if (
+    k === 'source_invoice_ids' ||
+    k === 'source_transaction_ids' ||
+    k === 'source_service_ids'
+  ) {
+    return 'business.identifier';
+  }
+  // Non-sensitive business DISPLAY labels: the WHMCS-9 notice, the
+  // department directory, the upcoming-renewal label list.
+  if (k === 'whmcs9_notice' || k === 'departments' || k === 'upcoming') {
+    return 'business.label';
+  }
+  // The SAFE transaction summary block (capability + counts only; raw
+  // gateway/transid live under reconciliation_ledger). financial.reference
+  // is `allow` for both billing and llm consumers.
+  if (k === 'transactions') {
+    return 'financial.reference';
+  }
+
+  // ── 3. Keyword fallbacks (unchanged intent). Ticket bundles
+  //    (`client_tickets`) remain untrusted.free_text.
+  if (/ticket|subject|message|note|reply|free_text/.test(k)) {
+    return 'untrusted.free_text';
+  }
+  if (
+    /amount|balance|credit|total|paid|unpaid|overdue|refund|cancel|draft|recurring|currency/.test(
+      k
+    )
+  ) {
+    return 'financial.amount';
+  }
+  if (/invoice|transaction|order|gateway|recent_/.test(k)) {
+    return 'financial.reference';
+  }
   if (/id$|_id$|clientid|serviceid|domainid/.test(k)) {
     return 'business.identifier';
   }
-  // Counts, dates, status, partial_errors, truncated, discovery notes,
-  // window/horizon, scope strings — non-sensitive aggregate metadata.
+  // Dates, scope strings, window/horizon, discovery notes — non-sensitive
+  // aggregate metadata.
   return 'public.safe';
 }
 

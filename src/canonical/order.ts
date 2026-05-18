@@ -46,11 +46,11 @@ const CLASSES = new ClassMapBuilder()
   .set('fraudOutput', 'system.audit')
   .set('notes', 'untrusted.free_text')
   .set('lineItems', 'public.safe')
+  // Track B: line-item product / domain are business DISPLAY labels.
+  .many(['lineItems[].product', 'lineItems[].domain'], 'business.label')
   .many(
     [
       'lineItems[].type',
-      'lineItems[].product',
-      'lineItems[].domain',
       'lineItems[].billingCycle',
       'lineItems[].status',
     ],

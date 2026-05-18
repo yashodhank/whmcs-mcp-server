@@ -47,6 +47,11 @@ const LLM_SAFE_SUMMARY: ContractPolicy = {
   'internal.private_note': 'drop',
   'system.audit': 'drop',
   'public.safe': 'allow',
+  // Track B: business display labels are non-sensitive; status flags safe;
+  // raw diagnostic text MUST NOT reach an LLM consumer.
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'drop',
 };
 
 /**
@@ -68,6 +73,10 @@ const OPS_OPERATOR: ContractPolicy = {
   'internal.private_note': 'allow',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: trusted operator sees raw diagnostic text.
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'allow',
 };
 
 /**
@@ -90,6 +99,11 @@ const BILLING_RECONCILIATION: ContractPolicy = {
   'internal.private_note': 'drop',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: labels/status safe; diagnostic text is conservatively
+  // summarized (may carry internal detail an automation shouldn't echo raw).
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'summarize',
 };
 
 /**
@@ -111,6 +125,10 @@ const RENEWAL_AUTOMATION: ContractPolicy = {
   'internal.private_note': 'drop',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: labels/status safe; diagnostic conservatively summarized.
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'summarize',
 };
 
 /**
@@ -133,6 +151,11 @@ const SUPPORT_TRIAGE: ContractPolicy = {
   'internal.private_note': 'allow',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: labels/status safe; diagnostic conservatively summarized for
+  // an automation-shaped triage consumer (not a raw operator console).
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'summarize',
 };
 
 /**
@@ -155,6 +178,11 @@ const CLIENT_PORTAL_SELF: ContractPolicy = {
   'internal.private_note': 'drop',
   'system.audit': 'drop',
   'public.safe': 'allow',
+  // Track B: business display labels + status flags are safe for the
+  // client's own portal; raw internal diagnostic text is NOT shown.
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'drop',
 };
 
 /**
@@ -177,6 +205,10 @@ const ADMIN_FULL_TRUSTED: ContractPolicy = {
   'internal.private_note': 'allow',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: a fully-trusted admin sees raw diagnostic text.
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'allow',
 };
 
 /**
@@ -198,6 +230,10 @@ const DEBUG_LOCAL: ContractPolicy = {
   'internal.private_note': 'allow',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: local debugging sees everything (raw diagnostic included).
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'allow',
 };
 
 /**
@@ -220,6 +256,10 @@ const NONE_LOCAL_ONLY: ContractPolicy = {
   'internal.private_note': 'allow',
   'system.audit': 'allow',
   'public.safe': 'allow',
+  // Track B: raw passthrough (local only) — everything allowed.
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'allow',
 };
 
 /* ── contract registry ─────────────────────────────────────────────────────── */

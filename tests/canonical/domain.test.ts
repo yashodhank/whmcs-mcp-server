@@ -31,7 +31,11 @@ describe('mapToCanonicalDomain', () => {
     expect(c.data.domain).toBe('example.test');
     expect(c.data.idProtection).toBe(true);
     expect(c.classes.domainId).toBe('business.identifier');
-    expect(c.classes.domain).toBe('public.safe');
+    // Track B (correctness fix): a domain name is a non-sensitive business
+    // DISPLAY label, not generic public.safe metadata. business.label is
+    // `allow` in every contract, so projected output is unchanged — this
+    // only fixes the classification the authoritative auditor reports.
+    expect(c.classes.domain).toBe('business.label');
     expect(c.classes.recurringAmount).toBe('financial.amount');
     assertClassmapComplete(c);
   });

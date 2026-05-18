@@ -24,6 +24,15 @@ export const FIELD_CLASSES = [
   'internal.private_note',
   'system.audit',
   'public.safe',
+  // PHASE H.1 / Track B — taxonomy expansion. These let the auditor and
+  // contracts distinguish non-sensitive business DISPLAY labels and
+  // operational status/diagnostic signals from PII/financial data, so the
+  // exposure audit stops mis-flagging product/department labels as PII and
+  // status flags as UNKNOWN. Compile-enforced: every ContractPolicy MUST
+  // add an action for each (see contracts.ts).
+  'business.label',
+  'system.status',
+  'system.diagnostic',
 ] as const;
 
 export type FieldClass = (typeof FIELD_CLASSES)[number];

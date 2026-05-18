@@ -39,9 +39,10 @@ const CLASSES = new ClassMapBuilder()
     ['serviceId', 'clientId', 'productId', 'serverId'],
     'business.identifier'
   )
-  .set('productName', 'public.safe')
-  .set('groupName', 'public.safe')
-  .set('domain', 'public.safe')
+  // Track B: product / group / domain are business DISPLAY labels.
+  .set('productName', 'business.label')
+  .set('groupName', 'business.label')
+  .set('domain', 'business.label')
   .many(
     [
       'status',

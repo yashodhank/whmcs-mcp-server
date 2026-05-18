@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { hashToken } from '../../src/governance/consumers.js';
 vi.mock('../../src/config.js', () => ({ config: { MCP_MAX_PAGE_SIZE: 100 }, isToolAllowed: () => true }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {}, ensureToolAuth: () => null, isClientMode: () => false, ensureClientAllowed: () => null }));
-import { registerAggregatorTools } from '../../src/tools/aggregators.js';
+import {
+  registerAggregatorTools,
+  classifyAggregateKey,
+} from '../../src/tools/aggregators.js';
 // Same (static) capability-registry instance the statically-imported
 // aggregator consults — lets the degrade test seed the probe cache without
 // a module reset (which would fork the module graph).
@@ -1053,5 +1056,68 @@ describe('aggregators — app-usable outputSchema contract', () => {
     expect(Array.isArray(recon.partial_errors)).toBe(true);
     expect(Array.isArray(prov.source_service_ids)).toBe(true);
     expect(Array.isArray(prov.partial_errors)).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * PHASE H.1 / Track B — classifyAggregateKey reclassification correctness.
+ *
+ * Structural / label aggregate keys must resolve to the RIGHT FieldClass so
+ * the authoritative auditor stops false-flagging status/labels. PII keys
+ * (client/email/phone/address) are matched FIRST and never downgraded.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe('classifyAggregateKey (Track B taxonomy)', () => {
+  it('structural / status keys map to system.status', () => {
+    for (const k of ['counts', 'risk', 'truncated', 'ledger_adjustments']) {
+      expect(classifyAggregateKey(k)).toBe('system.status');
+    }
+  });
+
+  it('partial_errors → system.diagnostic (raw internal error text)', () => {
+    expect(classifyAggregateKey('partial_errors')).toBe(
+      'system.diagnostic'
+    );
+  });
+
+  it('business display labels → business.label', () => {
+    for (const k of ['departments', 'upcoming', 'whmcs9_notice']) {
+      expect(classifyAggregateKey(k)).toBe('business.label');
+    }
+  });
+
+  it('source-id arrays → business.identifier', () => {
+    for (const k of [
+      'source_invoice_ids',
+      'source_transaction_ids',
+      'source_service_ids',
+    ]) {
+      expect(classifyAggregateKey(k)).toBe('business.identifier');
+    }
+  });
+
+  it('reconciliation_ledger stays system.audit (billing-only asymmetry)', () => {
+    expect(classifyAggregateKey('reconciliation_ledger')).toBe(
+      'system.audit'
+    );
+  });
+
+  it('transactions summary block → financial.reference', () => {
+    expect(classifyAggregateKey('transactions')).toBe(
+      'financial.reference'
+    );
+  });
+
+  it('client_tickets stays untrusted.free_text (unchanged intent)', () => {
+    expect(classifyAggregateKey('client_tickets')).toBe(
+      'untrusted.free_text'
+    );
+  });
+
+  it('PII keys are matched FIRST and never downgraded', () => {
+    expect(classifyAggregateKey('client')).toBe('pii.name');
+    expect(classifyAggregateKey('email')).toBe('pii.email');
+    expect(classifyAggregateKey('contact_email')).toBe('pii.email');
+    expect(classifyAggregateKey('phone')).toBe('pii.phone');
+    expect(classifyAggregateKey('address')).toBe('pii.address');
   });
 });

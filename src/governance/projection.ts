@@ -33,6 +33,13 @@ import {
   type UntrustedValue,
   ProjectionEnvError,
 } from './types.js';
+import {
+  UNMAPPED,
+  type AuditTraceContext,
+  type AuditTraceRecord,
+  type ProjectionDecision,
+  type TraceValueState,
+} from './auditTrace.js';
 
 /** Cap for `summarize`: never emit raw beyond this many chars. */
 const SUMMARY_CAP = 200;
@@ -194,6 +201,45 @@ function applyAction(
   }
 }
 
+/* ── shared per-key decision (the single source of truth) ──────────────────── */
+
+/**
+ * The authoritative per-key decision. BOTH `project()` and
+ * `projectWithTrace()` walk top-level keys through this exact function, so a
+ * trace record can never disagree with the data `project()` emits.
+ *
+ * `mapped` is `false` for a top-level key absent from `canonical.classes`
+ * (genuinely unclassified ⇒ dropped, never leaked). When `mapped` is true,
+ * `projected === DROP` means the contract action omitted the field.
+ */
+type KeyDecision =
+  | { readonly mapped: false }
+  | {
+      readonly mapped: true;
+      readonly cls: FieldClass;
+      readonly action: string;
+      /** The projected value, or the DROP sentinel. */
+      readonly projected: unknown;
+    };
+
+function decideKey(
+  canonical: Canonical<unknown>,
+  contract: DataContract,
+  source: Record<string, unknown>,
+  key: string
+): KeyDecision {
+  // Resolve class. `FieldClassMap`'s index signature widens to `FieldClass`,
+  // but at runtime an unmapped path is genuinely absent — a presence check
+  // guarantees an unclassified field is never leaked.
+  if (!Object.prototype.hasOwnProperty.call(canonical.classes, key)) {
+    return { mapped: false };
+  }
+  const cls: FieldClass = canonical.classes[key];
+  const action = contract.policy[cls];
+  const projected = applyAction(cls, contract, source[key]);
+  return { mapped: true, cls, action, projected };
+}
+
 /* ── the projection boundary ───────────────────────────────────────────────── */
 
 export const project: ProjectFn = <T>(
@@ -218,22 +264,165 @@ export const project: ProjectFn = <T>(
 
   const source = data as Record<string, unknown>;
   for (const key of Object.keys(source)) {
-    // 2. Resolve class. Unmapped ⇒ most-restrictive ⇒ drop.
-    //    `FieldClassMap`'s index signature widens to `FieldClass`, but at
-    //    runtime an unmapped path is genuinely absent — guard with a
-    //    presence check so an unclassified field is never leaked.
-    if (!Object.prototype.hasOwnProperty.call(canonical.classes, key)) {
+    const d = decideKey(canonical, contract, source, key);
+    if (!d.mapped) {
       continue; // unmapped path: never leaked
     }
-    const cls: FieldClass = canonical.classes[key];
-
-    // 3. Apply the contract action for that class.
-    const projected = applyAction(cls, contract, source[key]);
-    if (projected === DROP) {
+    if (d.projected === DROP) {
       continue;
     }
-    out[key] = projected;
+    out[key] = d.projected;
   }
 
   return out;
 };
+
+/* ── authoritative tracing variant (A1) ────────────────────────────────────── */
+
+/** Map an applied action + projected value to the real trace decision. */
+function decisionFor(
+  action: string | null,
+  projected: unknown
+): { decision: ProjectionDecision; value_state: TraceValueState } {
+  if (action === 'drop' || projected === DROP) {
+    return { decision: 'omit', value_state: 'omitted' };
+  }
+  if (action === 'mask') {
+    return { decision: 'mask', value_state: 'masked' };
+  }
+  if (action === 'wrap_untrusted') {
+    return { decision: 'wrap_untrusted', value_state: 'present' };
+  }
+  // allow / summarize (both emit) — distinguish a literal null payload.
+  const value_state: TraceValueState =
+    projected === null ? 'null' : 'present';
+  return { decision: 'emit', value_state };
+}
+
+function reasonFor(decision: ProjectionDecision, rule_id: string): string {
+  switch (decision) {
+    case 'emit':
+      return 'contract permits this class; value emitted';
+    case 'mask':
+      return 'contract masks this class; partial reveal only';
+    case 'wrap_untrusted':
+      return 'untrusted class wrapped for the consumer';
+    case 'deny':
+      return 'contract not permitted in this environment (env gate)';
+    case 'omit':
+    default:
+      return rule_id === 'unmapped_dropped'
+        ? 'top-level key not in canonical classmap; dropped'
+        : 'contract drops this class; field omitted';
+  }
+}
+
+export interface ProjectWithTraceResult {
+  readonly data: Record<string, unknown>;
+  readonly trace: AuditTraceRecord[];
+  /** True only for the non-throwing env-forbidden path. */
+  readonly denied: boolean;
+}
+
+export interface ProjectWithTraceOptions {
+  /**
+   * When false, an env-forbidden contract does NOT throw; instead a single
+   * `deny`/`env_forbidden` trace record is returned with empty data and
+   * `denied: true`. Default true (preserves `project()`'s throw contract).
+   */
+  readonly throwOnEnv?: boolean;
+}
+
+/**
+ * Project `canonical` AND emit an authoritative `AuditTraceRecord[]` from the
+ * SAME per-key decision `project()` uses. The returned `data` is byte-
+ * identical to `project(canonical, contract, env)` for every mapped scenario.
+ * The trace NEVER contains a field value.
+ */
+export function projectWithTrace(
+  canonical: Canonical<unknown>,
+  contract: DataContract,
+  env: ProjectionEnv,
+  ctx: AuditTraceContext,
+  opts: ProjectWithTraceOptions = {}
+): ProjectWithTraceResult {
+  const throwOnEnv = opts.throwOnEnv !== false;
+
+  // 1. Env gate FIRST — before any field (incl. secrets) is read.
+  if (
+    contract.envRestrictions.length > 0 &&
+    !contract.envRestrictions.includes(env)
+  ) {
+    if (throwOnEnv) {
+      throw new ProjectionEnvError(contract.name, env);
+    }
+    const denyRecord: AuditTraceRecord = {
+      source_path: '',
+      output_path: '',
+      field_classification: UNMAPPED,
+      consumer_id: ctx.consumer_id,
+      contract: ctx.contract,
+      projection_decision: 'deny',
+      rule_id: 'env_forbidden',
+      reason: reasonFor('deny', 'env_forbidden'),
+      value_state: 'omitted',
+      environment: env,
+      tool: ctx.tool,
+    };
+    return { data: {}, trace: [denyRecord], denied: true };
+  }
+
+  const out: Record<string, unknown> = {};
+  const trace: AuditTraceRecord[] = [];
+  const data: unknown = canonical.data;
+
+  if (data === null || typeof data !== 'object') {
+    return { data: out, trace, denied: false };
+  }
+
+  const source = data as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    const d = decideKey(canonical, contract, source, key);
+
+    if (!d.mapped) {
+      trace.push({
+        source_path: key,
+        output_path: '',
+        field_classification: UNMAPPED,
+        consumer_id: ctx.consumer_id,
+        contract: ctx.contract,
+        projection_decision: 'omit',
+        rule_id: 'unmapped_dropped',
+        reason: reasonFor('omit', 'unmapped_dropped'),
+        value_state: 'omitted',
+        environment: env,
+        tool: ctx.tool,
+      });
+      continue;
+    }
+
+    // `mapped` is true here ⇒ `cls`/`action` are present (discriminated).
+    const cls = d.cls;
+    const { decision, value_state } = decisionFor(d.action, d.projected);
+    const emitted = decision !== 'omit';
+    if (emitted) {
+      out[key] = d.projected;
+    }
+    const rule_id = `${ctx.contract}:${cls}->${d.action}`;
+    trace.push({
+      source_path: key,
+      output_path: emitted ? key : '',
+      field_classification: cls,
+      consumer_id: ctx.consumer_id,
+      contract: ctx.contract,
+      projection_decision: decision,
+      rule_id,
+      reason: reasonFor(decision, rule_id),
+      value_state,
+      environment: env,
+      tool: ctx.tool,
+    });
+  }
+
+  return { data: out, trace, denied: false };
+}

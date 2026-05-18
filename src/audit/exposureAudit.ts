@@ -28,6 +28,11 @@
 import { createHash } from 'node:crypto';
 
 import type { FieldClass } from '../governance/types.js';
+import {
+  UNMAPPED,
+  type AuditTraceRecord,
+  type ProjectionDecision,
+} from '../governance/auditTrace.js';
 
 /* ─────────────────────────────  Public shapes  ───────────────────────────── */
 
@@ -341,10 +346,48 @@ export function auditExposure(input: ExposureAuditInput): ExposureAuditReport {
  * Return a deep-ish copy of a report with every `sample.raw` stripped, safe
  * to print to stdout, log, or commit. Does NOT mutate the input report.
  * Idempotent.
+ *
+ * Overloaded for BOTH report families:
+ *  - the inference `ExposureAuditReport` (strips `sample.raw`), and
+ *  - the trace-driven `AuthoritativeAuditReport` (already value-free by
+ *    construction — returns a deep, stable copy).
  */
 export function redactedReport(
   report: ExposureAuditReport
-): ExposureAuditReport {
+): ExposureAuditReport;
+export function redactedReport(
+  report: AuthoritativeAuditReport
+): AuthoritativeAuditReport;
+export function redactedReport(
+  report: ExposureAuditReport | AuthoritativeAuditReport
+): ExposureAuditReport | AuthoritativeAuditReport {
+  if (isAuthoritative(report)) {
+    return {
+      classmap_source: 'authoritative',
+      consumer_id: report.consumer_id,
+      contract: report.contract,
+      tool: report.tool,
+      fields: report.fields.map((f) => ({
+        source_path: f.source_path,
+        output_path: f.output_path,
+        field_classification: f.field_classification,
+        projection_decision: f.projection_decision,
+        value_state: f.value_state,
+        rule_id: f.rule_id,
+        allowed: f.allowed,
+      })),
+      summary: {
+        emitted_count: report.summary.emitted_count,
+        emitted: [...report.summary.emitted],
+        masked: [...report.summary.masked],
+        omitted: [...report.summary.omitted],
+        violations: [...report.summary.violations],
+        over_masked: [...report.summary.over_masked],
+        under_masked: [...report.summary.under_masked],
+        unknown_fields: [...report.summary.unknown_fields],
+      },
+    };
+  }
   return {
     consumer_id: report.consumer_id,
     contract: report.contract,
@@ -365,6 +408,199 @@ export function redactedReport(
       over_masked: [...report.summary.over_masked],
       under_masked: [...report.summary.under_masked],
       unknown_fields: [...report.summary.unknown_fields],
+    },
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * PHASE H.1 / Track A3 — the AUTHORITATIVE, trace-driven auditor.
+ *
+ * `auditFromTrace` computes the exposure report PURELY from the value-free
+ * `AuditTraceRecord[]` emitted by `projectWithTrace()` (the SAME per-key
+ * decision `project()` makes). It performs NO name inference, so there are
+ * NEVER UNKNOWN fields invented for nested aggregator leaves — every emitted
+ * leaf rides its traced top-level key's REAL class. `classmap_source` is
+ * `'authoritative'`. `auditExposure` (above) stays intact as the labelled
+ * inference fallback.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Where the report's classifications came from. */
+export type ClassmapSource = 'authoritative' | 'inferred';
+
+/** One field as recorded by the authoritative trace (value-free). */
+export interface AuthoritativeField {
+  readonly source_path: string;
+  readonly output_path: string;
+  readonly field_classification: FieldClass | typeof UNMAPPED;
+  readonly projection_decision: ProjectionDecision;
+  readonly value_state: AuditTraceRecord['value_state'];
+  readonly rule_id: string;
+  /** True if the projection actually emitted (or masked/wrapped) the value. */
+  readonly allowed: boolean;
+}
+
+export interface AuthoritativeAuditSummary {
+  readonly emitted_count: number;
+  /** source_paths the projector emitted (allow/summarize, value present). */
+  readonly emitted: readonly string[];
+  /** source_paths emitted as a partial-reveal mask. */
+  readonly masked: readonly string[];
+  /** source_paths the contract dropped (governance honoured — safe). */
+  readonly omitted: readonly string[];
+  /**
+   * AUTHORITATIVE leak signal: the trace says a field was emitted whose
+   * rule_id resolves to `->drop` (a real exposure of a drop-class field).
+   */
+  readonly violations: readonly string[];
+  /** Emitted-but-masked where the class's action was a plain `allow`. */
+  readonly over_masked: readonly string[];
+  /** A risky class whose trace decision was `emit` (raw) under a non-allow rule. */
+  readonly under_masked: readonly string[];
+  /** Unmapped top-level keys (rule_id 'unmapped_dropped'). */
+  readonly unknown_fields: readonly string[];
+}
+
+export interface AuthoritativeAuditReport {
+  readonly classmap_source: ClassmapSource;
+  readonly consumer_id: string;
+  readonly contract: string;
+  readonly tool: string;
+  readonly fields: readonly AuthoritativeField[];
+  readonly summary: AuthoritativeAuditSummary;
+}
+
+export interface AuditFromTraceMeta {
+  readonly consumer_id: string;
+  readonly contract: string;
+  readonly tool: string;
+}
+
+function isAuthoritative(
+  r: ExposureAuditReport | AuthoritativeAuditReport
+): r is AuthoritativeAuditReport {
+  return (
+    (r as AuthoritativeAuditReport).classmap_source === 'authoritative'
+  );
+}
+
+/** Risk classes whose RAW (`emit`) trace decision under a non-allow rule leaks. */
+function isRiskyAuthoritative(
+  cls: FieldClass | typeof UNMAPPED
+): boolean {
+  return (
+    cls === 'financial.reference' ||
+    cls.startsWith('pii.') ||
+    cls.startsWith('secret.')
+  );
+}
+
+/** Parse the action suffix of a rule_id (`contract:class->action`). */
+function actionOf(rule_id: string): string | null {
+  const arrow = rule_id.indexOf('->');
+  return arrow >= 0 ? rule_id.slice(arrow + 2) : null;
+}
+
+/**
+ * Build the authoritative exposure report from a projection trace.
+ *
+ * PURE. No I/O, no inference. The report is value-free (the trace itself
+ * never carried a value), so it is safe under a production read-only run.
+ */
+export function auditFromTrace(
+  trace: readonly AuditTraceRecord[],
+  meta: AuditFromTraceMeta
+): AuthoritativeAuditReport {
+  const fields: AuthoritativeField[] = [];
+  const emitted: string[] = [];
+  const masked: string[] = [];
+  const omitted: string[] = [];
+  const violations: string[] = [];
+  const overMasked: string[] = [];
+  const underMasked: string[] = [];
+  const unknownFields: string[] = [];
+
+  for (const r of trace) {
+    // The env-gate deny record has an empty source_path and represents a
+    // whole-projection refusal — record the field, count nothing emitted.
+    const decision = r.projection_decision;
+    const action = actionOf(r.rule_id);
+    const wasEmitted =
+      decision === 'emit' ||
+      decision === 'mask' ||
+      decision === 'wrap_untrusted';
+
+    fields.push({
+      source_path: r.source_path,
+      output_path: r.output_path,
+      field_classification: r.field_classification,
+      projection_decision: decision,
+      value_state: r.value_state,
+      rule_id: r.rule_id,
+      allowed: wasEmitted,
+    });
+
+    if (r.rule_id === 'env_forbidden' || decision === 'deny') {
+      continue;
+    }
+
+    if (r.rule_id === 'unmapped_dropped') {
+      // Unmapped key: governance DROPPED it (omit) → safe, not a violation.
+      // Still reported as an unknown field for visibility.
+      unknownFields.push(r.source_path);
+      omitted.push(r.source_path);
+      continue;
+    }
+
+    if (decision === 'omit') {
+      omitted.push(r.source_path);
+      continue;
+    }
+
+    if (decision === 'mask') {
+      masked.push(r.source_path);
+    } else {
+      // emit / wrap_untrusted → value left the projector.
+      emitted.push(r.source_path);
+    }
+
+    // AUTHORITATIVE leak: the rule says `->drop` but the trace emitted it.
+    if (action === 'drop') {
+      violations.push(r.source_path);
+      continue;
+    }
+
+    // over_masked: the class's action is a plain `allow` but it was masked.
+    if (decision === 'mask' && action === 'allow') {
+      overMasked.push(r.source_path);
+    }
+
+    // under_masked: a risky class emitted RAW (`emit`, value present) under
+    // a non-allow rule (mask/summarize/wrap) — the trace is the truth.
+    if (
+      decision === 'emit' &&
+      r.value_state === 'present' &&
+      action !== 'allow' &&
+      isRiskyAuthoritative(r.field_classification)
+    ) {
+      underMasked.push(r.source_path);
+    }
+  }
+
+  return {
+    classmap_source: 'authoritative',
+    consumer_id: meta.consumer_id,
+    contract: meta.contract,
+    tool: meta.tool,
+    fields,
+    summary: {
+      emitted_count: emitted.length + masked.length,
+      emitted,
+      masked,
+      omitted,
+      violations,
+      over_masked: overMasked,
+      under_masked: underMasked,
+      unknown_fields: unknownFields,
     },
   };
 }

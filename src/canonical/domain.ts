@@ -29,9 +29,11 @@ export interface CanonicalDomain {
 
 const CLASSES = new ClassMapBuilder()
   .many(['domainId', 'clientId'], 'business.identifier')
+  // Track B: a domain name is a non-sensitive business DISPLAY label, not
+  // generic "public.safe" metadata (and certainly not a person name).
+  .set('domain', 'business.label')
   .many(
     [
-      'domain',
       'registrar',
       'registrationDate',
       'expiryDate',

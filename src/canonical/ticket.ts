@@ -93,8 +93,13 @@ export function mapToCanonicalTicket(
     .set('name', 'pii.name')
     .set('email', 'pii.email')
     .set('cc', 'pii.email')
+    // Track B: a department name is a business DISPLAY label, NOT a person
+    // name and NOT generic public.safe metadata. The ticket-opener `name`
+    // and reply `name` above STAY pii.name (real people).
+    .set('departmentName', 'business.label')
+    .set('service', 'business.label')
     .many(
-      ['departmentName', 'status', 'priority', 'date', 'lastReply', 'service'],
+      ['status', 'priority', 'date', 'lastReply'],
       'public.safe'
     )
     .set('subject', 'untrusted.free_text')

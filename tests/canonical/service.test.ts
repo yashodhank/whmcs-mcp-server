@@ -37,7 +37,10 @@ describe('mapToCanonicalService', () => {
     expect(c.classes.serviceId).toBe('business.identifier');
     expect(c.classes.password).toBe('secret.credential');
     expect(c.classes.recurringAmount).toBe('financial.amount');
-    expect(c.classes.domain).toBe('public.safe');
+    // Track B (correctness fix): a service's domain is a business DISPLAY
+    // label. business.label is `allow` everywhere ⇒ projected output
+    // unchanged; only the auditor's reported class is corrected.
+    expect(c.classes.domain).toBe('business.label');
     expect(c.classes['customFields[].value']).toBe('pii.custom_field');
     assertClassmapComplete(c);
   });

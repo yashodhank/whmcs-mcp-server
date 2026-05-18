@@ -20,7 +20,8 @@ import {
 } from './types.js';
 import { loadConsumerRegistry, resolveConsumer } from './consumers.js';
 import { getContract } from './contracts.js';
-import { project } from './projection.js';
+import { project, projectWithTrace } from './projection.js';
+import type { AuditTraceRecord } from './auditTrace.js';
 
 /** Map the validated MCP_ENV to a ProjectionEnv (identical union). */
 export function getProjectionEnv(): ProjectionEnv {
@@ -57,6 +58,11 @@ export interface GovernResult {
   readonly error?: string;
   readonly consumer_id?: string;
   readonly contract?: ContractName;
+  /**
+   * Authoritative projection trace. Present ONLY when the caller passed
+   * `withTrace: true` (A2 surfacing flag). Value-free by construction.
+   */
+  readonly audit_trace?: AuditTraceRecord[];
 }
 
 /**
@@ -69,6 +75,8 @@ export function governProjection<T>(args: {
   registry: ConsumerProfile[];
   allowAnon: boolean;
   requestedContract?: string;
+  /** A2: also compute the value-free authoritative projection trace. */
+  withTrace?: boolean;
 }): GovernResult {
   const resolution = resolveConsumer(args.authToken, args.env, args.registry, {
     allowAnon: args.allowAnon,
@@ -86,6 +94,27 @@ export function governProjection<T>(args: {
   const contract = getContract(contractName);
 
   try {
+    if (args.withTrace === true) {
+      // SAME per-key decision as project(); data is byte-identical.
+      const r = projectWithTrace(
+        args.canonical as Canonical<unknown>,
+        contract,
+        args.env,
+        {
+          consumer_id: profile.id,
+          contract: contractName,
+          tool: args.canonical.entity,
+        }
+      );
+      return {
+        ok: true,
+        status: 'projected',
+        data: r.data,
+        consumer_id: profile.id,
+        contract: contractName,
+        audit_trace: r.trace,
+      };
+    }
     const data = project(args.canonical, contract, args.env);
     return {
       ok: true,
@@ -115,6 +144,12 @@ export interface GovernListResult {
   readonly error?: string;
   readonly consumer_id?: string;
   readonly contract?: ContractName;
+  /**
+   * Authoritative per-row projection trace. Present ONLY when the caller
+   * passed `withTrace: true`. Each record's source_path/output_path is
+   * prefixed with the row index (e.g. `items[0].x`). Value-free.
+   */
+  readonly audit_trace?: AuditTraceRecord[];
 }
 
 /**
@@ -130,6 +165,8 @@ export function governListProjection(args: {
   registry: ConsumerProfile[];
   allowAnon: boolean;
   requestedContract?: string;
+  /** A2: also compute the value-free authoritative per-row trace. */
+  withTrace?: boolean;
 }): GovernListResult {
   const resolution = resolveConsumer(args.authToken, args.env, args.registry, {
     allowAnon: args.allowAnon,
@@ -147,6 +184,41 @@ export function governListProjection(args: {
   const contract = getContract(contractName);
 
   try {
+    if (args.withTrace === true) {
+      const items: Record<string, unknown>[] = [];
+      const trace: AuditTraceRecord[] = [];
+      args.rows.forEach((raw, idx) => {
+        const canonical = args.mapItem(raw);
+        const r = projectWithTrace(canonical, contract, args.env, {
+          consumer_id: profile.id,
+          contract: contractName,
+          tool: canonical.entity,
+        });
+        items.push(r.data);
+        const prefix = `items[${String(idx)}]`;
+        for (const rec of r.trace) {
+          trace.push({
+            ...rec,
+            source_path:
+              rec.source_path === ''
+                ? prefix
+                : `${prefix}.${rec.source_path}`,
+            output_path:
+              rec.output_path === ''
+                ? ''
+                : `${prefix}.${rec.output_path}`,
+          });
+        }
+      });
+      return {
+        ok: true,
+        status: 'projected',
+        items,
+        consumer_id: profile.id,
+        contract: contractName,
+        audit_trace: trace,
+      };
+    }
     const items = args.rows.map((raw) =>
       project(args.mapItem(raw), contract, args.env)
     );
@@ -197,6 +269,16 @@ export function governanceEnabled(): boolean {
   return config.MCP_GOVERNANCE_ENABLED;
 }
 
+/**
+ * A2 surfacing flag. Read LIVE from `process.env` (NOT frozen config) so it
+ * is operationally toggleable and OFF by default. When `'1'`, governed
+ * results additionally carry a value-free `__audit_trace`. Any other value
+ * (incl. unset / '0') ⇒ behaviour 100% unchanged, no `__audit_trace` key.
+ */
+export function auditTraceEnabled(): boolean {
+  return process.env.MCP_AUDIT_TRACE === '1';
+}
+
 let cachedRegistry: ConsumerProfile[] | null = null;
 
 /** Lazily load + cache the consumer registry from env (B3 owns parsing). */
@@ -227,6 +309,7 @@ export function governedToolResult<T>(args: {
   authToken: string | undefined;
   requestedContract?: string;
 }): GovernedToolResult {
+  const withTrace = auditTraceEnabled();
   const r = governProjection({
     canonical: args.canonical,
     authToken: args.authToken,
@@ -234,6 +317,7 @@ export function governedToolResult<T>(args: {
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,
     requestedContract: args.requestedContract,
+    withTrace,
   });
 
   if (!r.ok) {
@@ -245,12 +329,16 @@ export function governedToolResult<T>(args: {
     };
   }
 
-  const payload = {
+  // Default (flag unset) ⇒ NO `__audit_trace` key, byte-identical payload.
+  const payload: Record<string, unknown> = {
     entity: args.canonical.entity,
     consumer: r.consumer_id,
     contract: r.contract,
     data: r.data,
   };
+  if (withTrace && r.audit_trace !== undefined) {
+    payload.__audit_trace = r.audit_trace;
+  }
   return {
     content: [{ type: 'text', text: JSON.stringify(payload) }],
     structuredContent: payload,
@@ -270,6 +358,7 @@ export function governedListResult(args: {
   authToken: string | undefined;
   requestedContract?: string;
 }): GovernedToolResult {
+  const withTrace = auditTraceEnabled();
   const r = governListProjection({
     rows: args.rows,
     mapItem: args.mapItem,
@@ -278,6 +367,7 @@ export function governedListResult(args: {
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,
     requestedContract: args.requestedContract,
+    withTrace,
   });
 
   if (!r.ok) {
@@ -289,12 +379,15 @@ export function governedListResult(args: {
     };
   }
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     consumer: r.consumer_id,
     contract: r.contract,
     items: r.items,
     ...args.envelope,
   };
+  if (withTrace && r.audit_trace !== undefined) {
+    payload.__audit_trace = r.audit_trace;
+  }
   return {
     content: [{ type: 'text', text: JSON.stringify(payload) }],
     structuredContent: payload,
