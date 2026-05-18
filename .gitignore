@@ -44,3 +44,8 @@ deploy/whmcs-test/snapshot/*
 # Raw is deleted right after scrubbing; only scrubbed data enters containers.
 deploy/whmcs-test/.prodseed/
 cursor-mcp-config.json
+
+# Phase H exposure-audit RAW artifacts (operator local-only, may contain
+# synthetic values dumped under AUDIT_LOCAL_VALUES=1). NEVER committed.
+.audit-local/
+*.audit-raw.json
