@@ -48,8 +48,14 @@ interface WhmcsClientDetails {
   credit: string;
   currency_code: string;
   defaultgateway?: string;
-  numproducts?: number;
-  numdomains?: number;
+  // WHMCS GetClientsDetails returns counts ONLY inside `stats` and ONLY
+  // when stats=true is requested (there are no root numproducts/numdomains).
+  stats?: {
+    productsnumactive?: number;
+    productsnumtotal?: number;
+    numactivedomains?: number;
+    numdomains?: number;
+  };
   customfields?: { id: number; value: string }[];
 }
 
@@ -449,6 +455,7 @@ export function registerClientTools(
           
           const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
             clientid: params.clientid,
+            stats: true,
           });
           
           // Normalize custom fields
@@ -478,8 +485,10 @@ export function registerClientTools(
                 credit_balance: result.credit,
                 currency: result.currency_code,
                 payment_gateway: result.defaultgateway || null,
-                product_count: result.numproducts || 0,
-                domain_count: result.numdomains || 0,
+                product_count: result.stats?.productsnumactive ?? 0,
+                product_count_total: result.stats?.productsnumtotal ?? 0,
+                domain_count: result.stats?.numactivedomains ?? 0,
+                domain_count_total: result.stats?.numdomains ?? 0,
                 custom_fields: customfields,
               }),
             }],

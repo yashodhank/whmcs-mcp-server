@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { normalizeToArray, boolToWhmcs, whmcsToBool, parseNumber } from '../src/whmcs/normalizers.js';
+import { normalizeToArray, normalizeWhmcsResponse, boolToWhmcs, whmcsToBool, parseNumber } from '../src/whmcs/normalizers.js';
 
 describe('normalizers', () => {
   describe('normalizeToArray', () => {
@@ -32,6 +32,58 @@ describe('normalizers', () => {
     });
   });
   
+  describe('normalizeWhmcsResponse', () => {
+    // #11 root cause: 'replies'.replace(/s$/,'') === 'replie' (irregular
+    // plural), so the nested-normalize branch was skipped only for replies,
+    // leaving the clobbered [{reply:[...]}] shape. ticket.replies.reply must
+    // be a proper array after normalization.
+    it('GetTicket: replies kept as {reply: []} with inner normalized (numeric-keyed)', () => {
+      const r = normalizeWhmcsResponse(
+        {
+          result: 'success',
+          replies: { reply: { '0': { replyid: '0', message: 'a' }, '1': { replyid: '1', message: 'b' } } },
+          notes: [],
+        },
+        'GetTicket'
+      ) as any;
+      expect(Array.isArray(r.replies.reply)).toBe(true);
+      expect(r.replies.reply).toHaveLength(2);
+      expect(r.replies.reply[1].message).toBe('b');
+    });
+
+    it('GetTicket: replies already a proper {reply:[...]} array stays usable', () => {
+      const r = normalizeWhmcsResponse(
+        { result: 'success', replies: { reply: [{ message: 'x' }, { message: 'y' }] }, notes: [] },
+        'GetTicket'
+      ) as any;
+      expect(Array.isArray(r.replies.reply)).toBe(true);
+      expect(r.replies.reply.map((x: any) => x.message)).toEqual(['x', 'y']);
+    });
+
+    it('GetClients regression: clients.client still normalized (regular plural)', () => {
+      const r = normalizeWhmcsResponse(
+        { result: 'success', clients: { client: { '0': { id: 1 }, '1': { id: 2 } } } },
+        'GetClients'
+      ) as any;
+      expect(Array.isArray(r.clients.client)).toBe(true);
+      expect(r.clients.client).toHaveLength(2);
+      expect(r.clients.client[0].id).toBe(1);
+    });
+
+    it('GetInvoice regression: items/transactions still normalized', () => {
+      const r = normalizeWhmcsResponse(
+        {
+          result: 'success',
+          items: { item: { '0': { id: 1 }, '1': { id: 2 } } },
+          transactions: { transaction: [{ id: 9 }] },
+        },
+        'GetInvoice'
+      ) as any;
+      expect(r.items.item).toHaveLength(2);
+      expect(r.transactions.transaction).toHaveLength(1);
+    });
+  });
+
   describe('boolToWhmcs', () => {
     it('should convert true to 1 (default format)', () => {
       expect(boolToWhmcs(true)).toBe(1);

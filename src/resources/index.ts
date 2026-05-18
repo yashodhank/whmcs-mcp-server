@@ -88,9 +88,13 @@ export function registerResources(
           status: string;
           credit: string;
           currency_code: string;
-          numproducts?: number;
-          numdomains?: number;
-        }>('GetClientsDetails', { clientid });
+          stats?: {
+            productsnumactive?: number;
+            productsnumtotal?: number;
+            numactivedomains?: number;
+            numdomains?: number;
+          };
+        }>('GetClientsDetails', { clientid, stats: true });
 
         return {
           contents: [{
@@ -103,8 +107,10 @@ export function registerResources(
               status: client.status,
               credit_balance: client.credit,
               currency: client.currency_code,
-              product_count: client.numproducts || 0,
-              domain_count: client.numdomains || 0,
+              product_count: client.stats?.productsnumactive ?? 0,
+              product_count_total: client.stats?.productsnumtotal ?? 0,
+              domain_count: client.stats?.numactivedomains ?? 0,
+              domain_count_total: client.stats?.numdomains ?? 0,
             }, null, 2),
           }],
         };
@@ -299,8 +305,12 @@ export function registerResources(
           }
         }
 
-        const replies = normalizeToArray<Reply>(ticket.replies?.reply);
+        const allReplies = normalizeToArray<Reply>(ticket.replies?.reply);
         const notes = normalizeToArray<Note>(ticket.notes?.note);
+        // WHMCS GetTicket returns NO top-level `message`; the opening post
+        // is replies.reply[0], and the rest are the actual replies.
+        const opening = allReplies[0];
+        const subsequentReplies = allReplies.slice(1);
 
         return {
           contents: [{
@@ -313,8 +323,8 @@ export function registerResources(
               subject: ticket.subject,
               status: ticket.status,
               date: ticket.date,
-              initial_message: ticket.message,
-              replies: replies.map((r) => ({
+              initial_message: opening?.message ?? ticket.message ?? '',
+              replies: subsequentReplies.map((r) => ({
                 id: r.replyid,
                 date: r.date,
                 from: r.admin || r.name,

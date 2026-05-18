@@ -83,6 +83,26 @@ type NormalizerKey =
   | 'customfields';
 
 /**
+ * Plural container key → its WHMCS singular child key.
+ * Explicit map (NOT naive `replace(/s$/, '')`, which mis-derives the
+ * irregular plural 'replies' → 'replie' instead of 'reply').
+ */
+const SINGULAR: Record<NormalizerKey, string> = {
+  clients: 'client',
+  invoices: 'invoice',
+  items: 'item',
+  transactions: 'transaction',
+  tickets: 'ticket',
+  products: 'product',
+  services: 'service',
+  domains: 'domain',
+  orders: 'order',
+  replies: 'reply',
+  notes: 'note',
+  customfields: 'customfield',
+};
+
+/**
  * Field paths to normalize for each WHMCS action
  */
 const NORMALIZER_PATHS: Record<string, NormalizerKey[]> = {
@@ -111,25 +131,36 @@ export function normalizeWhmcsResponse<T extends Record<string, unknown>>(
   }
   
   const normalized = { ...response };
-  
+
   for (const path of paths) {
-    // Handle nested paths like 'clients.client' or simple paths like 'invoices'
     const value = response[path];
-    if (value !== undefined) {
-      (normalized as Record<string, unknown>)[path] = normalizeToArray(value);
+    if (value === undefined) {
+      continue;
     }
-    
-    // Also check for nested structures like {clients: {client: [...]}}
-    const nestedKey = path.replace(/s$/, ''); // clients → client
-    const container = response[path] as Record<string, unknown> | undefined;
-    if (container && typeof container === 'object' && container[nestedKey]) {
+
+    const singular = SINGULAR[path];
+
+    // WHMCS commonly nests the list under the singular key:
+    // {replies: {reply: [...]}}, {clients: {client: [...]}}. Normalize the
+    // inner list and PRESERVE the {singular: [...]} wrapper (callers read
+    // x.replies.reply / x.clients.client).
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.prototype.hasOwnProperty.call(value, singular)
+    ) {
+      const container = value as Record<string, unknown>;
       (normalized as Record<string, unknown>)[path] = {
         ...container,
-        [nestedKey]: normalizeToArray(container[nestedKey]),
+        [singular]: normalizeToArray(container[singular]),
       };
+    } else {
+      // Flat array / numeric-keyed object / empty → normalized array.
+      (normalized as Record<string, unknown>)[path] = normalizeToArray(value);
     }
   }
-  
+
   return normalized;
 }
 
