@@ -153,6 +153,12 @@ export type ConsumerDenyReason =
 
 /* ─────────────────────────  Capability registry (B4)  ────────────────────── */
 
+/**
+ * All representable capability statuses. Note: `fallback_available` is
+ * RESERVED — this read-only gateway never fabricates a fallback, so no code
+ * path currently *produces* it, but it remains a valid, representable status
+ * for forward compatibility and must not be removed.
+ */
 export const CAPABILITY_STATUSES = [
   'supported',
   'unsupported',
@@ -175,10 +181,28 @@ export interface CapabilityStatus {
   readonly capability: string;
 }
 
-/** Structured payload returned when a capability is not usable. */
+/**
+ * Structured payload returned when a capability is not usable.
+ *
+ * The first four fields are a FROZEN seam — consumers depend on their exact
+ * shape; never remove or rename them. The trailing fields are ADDITIVE and
+ * optional: they make the response more app-handleable (a client can branch on
+ * the snake_case `capability`, decide whether to retry from `retriable`, and
+ * surface `guidance` to an operator) WITHOUT changing any safety behavior.
+ */
 export interface CapabilityUnavailable {
   readonly capability_unavailable: true;
   readonly action: string;
   readonly status: CapabilityStatusValue;
   readonly note?: string;
+  /** Snake_case capability id (CapabilityStatus.capability). */
+  readonly capability?: string;
+  /**
+   * Whether re-attempting (e.g. an operator probe) could plausibly change the
+   * outcome. True for `unverified`/`degraded`; false for
+   * `unsupported`/`not_authorized`.
+   */
+  readonly retriable?: boolean;
+  /** Short, stable, human-facing next-step hint. Never fabricated data. */
+  readonly guidance?: string;
 }
