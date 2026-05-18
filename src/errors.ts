@@ -127,19 +127,32 @@ export function getErrorGuidance(error: string): string | undefined {
  * @returns Sanitized error message
  */
 export function sanitizeErrorMessage(error: string): string {
-  // Patterns that might contain sensitive data
-  const sensitivePatterns = [
+  let sanitized = error;
+
+  // Query/form style: key=value
+  const queryPatterns = [
     /identifier=\S+/gi,
     /secret=\S+/gi,
     /password=\S+/gi,
     /token=\S+/gi,
     /api[_-]?key=\S+/gi,
+    /accesskey=\S+/gi,
   ];
-  
-  let sanitized = error;
-  for (const pattern of sensitivePatterns) {
+  for (const pattern of queryPatterns) {
     sanitized = sanitized.replaceAll(pattern, '[REDACTED]');
   }
-  
+
+  // JSON style: "key":"value" (preserve the key, redact the value)
+  sanitized = sanitized.replace(
+    /"(identifier|secret|password|token|api[_-]?key|accesskey)"\s*:\s*"[^"]*"/gi,
+    '"$1":"[REDACTED]"'
+  );
+
+  // HTTP Authorization headers: Bearer / Basic credentials
+  sanitized = sanitized.replace(
+    /Authorization:\s*(Bearer|Basic)\s+\S+/gi,
+    'Authorization: $1 [REDACTED]'
+  );
+
   return sanitized;
 }
