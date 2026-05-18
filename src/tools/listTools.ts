@@ -6,8 +6,8 @@
  * (limit -> limitnum, offset -> limitstart), normalization, and a
  * consistent response envelope: { items, total, count, offset, limit }.
  *
- * Only `registerListTool` is exported here. The per-tool aggregator
- * (`registerListTools`) is intentionally a later task.
+ * Exports `registerListTool` (single-tool factory) and `registerListTools`
+ * (wires the standard list_client_* read tools).
  */
 
 import { z } from 'zod';
