@@ -12,8 +12,9 @@
 - The server hashes the presented token (`sha256`, hex) and matches it to a
   registry entry's `token_sha256`.
 - The matched profile decides the **data contract** (projection), allowed
-  scopes/actions, environment restrictions, and write capability
-  (write is inert this engagement — production stays read-only).
+  scopes/actions, environment restrictions, write capability, and (optionally)
+  `allowedWriteScopes` (write is inert this engagement — production stays
+  read-only; see "Write scopes" below).
 - Unknown / no token in `production` ⇒ **denied** (unless an explicit
   `anonymous` entry pinned to `llm_safe_summary` exists **and**
   `MCP_ALLOW_ANON_LLM=true`).
@@ -91,9 +92,74 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "writeCapability": "false",
     "envRestrictions": [],
     "anonymous": false
+  },
+  {
+    "id": "support_writer",
+    "token_sha256": "1c8f5b2e7a934d06bb2f1d4e8c0a37915d6b2e4f9a7c3081bd5e2f4a6c8e0b13",
+    "allowedScopes": ["read"],
+    "defaultContract": "support_triage",
+    "allowedContracts": ["support_triage"],
+    "allowedActions": ["list_tickets", "get_ticket", "list_support_departments", "get_client_details", "list_client_products"],
+    "writeCapability": "approval_required",
+    "allowedWriteScopes": ["ticket:reply", "ticket:status"],
+    "envRestrictions": [],
+    "anonymous": false
+  },
+  {
+    "id": "billing_writer",
+    "token_sha256": "9b3d7e1f5a2c4806de1b8f3a0c7d2941e6f5b8a2c9d4e7038ab1f6c2e5d80a47",
+    "allowedScopes": ["read"],
+    "defaultContract": "billing_reconciliation",
+    "allowedContracts": ["billing_reconciliation"],
+    "allowedActions": ["get_client_details", "list_invoices", "get_invoice", "list_orders"],
+    "writeCapability": "approval_required",
+    "allowedWriteScopes": ["billing:invoice:create", "billing:credit:add"],
+    "envRestrictions": [],
+    "anonymous": false
   }
 ]
 ```
+
+## Write scopes (Phase F — framework only, no live execution)
+
+> **No production write path exists.** The Phase F seam is types + a
+> deny-by-default execution gate (`src/write/types.ts`,
+> `src/governance/types.ts`). Even a consumer marked `execution_allowed` is
+> **INERT**: a live write also requires separate per-action **runtime**
+> authorization (`runtimeAuthorizedActions`) that is intentionally absent in
+> the default posture, plus a non-`read_only` MCP mode. Default posture
+> always denies.
+
+`writeCapability` (per `WRITE_CAPABILITIES`) semantics:
+
+| value | meaning |
+|---|---|
+| `false` | consumer cannot draft or execute writes (default) |
+| `draft_only` | may produce a `WriteIntent`; never advances to execute |
+| `approval_required` | drafts may proceed only after explicit approval |
+| `disabled` | writes explicitly turned off for this consumer |
+| `execution_allowed` | cleared for the gated path — still inert without runtime auth |
+
+`allowedWriteScopes` (optional `string[]`) is validated against the frozen
+`WRITE_SCOPES` list (`src/write/types.ts`):
+
+`client_note:write`, `ticket:create`, `ticket:reply`, `ticket:status`,
+`billing:invoice:create`, `billing:payment:add`, `billing:credit:add`,
+`billing:refund:record`
+
+Rules:
+
+- **Default-deny.** Omit the field ⇒ no write scopes. It is **never inferred**
+  from `allowedScopes`, `allowedActions`, or contract.
+- A write is permitted only if the action's scope ∈ `allowedWriteScopes`
+  **and** `writeCapability` allows it **and** per-action runtime
+  authorization is present — none of which is wired in this engagement.
+- Synthetic examples above: `support_writer`
+  (`approval_required` + `["ticket:reply","ticket:status"]`) and
+  `billing_writer` (`approval_required` + `["billing:invoice:create","billing:credit:add"]`).
+  Both are inert: they model intent, they cannot mutate WHMCS.
+- Real bearer tokens are supplied via the deployment environment only and are
+  **never committed**; only the lowercase `sha256` hash is stored.
 
 ## Supplying it in production (read-only)
 
