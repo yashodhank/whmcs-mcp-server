@@ -12,6 +12,13 @@ import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
 import { ensureToolAuth, clientModeDenied, isClientMode, ensureClientAllowed, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
+import {
+  applyGovernanceOrLegacy,
+  governedToolResult,
+  governedListResult,
+  governanceEnabled,
+} from '../governance/pipeline.js';
+import { mapToCanonicalClient, mapToCanonicalService } from '../canonical/index.js';
 import crypto from 'node:crypto';
 
 const TOOL_VERSION = 'v1';
@@ -159,6 +166,10 @@ const searchClientsSchema = z.object({
   search: z.string().optional(),
   limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(25),
   offset: z.number().int().min(0).default(0),
+  contract: z
+    .string()
+    .optional()
+    .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
 });
 
 /**
@@ -166,6 +177,10 @@ const searchClientsSchema = z.object({
  */
 const getClientDetailsSchema = z.object({
   clientid: z.number().int().positive('Client ID must be positive'),
+  contract: z
+    .string()
+    .optional()
+    .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
 });
 
 /**
@@ -359,6 +374,13 @@ export function registerClientTools(
         const startTime = Date.now();
         
         try {
+          // Capture the bearer token before ensureToolAuth strips it.
+          const pview = params as Record<string, unknown>;
+          const authToken =
+            typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+          const requestedContract =
+            typeof pview.contract === 'string' ? pview.contract : undefined;
+
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
 
@@ -367,11 +389,11 @@ export function registerClientTools(
           }
 
           toolLogger.logToolCall('search_clients', params, false);
-          
+
           if (!rateLimiter.tryConsume()) {
             throw new RateLimitError();
           }
-          
+
           // BP-003: sanitize search term before passing to WHMCS API
           const search = params.search ? sanitizeTextInput(params.search) : undefined;
 
@@ -383,9 +405,9 @@ export function registerClientTools(
             limitstart: params.offset,
             limitnum: params.limit,
           });
-          
+
           const clients = normalizeToArray<WhmcsClientSummary>(result.clients?.client);
-          
+
           // Return minimal summary
           const summary = clients.map((c) => ({
             clientid: c.id,
@@ -394,21 +416,34 @@ export function registerClientTools(
             email: c.email,
             companyname: c.companyname || null,
           }));
-          
+
           toolLogger.logToolResult('search_clients', true, Date.now() - startTime);
-          
-          return {
-            content: [{
-              type: 'text' as const,
-              text: JSON.stringify({
-                clients: summary,
-                total: result.totalresults || summary.length,
-                offset: params.offset,
-                limit: params.limit,
-              }),
-            }],
+
+          const totalResults = result.totalresults || summary.length;
+          const legacyPayload = {
+            clients: summary,
+            total: totalResults,
+            offset: params.offset,
+            limit: params.limit,
           };
-          
+
+          return applyGovernanceOrLegacy({
+            enabled: governanceEnabled(),
+            legacy: legacyPayload,
+            govern: () =>
+              governedListResult({
+                rows: clients,
+                mapItem: mapToCanonicalClient,
+                envelope: {
+                  total: totalResults,
+                  offset: params.offset,
+                  limit: params.limit,
+                },
+                authToken,
+                requestedContract,
+              }),
+          });
+
         } catch (error) {
           toolLogger.logToolResult('search_clients', false, Date.now() - startTime,
             error instanceof Error ? error.message : String(error));
@@ -439,6 +474,13 @@ export function registerClientTools(
         const startTime = Date.now();
         
         try {
+          // Capture the bearer token before ensureToolAuth strips it.
+          const pview = params as Record<string, unknown>;
+          const authToken =
+            typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+          const requestedContract =
+            typeof pview.contract === 'string' ? pview.contract : undefined;
+
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
 
@@ -448,52 +490,58 @@ export function registerClientTools(
           }
 
           toolLogger.logToolCall('get_client_details', params, false);
-          
+
           if (!rateLimiter.tryConsume()) {
             throw new RateLimitError();
           }
-          
+
           const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
             clientid: params.clientid,
             stats: true,
           });
-          
+
           // Normalize custom fields
           const customfields = normalizeToArray<{ id: number; value: string }>(
             result.customfields
           ).map((cf) => ({ id: cf.id, value: cf.value }));
-          
+
           toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
-          
-          return {
-            content: [{
-              type: 'text' as const,
-              text: JSON.stringify({
-                clientid: result.id,
-                firstname: result.firstname,
-                lastname: result.lastname,
-                fullname: result.fullname,
-                email: result.email,
-                companyname: result.companyname || null,
-                address1: result.address1 || null,
-                city: result.city || null,
-                state: result.state || null,
-                postcode: result.postcode || null,
-                country: result.country || null,
-                phonenumber: result.phonenumber || null,
-                status: result.status,
-                credit_balance: result.credit,
-                currency: result.currency_code,
-                payment_gateway: result.defaultgateway || null,
-                product_count: result.stats?.productsnumactive ?? 0,
-                product_count_total: result.stats?.productsnumtotal ?? 0,
-                domain_count: result.stats?.numactivedomains ?? 0,
-                domain_count_total: result.stats?.numdomains ?? 0,
-                custom_fields: customfields,
-              }),
-            }],
+
+          const legacyPayload = {
+            clientid: result.id,
+            firstname: result.firstname,
+            lastname: result.lastname,
+            fullname: result.fullname,
+            email: result.email,
+            companyname: result.companyname || null,
+            address1: result.address1 || null,
+            city: result.city || null,
+            state: result.state || null,
+            postcode: result.postcode || null,
+            country: result.country || null,
+            phonenumber: result.phonenumber || null,
+            status: result.status,
+            credit_balance: result.credit,
+            currency: result.currency_code,
+            payment_gateway: result.defaultgateway || null,
+            product_count: result.stats?.productsnumactive ?? 0,
+            product_count_total: result.stats?.productsnumtotal ?? 0,
+            domain_count: result.stats?.numactivedomains ?? 0,
+            domain_count_total: result.stats?.numdomains ?? 0,
+            custom_fields: customfields,
           };
-          
+
+          return applyGovernanceOrLegacy({
+            enabled: governanceEnabled(),
+            legacy: legacyPayload,
+            govern: () =>
+              governedToolResult({
+                canonical: mapToCanonicalClient(result),
+                authToken,
+                requestedContract,
+              }),
+          });
+
         } catch (error) {
           toolLogger.logToolResult('get_client_details', false, Date.now() - startTime,
             error instanceof Error ? error.message : String(error));
@@ -618,6 +666,10 @@ export function registerClientTools(
   if (isToolAllowed('get_service_details')) {
     const getServiceDetailsSchema = z.object({
       serviceid: z.number().int().positive('Service ID must be positive'),
+      contract: z
+        .string()
+        .optional()
+        .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
     
     server.tool(
@@ -629,11 +681,18 @@ export function registerClientTools(
         const startTime = Date.now();
         
         try {
+          // Capture the bearer token before ensureToolAuth strips it.
+          const pview = params as Record<string, unknown>;
+          const authToken =
+            typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+          const requestedContract =
+            typeof pview.contract === 'string' ? pview.contract : undefined;
+
           const authError = ensureToolAuth(params as Record<string, unknown>);
           if (authError) return authError;
 
           toolLogger.logToolCall('get_service_details', params, false);
-          
+
           if (!rateLimiter.tryConsume()) {
             throw new RateLimitError();
           }
@@ -727,31 +786,37 @@ export function registerClientTools(
           );
           
           toolLogger.logToolResult('get_service_details', true, Date.now() - startTime);
-          
-          return {
-            content: [{
-              type: 'text' as const,
-              text: JSON.stringify({
-                serviceid: product.id || params.serviceid,
-                clientid: product.clientid,
-                domain: product.domain,
-                status: product.status,
-                product: product.name,
-                product_id: product.pid,
-                billing_cycle: product.billingcycle,
-                next_due_date: product.nextduedate,
-                first_payment_amount: product.firstpaymentamount,
-                recurring_amount: product.recurringamount,
-                payment_method: product.paymentmethod,
-                registration_date: product.regdate,
-                username: product.username,
-                server: product.server,
-                custom_fields: customfields,
-                config_options: configoptions,
-              }),
-            }],
+
+          const legacyPayload = {
+            serviceid: product.id || params.serviceid,
+            clientid: product.clientid,
+            domain: product.domain,
+            status: product.status,
+            product: product.name,
+            product_id: product.pid,
+            billing_cycle: product.billingcycle,
+            next_due_date: product.nextduedate,
+            first_payment_amount: product.firstpaymentamount,
+            recurring_amount: product.recurringamount,
+            payment_method: product.paymentmethod,
+            registration_date: product.regdate,
+            username: product.username,
+            server: product.server,
+            custom_fields: customfields,
+            config_options: configoptions,
           };
-          
+
+          return applyGovernanceOrLegacy({
+            enabled: governanceEnabled(),
+            legacy: legacyPayload,
+            govern: () =>
+              governedToolResult({
+                canonical: mapToCanonicalService(product),
+                authToken,
+                requestedContract,
+              }),
+          });
+
         } catch (error) {
           toolLogger.logToolResult('get_service_details', false, Date.now() - startTime,
             error instanceof Error ? error.message : String(error));
