@@ -11,6 +11,12 @@
  * `whmcs.mutate()` is reached ONLY after the authorizer allows AND a durable
  * audit line is persisted (fail-closed). The WhmcsClient.mutate()
  * read_only MODE_RESTRICTED block remains an independent backstop.
+ *
+ * Phase G+ — intent params (semantic, intent-contract shape) are translated
+ * to WHMCS field shapes by src/write/paramMapping.ts immediately before
+ * `whmcs.mutate(...)`. The mapper is also invoked at draft/validate/approve
+ * render time to populate `would_call.whmcs_params` so operators see the
+ * exact call shape pre-execution.
  */
 
 import { z } from 'zod';
@@ -38,6 +44,7 @@ import { validateIntent } from '../write/validation.js';
 import { IdempotencyLedger } from '../write/idempotency.js';
 import { AuditLog, AuditPersistError, auditEvent } from '../write/audit.js';
 import { defaultExecutionAuthorizer } from '../write/executionGate.js';
+import { intentToWhmcsParams } from '../write/paramMapping.js';
 
 /*
  * Process-local intent state (in-memory, short TTL). The audit log and
@@ -155,7 +162,15 @@ const RESULT_OUTPUT_SHAPE = {
   required_approvals: z.number().optional(),
   idempotency_key: z.string().optional(),
   would_call: z
-    .object({ action: z.string(), params: z.record(z.string(), z.unknown()) })
+    .object({
+      action: z.string(),
+      // Raw intent params (transparent to drafter — same shape they submitted).
+      params: z.record(z.string(), z.unknown()),
+      // Phase G+: mapped WHMCS-shape params (exact pre-execution call shape)
+      // so operators see the real payload before approving/executing. Optional
+      // because a mapping_error defers to the validator surfacing it.
+      whmcs_params: z.record(z.string(), z.unknown()).optional(),
+    })
     .optional(),
   executed: z.boolean().optional(),
   execution: z
@@ -198,8 +213,20 @@ function resolveWriteConsumer(params: Record<string, unknown>) {
   });
 }
 
-/** WHMCS actions explicitly authorized for execution at runtime (default: none). */
+/**
+ * WHMCS actions explicitly authorized for execution at runtime (default: none).
+ * Reads the parsed config value rather than process.env directly so the single
+ * source of truth for env parsing remains config.ts; the default is `[]` ⇒ no
+ * action authorized at runtime — sealed posture preserved.
+ *
+ * Falls back to parsing `process.env.MCP_WRITE_EXECUTION_AUTHORIZED` if the
+ * config field is absent (test environments that mock the config without the
+ * new field still get the same semantics — the sealed-by-default keystone
+ * holds either way).
+ */
 function runtimeAuthorizedActions(): readonly string[] {
+  const fromConfig = (config as Record<string, unknown>).MCP_WRITE_EXECUTION_AUTHORIZED;
+  if (Array.isArray(fromConfig)) return fromConfig as readonly string[];
   const raw = process.env.MCP_WRITE_EXECUTION_AUTHORIZED;
   if (typeof raw !== 'string' || raw.trim() === '') return [];
   return raw
@@ -213,6 +240,19 @@ function toToolResult(
   stage: WriteToolResult['stage'],
   extra: Partial<WriteToolResult> & { execution: WriteToolResult['execution'] }
 ): Record<string, unknown> {
+  // Best-effort mapper preview for would_call. The validate-stage mapping_error
+  // check is what FAILS a malformed intent — here we only catch so an ill-formed
+  // intent at draft time still returns a structured payload to the caller.
+  let whmcsParams: Record<string, unknown> | undefined;
+  try {
+    whmcsParams = intentToWhmcsParams(
+      intentRec.scope,
+      intentRec.params as Record<string, unknown>,
+      { idempotency_key: intentRec.idempotency_key }
+    );
+  } catch {
+    whmcsParams = undefined;
+  }
   return {
     intent: intentRec,
     stage,
@@ -222,7 +262,11 @@ function toToolResult(
     ],
     required_approvals: intentRec.risk === 'high' ? 2 : 1,
     idempotency_key: intentRec.idempotency_key,
-    would_call: { action: intentRec.action, params: intentRec.params },
+    would_call: {
+      action: intentRec.action,
+      params: intentRec.params,
+      ...(whmcsParams !== undefined ? { whmcs_params: whmcsParams } : {}),
+    },
     executed: false,
     ...extra,
   };
@@ -434,6 +478,11 @@ export function registerWriteFlowTools(
       // Execution is only attemptable from an approved intent. Reporting a
       // blocked attempt must never force an illegal state transition, so a
       // non-approved intent returns the structured denial in place.
+      //
+      // NOTE: this early-return precedes the deny-by-default authorizer because
+      // a non-approved intent can never mutate ANYWAY (kill-switch and the
+      // authorizer would deny identically); short-circuiting here preserves the
+      // legal state-machine transition rules (only `approved`→`executed`).
       if (intent.state !== 'approved') {
         audit.append(auditEvent('intent.execution_blocked', intent, 'intent_not_approved'));
         return out(
@@ -510,7 +559,17 @@ export function registerWriteFlowTools(
       // failed/verified are only reachable from `executed`).
       const executing = store.transition(intent.intent_id, 'executed');
       try {
-        await whmcs.mutate(intent.action, intent.params);
+        // Map intent-contract params → WHMCS-shape params at the very last
+        // mile, so the rest of the flow (audit, validate, replay-guard) keeps
+        // working with the semantic intent shape while WHMCS receives the
+        // exact field names it requires (e.g. notes/userid, item flattening,
+        // amountout-only refund payload — no `amountin`).
+        await whmcs.mutate(
+          intent.action,
+          intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
+            idempotency_key: intent.idempotency_key,
+          })
+        );
       } catch (e) {
         const failed = store.transition(intent.intent_id, 'failed');
         audit.append(
