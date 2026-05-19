@@ -101,6 +101,17 @@ const configSchema = z
           .filter(Boolean),
       z.array(z.string()).default([])
     ),
+    // Non-prod runtime execution allowlist (dev/staging). Default [] ⇒ no
+    // action authorized at runtime — sealed posture preserved. Mirrors the
+    // MCP_PROD_WRITE_AUTHORIZED parser; consumed by writeFlow.runtimeAuthorizedActions().
+    MCP_WRITE_EXECUTION_AUTHORIZED: z.preprocess(
+      (val) =>
+        (typeof val === 'string' ? val : '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      z.array(z.string()).default([])
+    ),
     MCP_WRITE_KILL_SWITCH: z.preprocess(
       (val) => val === 'true' || val === '1',
       z.boolean().default(false)
