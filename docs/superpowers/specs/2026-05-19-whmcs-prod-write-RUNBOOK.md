@@ -98,19 +98,39 @@ Set `MCP_WRITE_KILL_SWITCH=1` (or `true`) and restart — every write intent is
 denied `kill_switch_engaged` regardless of allowlist/approval. It is the first
 gate checked.
 
-## 5. Spike 0 / dev execution proof — remaining blocker & unblock
+## 5. Spike 0 + Track E — RESOLVED (2026-05-20)
 
-Dev WHMCS 9 (`localhost:8890`) is up & healthy but its `APIAllowedIPs` is a
-strict exact-match list rejecting the Docker host-gateway `192.168.65.1`.
-Opening it is a raw DB / admin change (a hard stop for the agent).
+Dev WHMCS9 (`localhost:8890`) was unblocked via
+`deploy/whmcs-test/post-install-fixup.sh` (whitelisted `192.168.65.1` +
+`127.0.0.1`, dev-only).
 
-**To unblock (operator action):**
-```
-deploy/whmcs-test/post-install-fixup.sh        # harness auto-whitelists the rejected IP (dev-only)
-# OR: WHMCS admin → Setup → General Settings → Security → API IP Access → add 192.168.65.1
-```
-Then re-run the Spike 0 probe (`GetPromotions` / `AddPromotion` /
-`UpdatePromotion`) and the dev full-cycle execution proof (Track E). Until a
-safe promotion API is proven, **promotions are created manually in WHMCS
-admin**; the MCP only reads/verifies. `promotion:create` is deliberately NOT
-in the codebase yet (gated on Spike 0).
+**Spike 0 = `unsupported`** (definitive, probed on dev WHMCS9):
+- `GetPromotions` → `success` (63 promotions) — promotion **read** API works.
+- `AddPromotion` → `Invalid API Action: "addpromotion" is not a valid API action`.
+- `UpdatePromotion` → `Invalid API Action`.
+
+⇒ No safe promotion *create/update* API exists in this WHMCS. **`promotion:create`
+is deliberately NOT in the codebase** (correctly gated; the pre-agreed fallback
+stands): **promotions are created manually in WHMCS admin; the MCP only
+reads/verifies** (a `GetPromotions`-backed read tool is a possible future
+enhancement, out of scope for this prod-write epic). **No DB-write promotion
+automation in production.**
+
+**Track E = PASS** (live dev proof, `scripts/track-e-proof.ts`): with
+`MCP_ENV=local`, `MCP_MODE=full`, a synthetic `execution_allowed` consumer and
+`AddClientNote` runtime-authorized, the registered `draft→validate→approve→
+execute` chain performed a **real** WHMCS mutation on dev
+(`AddClientNote` → `noteid 38`), and a second `execute` of the same intent was
+**refused** (`intent_not_approved`, no second mutation) — confirming the
+deny-by-default authorizer allows only when every gate passes and blocks
+replay.
+
+**Corrections to earlier read-tool-limited statements** (raw WHMCS API, via
+`GetProducts`, exposes more than the MCP `list_products` wrapper):
+- A native **`slug`** field DOES exist on products (e.g. pid 482 →
+  `"slug":"vps-l-ssd"`, plus `product_url`, `gid`). Deterministic plan
+  matching can key on the native slug — the earlier "no slug" conclusion was a
+  `list_products`-wrapper artifact.
+- Product **pricing** IS available via `GetProducts` (the 6/12-month-cycle
+  pricing question is answerable there). The MCP `list_products` tool omits
+  both — a future read-tool enhancement, **out of scope** for this epic.
