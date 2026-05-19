@@ -35,7 +35,9 @@ function safeCompareTokens(a: string, b: string): boolean {
  */
 export function stripAuthFromUri(uri: URL): string {
   const next = new URL(uri.href);
-  AUTH_PARAM_NAMES.forEach((name) => { next.searchParams.delete(name); });
+  AUTH_PARAM_NAMES.forEach((name) => {
+    next.searchParams.delete(name);
+  });
   return next.href;
 }
 
@@ -51,20 +53,18 @@ export const AUTH_SHAPE = {
   auth_token: z.string().optional().describe('MCP auth token'),
 };
 
-export function withAuthSchema<T extends z.ZodRawShape>(schema: z.ZodObject<T>): z.ZodObject<T & typeof AUTH_SHAPE> {
-  return schema.extend(AUTH_SHAPE);
-}
-
 function toolError(message: string, extra?: Record<string, unknown>): McpToolResponse {
   return {
-    content: [{
-      type: 'text',
-      text: JSON.stringify({
-        isError: true,
-        error: message,
-        ...(extra ? extra : {}),
-      }),
-    }],
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          isError: true,
+          error: message,
+          ...(extra ? extra : {}),
+        }),
+      },
+    ],
     isError: true,
   };
 }
@@ -89,7 +89,7 @@ export function ensureToolAuth(params: Record<string, unknown>): McpToolResponse
   const required = config.MCP_AUTH_TOKEN;
   if (!required) {
     if (Object.prototype.hasOwnProperty.call(params, 'auth_token')) {
-      delete (params).auth_token;
+      delete params.auth_token;
     }
     return null;
   }
@@ -99,7 +99,7 @@ export function ensureToolAuth(params: Record<string, unknown>): McpToolResponse
     return toolError('Unauthorized: missing or invalid auth_token.');
   }
 
-  delete (params).auth_token;
+  delete params.auth_token;
   return null;
 }
 
@@ -123,7 +123,10 @@ export function ensureClientAllowed(clientId: number): McpToolResponse | null {
   return null;
 }
 
-export function resolveClientIdParam(params: Record<string, unknown>, fieldNames: string[] = ['clientid', 'userid']): { ok: true; clientId: number; usedDefault: boolean } | { ok: false; response: McpToolResponse } {
+export function resolveClientIdParam(
+  params: Record<string, unknown>,
+  fieldNames: string[] = ['clientid', 'userid']
+): { ok: true; clientId: number; usedDefault: boolean } | { ok: false; response: McpToolResponse } {
   for (const field of fieldNames) {
     const value = params[field];
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -142,20 +145,28 @@ export function resolveClientIdParam(params: Record<string, unknown>, fieldNames
 
   return {
     ok: false,
-    response: toolError('clientid is required for client access mode when multiple clients are allowed.'),
+    response: toolError(
+      'clientid is required for client access mode when multiple clients are allowed.'
+    ),
   };
 }
 
-export function ensureClientOwnership(actualClientId: number, params?: Record<string, unknown>): McpToolResponse | null {
+export function ensureClientOwnership(
+  actualClientId: number,
+  params?: Record<string, unknown>
+): McpToolResponse | null {
   const scopeError = ensureClientAllowed(actualClientId);
   if (scopeError) {
     return scopeError;
   }
 
   if (params) {
-    const hinted = typeof params.clientid === 'number' ? params.clientid
-      : typeof params.userid === 'number' ? params.userid
-      : undefined;
+    const hinted =
+      typeof params.clientid === 'number'
+        ? params.clientid
+        : typeof params.userid === 'number'
+          ? params.userid
+          : undefined;
     if (hinted !== undefined && hinted !== actualClientId) {
       return toolError('Access denied: requested clientid does not match resource owner.', {
         requested: hinted,
