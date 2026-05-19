@@ -5,6 +5,7 @@
 
 import { config as loadEnv } from 'dotenv';
 import { z } from 'zod';
+import { PROD_NEVER_EXECUTABLE } from './write/types.js';
 
 /**
  * Environment separation. `MCP_ENV` selects which env profile to layer on
@@ -29,27 +30,27 @@ export type McpMode = 'read_only' | 'simulate' | 'full';
 /**
  * Configuration schema with Zod validation
  */
-const configSchema = z.object({
-  // WHMCS API Configuration
-  WHMCS_API_URL: z.string().min(1, 'WHMCS_API_URL is required'),
-  WHMCS_IDENTIFIER: z.string().min(1, 'WHMCS_IDENTIFIER is required'),
-  WHMCS_SECRET: z.string().min(1, 'WHMCS_SECRET is required'),
-  WHMCS_ACCESS_KEY: z.preprocess(
-    (val) => (val === undefined || val === '' ? undefined : String(val)),
-    z.string().optional()
-  ),
-  // SEC-005: allow http for WHMCS_API_URL only when explicitly opted in
-  WHMCS_ALLOW_HTTP: z.preprocess(
-    (val) => val === 'true' || val === '1',
-    z.boolean().default(false)
-  ),
-  MCP_AUTH_TOKEN: z.preprocess(
-    (val) => (val === undefined || val === '' ? undefined : String(val)),
-    z.string().optional()
-  ),
-  MCP_ACCESS_MODE: z.enum(['admin', 'client']).default('admin'),
-  MCP_ALLOWED_CLIENT_IDS: z.preprocess(
-    (val) => {
+const configSchema = z
+  .object({
+    // WHMCS API Configuration
+    WHMCS_API_URL: z.string().min(1, 'WHMCS_API_URL is required'),
+    WHMCS_IDENTIFIER: z.string().min(1, 'WHMCS_IDENTIFIER is required'),
+    WHMCS_SECRET: z.string().min(1, 'WHMCS_SECRET is required'),
+    WHMCS_ACCESS_KEY: z.preprocess(
+      (val) => (val === undefined || val === '' ? undefined : String(val)),
+      z.string().optional()
+    ),
+    // SEC-005: allow http for WHMCS_API_URL only when explicitly opted in
+    WHMCS_ALLOW_HTTP: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    MCP_AUTH_TOKEN: z.preprocess(
+      (val) => (val === undefined || val === '' ? undefined : String(val)),
+      z.string().optional()
+    ),
+    MCP_ACCESS_MODE: z.enum(['admin', 'client']).default('admin'),
+    MCP_ALLOWED_CLIENT_IDS: z.preprocess((val) => {
       if (!val || val === '') return [];
       return String(val)
         .split(',')
@@ -57,77 +58,126 @@ const configSchema = z.object({
         .filter(Boolean)
         .map((s) => Number.parseInt(s, 10))
         .filter((n) => Number.isFinite(n) && n > 0);
-    },
-    z.array(z.number().int().positive()).default([])
-  ),
-  
-  // MCP Server Configuration
-  MCP_ENV: z.enum(['local', 'staging', 'production']).default('production'),
-  MCP_MODE: z.enum(['read_only', 'simulate', 'full']).default('read_only'),
-  MCP_RATE_LIMIT: z.coerce.number().int().positive().default(10),
-  MCP_DEBUG: z.preprocess(
-    (val) => val === 'true' || val === '1',
-    z.boolean().default(false)
-  ),
-  MCP_MAX_PAGE_SIZE: z.coerce.number().int().positive().max(500).default(100),
-  MCP_TOOL_ALLOWLIST: z.preprocess(
-    (val) => {
+    }, z.array(z.number().int().positive()).default([])),
+
+    // MCP Server Configuration
+    MCP_ENV: z.enum(['local', 'staging', 'production']).default('production'),
+    MCP_MODE: z.enum(['read_only', 'simulate', 'full']).default('read_only'),
+    MCP_RATE_LIMIT: z.coerce.number().int().positive().default(10),
+    MCP_DEBUG: z.preprocess((val) => val === 'true' || val === '1', z.boolean().default(false)),
+    MCP_MAX_PAGE_SIZE: z.coerce.number().int().positive().max(500).default(100),
+    MCP_TOOL_ALLOWLIST: z.preprocess((val) => {
       if (!val || val === '') return [];
-      return String(val).split(',').map((s) => s.trim()).filter(Boolean);
-    },
-    z.array(z.string()).default([])
-  ),
-  MCP_LARGE_REFUND_THRESHOLD: z.coerce.number().positive().default(1000),
-  // Phase B governance: allow the deliberate anonymous llm_safe_summary
-  // fallback for unknown/no-token callers. Never grants a privileged
-  // profile; in production an `anonymous` registry entry is still required.
-  MCP_ALLOW_ANON_LLM: z.preprocess(
-    (val) => val === 'true' || val === '1',
-    z.boolean().default(false)
-  ),
-  // Phase B governance is OPT-IN and backward compatible. Off (default) =>
-  // existing legacy tool output is preserved unchanged (no app/test breakage).
-  // On => read tool/resource output is routed through the consumer-aware
-  // projection boundary. Production stays read-only either way.
-  MCP_GOVERNANCE_ENABLED: z.preprocess(
-    (val) => val === 'true' || val === '1',
-    z.boolean().default(false)
-  ),
-}).superRefine((val, ctx) => {
-  // SEC-005: WHMCS_API_URL must be a valid URL; require https unless WHMCS_ALLOW_HTTP=true
-  let parsedUrl: URL | undefined;
-  try {
-    parsedUrl = new URL(val.WHMCS_API_URL);
-  } catch {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['WHMCS_API_URL'],
-      message: 'WHMCS_API_URL must be a valid absolute URL (e.g. https://billing.example.com)',
-    });
-  }
-  if (parsedUrl) {
-    const scheme = parsedUrl.protocol;
-    const httpAllowed = scheme === 'http:' && val.WHMCS_ALLOW_HTTP;
-    if (scheme !== 'https:' && !httpAllowed) {
+      return String(val)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }, z.array(z.string()).default([])),
+    MCP_LARGE_REFUND_THRESHOLD: z.coerce.number().positive().default(1000),
+    // Phase B governance: allow the deliberate anonymous llm_safe_summary
+    // fallback for unknown/no-token callers. Never grants a privileged
+    // profile; in production an `anonymous` registry entry is still required.
+    MCP_ALLOW_ANON_LLM: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    // Phase B governance is OPT-IN and backward compatible. Off (default) =>
+    // existing legacy tool output is preserved unchanged (no app/test breakage).
+    // On => read tool/resource output is routed through the consumer-aware
+    // projection boundary. Production stays read-only either way.
+    MCP_GOVERNANCE_ENABLED: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    // ── Phase G+ controlled production write enablement ─────────────────────
+    // ALL default to the SEALED posture: empty prod allowlist + zero caps +
+    // kill switch off + empty durable paths (in-memory). With no env set,
+    // production write behaviour is byte-identical to the legacy absolute deny.
+    MCP_PROD_WRITE_AUTHORIZED: z.preprocess(
+      (val) =>
+        (typeof val === 'string' ? val : '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      z.array(z.string()).default([])
+    ),
+    MCP_WRITE_KILL_SWITCH: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    // Empty ⇒ pure in-memory (legacy). A non-empty prod allowlist REQUIRES a
+    // durable audit path (enforced below) so a production mutation is never
+    // unauditable.
+    MCP_WRITE_AUDIT_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    MCP_WRITE_IDEMPOTENCY_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // High-risk (money) caps. Default 0 ⇒ every high-risk action denied until
+    // explicitly configured.
+    MCP_PROD_HIGH_RISK_PER_ACTION_CAP: z.coerce.number().min(0).default(0),
+    MCP_PROD_HIGH_RISK_DAILY_CAP: z.coerce.number().min(0).default(0),
+  })
+  .superRefine((val, ctx) => {
+    // Phase G+ fail-fast misconfiguration guards.
+    if (val.MCP_PROD_WRITE_AUTHORIZED.length > 0) {
+      // No production execution without a durable audit trail (fail-closed).
+      if (val.MCP_WRITE_AUDIT_PATH.trim() === '') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['MCP_WRITE_AUDIT_PATH'],
+          message:
+            'MCP_WRITE_AUDIT_PATH is required when MCP_PROD_WRITE_AUTHORIZED is non-empty (production mutations must be durably auditable)',
+        });
+      }
+      // A permanently-blocked action must never be allowlisted, even though the
+      // gate would still refuse it — reject at config time (fail fast).
+      const forbidden = val.MCP_PROD_WRITE_AUTHORIZED.filter((a) => PROD_NEVER_EXECUTABLE.has(a));
+      if (forbidden.length > 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['MCP_PROD_WRITE_AUTHORIZED'],
+          message: `MCP_PROD_WRITE_AUTHORIZED must not contain permanently-blocked actions: ${forbidden.join(', ')}`,
+        });
+      }
+    }
+    // SEC-005: WHMCS_API_URL must be a valid URL; require https unless WHMCS_ALLOW_HTTP=true
+    let parsedUrl: URL | undefined;
+    try {
+      parsedUrl = new URL(val.WHMCS_API_URL);
+    } catch {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: ['WHMCS_API_URL'],
-        message:
-          scheme === 'http:'
-            ? 'WHMCS_API_URL uses http: credentials would be sent in clear. Use https, or set WHMCS_ALLOW_HTTP=true to override (not recommended).'
-            : `WHMCS_API_URL must use the https scheme (got "${scheme}").`,
+        message: 'WHMCS_API_URL must be a valid absolute URL (e.g. https://billing.example.com)',
       });
     }
-  }
+    if (parsedUrl) {
+      const scheme = parsedUrl.protocol;
+      const httpAllowed = scheme === 'http:' && val.WHMCS_ALLOW_HTTP;
+      if (scheme !== 'https:' && !httpAllowed) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['WHMCS_API_URL'],
+          message:
+            scheme === 'http:'
+              ? 'WHMCS_API_URL uses http: credentials would be sent in clear. Use https, or set WHMCS_ALLOW_HTTP=true to override (not recommended).'
+              : `WHMCS_API_URL must use the https scheme (got "${scheme}").`,
+        });
+      }
+    }
 
-  if (val.MCP_ACCESS_MODE === 'client' && val.MCP_ALLOWED_CLIENT_IDS.length === 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['MCP_ALLOWED_CLIENT_IDS'],
-      message: 'MCP_ALLOWED_CLIENT_IDS is required when MCP_ACCESS_MODE=client',
-    });
-  }
-});
+    if (val.MCP_ACCESS_MODE === 'client' && val.MCP_ALLOWED_CLIENT_IDS.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MCP_ALLOWED_CLIENT_IDS'],
+        message: 'MCP_ALLOWED_CLIENT_IDS is required when MCP_ACCESS_MODE=client',
+      });
+    }
+  });
 
 /**
  * Validated application configuration type
@@ -140,18 +190,18 @@ export type AppConfig = z.infer<typeof configSchema>;
  */
 function loadConfig(): AppConfig {
   const result = configSchema.safeParse(process.env);
-  
+
   if (!result.success) {
     const errors = result.error.issues
       .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
       .join('\n');
-    
+
     // Write to stderr, not stdout (MCP stdio constraint)
     process.stderr.write(`\n❌ Configuration validation failed:\n${errors}\n\n`);
     process.stderr.write('Please check your .env file and environment variables.\n');
     process.exit(1);
   }
-  
+
   return result.data;
 }
 

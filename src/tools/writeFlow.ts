@@ -3,14 +3,14 @@
  *
  * draft → validate → approve → execute(GATED) + get_write_intent.
  *
- * HARD SAFETY INVARIANT: this module never imports or calls a WHMCS
- * mutating method. `execute_write_intent` runs the deny-by-default
- * ExecutionAuthorizer; in the default posture (read_only / empty runtime
- * allowlist) it ALWAYS returns execution_blocked and performs no mutation.
- * Even when every gate passes, no live WHMCS write is wired in this
- * engagement — the tool returns a structured "authorized, not executed"
- * result. The existing WhmcsClient.mutate() MODE_RESTRICTED block remains
- * an independent backstop.
+ * SAFETY INVARIANT: `execute_write_intent` runs the deny-by-default
+ * risk-tiered ExecutionAuthorizer. KEYSTONE: with no new env configured
+ * (kill switch off, empty MCP_PROD_WRITE_AUTHORIZED, zero caps) a production
+ * request can only reach `action_not_prod_authorized` — production is fully
+ * sealed, behaviour byte-identical to the legacy absolute deny. A live
+ * `whmcs.mutate()` is reached ONLY after the authorizer allows AND a durable
+ * audit line is persisted (fail-closed). The WhmcsClient.mutate()
+ * read_only MODE_RESTRICTED block remains an independent backstop.
  */
 
 import { z } from 'zod';
@@ -26,17 +26,63 @@ import {
   consumerWriteCapability,
 } from '../governance/consumers.js';
 import { getProjectionEnv, getConsumerRegistry } from '../governance/pipeline.js';
-import { WRITE_SCOPES, type WriteScope, type WriteToolResult } from '../write/types.js';
+import {
+  WRITE_SCOPES,
+  type WriteScope,
+  type WriteToolResult,
+  type HumanApprovalRecord,
+  type AmountContext,
+} from '../write/types.js';
 import { createDraftIntent, IntentStore } from '../write/intents.js';
 import { validateIntent } from '../write/validation.js';
 import { IdempotencyLedger } from '../write/idempotency.js';
-import { AuditLog, auditEvent } from '../write/audit.js';
+import { AuditLog, AuditPersistError, auditEvent } from '../write/audit.js';
 import { defaultExecutionAuthorizer } from '../write/executionGate.js';
 
-/* Process-local framework state (in-memory, short TTL; never persisted). */
+/*
+ * Process-local intent state (in-memory, short TTL). The audit log and
+ * idempotency ledger are DURABLE when their config paths are set (empty ⇒
+ * in-memory, byte-identical to legacy). The deploy restart that ships a write
+ * change therefore does not wipe the audit trail or the replay guard.
+ */
 const store = new IntentStore();
-const ledger = new IdempotencyLedger();
-const audit = new AuditLog();
+const ledger = new IdempotencyLedger(
+  undefined,
+  undefined,
+  config.MCP_WRITE_IDEMPOTENCY_PATH || undefined
+);
+const audit = new AuditLog(config.MCP_WRITE_AUDIT_PATH || undefined);
+
+/**
+ * Approver identity captured at approve-time, consumed at execute-time so the
+ * authorizer can enforce "high-risk requires a human approval record". Keyed
+ * by intent_id; process-local (an approval does not survive restart — a
+ * high-risk action must be (re)approved in the same process that executes it).
+ */
+const approvals = new Map<string, HumanApprovalRecord>();
+
+/** Per-(action,UTC-day) executed-amount tally for high-risk daily caps. */
+const dayAmounts = new Map<string, number>();
+function dayKey(action: string): string {
+  return `${action}|${new Date().toISOString().slice(0, 10)}`;
+}
+function dayTotalFor(action: string): number {
+  return dayAmounts.get(dayKey(action)) ?? 0;
+}
+function addDayAmount(action: string, amount: number): void {
+  dayAmounts.set(dayKey(action), dayTotalFor(action) + amount);
+}
+
+/** Build the high-risk monetary context from intent params, if numeric. */
+function amountContextFor(
+  action: string,
+  params: Record<string, unknown>
+): AmountContext | undefined {
+  const raw = params.amount;
+  const amount = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  return { amount: Math.abs(amount), dayTotal: dayTotalFor(action) };
+}
 
 /** Test-only: reset framework state. */
 export function __resetWriteFlowForTests(): void {
@@ -156,7 +202,10 @@ function resolveWriteConsumer(params: Record<string, unknown>) {
 function runtimeAuthorizedActions(): readonly string[] {
   const raw = process.env.MCP_WRITE_EXECUTION_AUTHORIZED;
   if (typeof raw !== 'string' || raw.trim() === '') return [];
-  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function toToolResult(
@@ -167,7 +216,10 @@ function toToolResult(
   return {
     intent: intentRec,
     stage,
-    risk_flags: [intentRec.risk, ...(intentRec.risk === 'high' ? ['requires_explicit_approval'] : [])],
+    risk_flags: [
+      intentRec.risk,
+      ...(intentRec.risk === 'high' ? ['requires_explicit_approval'] : []),
+    ],
     required_approvals: intentRec.risk === 'high' ? 2 : 1,
     idempotency_key: intentRec.idempotency_key,
     would_call: { action: intentRec.action, params: intentRec.params },
@@ -248,23 +300,15 @@ function register(
 }
 
 /**
- * Phase G low-risk actions that MAY actually execute — and ONLY in
- * dev/staging, after every gate passes (the authorizer hard-blocks
- * production first). Billing/payment/credit/service/domain/order/module
- * actions are deliberately ABSENT: they stay intent/validate-only.
- */
-const LOW_RISK_EXECUTABLE = new Set<string>([
-  'AddClientNote',
-  'OpenTicket',
-  'AddTicketReply',
-  'UpdateTicket',
-]);
-
-/**
- * Register the controlled-write FLOW tools. `whmcs` is used ONLY for a
- * gated low-risk dev/staging mutation + post-action read-back verification;
- * production execution is impossible (authorizer hard gate + WhmcsClient
- * read_only MODE_RESTRICTED backstop).
+ * Phase G+ — which action may actually execute is now owned entirely by the
+ * deny-by-default risk-tiered authorizer (executionGate.ts): per-environment
+ * allowlist (production allowlist empty by default ⇒ sealed),
+ * PROD_NEVER_EXECUTABLE backstop, and high-risk human-approval + caps. There
+ * is no separate hardcoded low-risk set here anymore.
+ *
+ * Register the controlled-write FLOW tools. `whmcs.mutate()` is reached ONLY
+ * after the authorizer allows AND a durable audit line is written; the
+ * WhmcsClient read_only MODE_RESTRICTED check is an independent backstop.
  */
 export function registerWriteFlowTools(
   server: McpServer,
@@ -301,9 +345,7 @@ export function registerWriteFlowTools(
       });
       store.put(intent);
       audit.append(auditEvent('intent.drafted', intent));
-      return out(
-        toToolResult(intent, 'draft', { execution: { attempted: false } })
-      );
+      return out(toToolResult(intent, 'draft', { execution: { attempted: false } }));
     }
   );
 
@@ -323,12 +365,8 @@ export function registerWriteFlowTools(
         return err('intent does not belong to this consumer', { intent_id: p.intent_id });
       const validation = validateIntent(intent, {});
       const next = store.transition(intent.intent_id, validation.ok ? 'validated' : 'rejected');
-      audit.append(
-        auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next)
-      );
-      return out(
-        toToolResult(next, 'validate', { validation, execution: { attempted: false } })
-      );
+      audit.append(auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next));
+      return out(toToolResult(next, 'validate', { validation, execution: { attempted: false } }));
     }
   );
 
@@ -358,6 +396,16 @@ export function registerWriteFlowTools(
         return err(`intent must be validated before approval (state=${intent.state})`);
       const approved = p.decision === 'approved';
       const next = store.transition(intent.intent_id, approved ? 'approved' : 'rejected');
+      if (approved) {
+        // Recorded human approval — required by the authorizer for high-risk
+        // (money) actions. A rejection clears any prior approval record.
+        approvals.set(intent.intent_id, {
+          approver: String(p.approver),
+          at: new Date().toISOString(),
+        });
+      } else {
+        approvals.delete(intent.intent_id);
+      }
       audit.append(
         auditEvent(
           approved ? 'intent.approved' : 'intent.rejected',
@@ -372,7 +420,7 @@ export function registerWriteFlowTools(
   register(
     server,
     'execute_write_intent',
-    'Phase G: execute an approved intent. Deny-by-default; production is hard-blocked (never mutates). Only low-risk ticket/note actions execute, and only in dev/staging after every gate passes.',
+    'Phase G+: execute an approved intent through the deny-by-default risk-tiered authorizer. Production is SEALED unless the action is explicitly in MCP_PROD_WRITE_AUTHORIZED; high-risk (money) actions additionally require a human approval record and per-action/daily caps. PROD_NEVER_EXECUTABLE actions can never run. Durable audit is written before any mutation (fail-closed).',
     { intent_id: z.string().min(1) },
     logger,
     rl,
@@ -387,15 +435,17 @@ export function registerWriteFlowTools(
       // blocked attempt must never force an illegal state transition, so a
       // non-approved intent returns the structured denial in place.
       if (intent.state !== 'approved') {
-        audit.append(
-          auditEvent('intent.execution_blocked', intent, 'intent_not_approved')
-        );
+        audit.append(auditEvent('intent.execution_blocked', intent, 'intent_not_approved'));
         return out(
           toToolResult(intent, 'execute', {
             execution: { attempted: false, blocked_reason: 'intent_not_approved' },
           })
         );
       }
+      const isHigh = intent.risk === 'high';
+      const amountContext = isHigh
+        ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
+        : undefined;
       const decision = defaultExecutionAuthorizer(
         {
           intent,
@@ -403,49 +453,62 @@ export function registerWriteFlowTools(
           mcpMode: config.MCP_MODE,
           consumerWriteCapability: consumerWriteCapability(res.profile),
           runtimeAuthorizedActions: runtimeAuthorizedActions(),
+          killSwitch: config.MCP_WRITE_KILL_SWITCH,
+          prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
+          humanApproval: approvals.get(intent.intent_id),
+          amountContext,
+          caps: {
+            perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
+            daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
+          },
         },
         (k) => ledger.seen(k)
       );
       if (!decision.allowed) {
         const next = store.transition(intent.intent_id, 'execution_blocked');
-        audit.append(
-          auditEvent('intent.execution_blocked', next, decision.reason)
-        );
+        audit.append(auditEvent('intent.execution_blocked', next, decision.reason));
         return out(
           toToolResult(next, 'execute', {
             execution: { attempted: false, blocked_reason: decision.reason },
           })
         );
       }
-      // Gates passed (the authorizer already hard-blocked production and
-      // read_only). Only LOW-RISK ticket/note actions may actually execute;
-      // billing/service/domain/etc. stay intent/validate-only.
-      if (!LOW_RISK_EXECUTABLE.has(intent.action)) {
-        ledger.record(intent.idempotency_key, { authorized_not_executed: true });
-        const blocked = store.transition(intent.intent_id, 'execution_blocked');
-        audit.append(
-          auditEvent('intent.execution_blocked', blocked, 'action_not_low_risk_executable')
-        );
-        return out(
-          toToolResult(blocked, 'execute', {
-            execution: {
-              attempted: false,
-              blocked_reason: 'action_not_low_risk_executable',
-              note: `'${intent.action}' is gated to intent/validate only; not in the dev/staging low-risk executable allowlist.`,
-            },
-          })
-        );
+
+      // Gates passed. FAIL-CLOSED durable audit: the "attempting mutation"
+      // event must be durably written BEFORE the WHMCS call. If durable audit
+      // cannot be written, refuse to execute — no unauditable mutation. (No
+      // idempotency recorded and no state change, so it is safely retryable.)
+      const attemptEvent = auditEvent(
+        'intent.executed',
+        intent,
+        `attempting ${intent.action} (risk=${intent.risk}, env=${getProjectionEnv()})`
+      );
+      try {
+        audit.appendDurable(attemptEvent);
+      } catch (e) {
+        if (e instanceof AuditPersistError) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          audit.append(auditEvent('intent.execution_blocked', blocked, 'audit_write_failed'));
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: {
+                attempted: false,
+                blocked_reason: 'audit_write_failed',
+                note: 'Durable audit write failed; mutation refused (fail-closed).',
+              },
+            })
+          );
+        }
+        throw e;
       }
 
-      // Dev/staging low-risk execution. Record idempotency BEFORE the call
-      // so a concurrent/retry attempt is treated as a replay. The
-      // WhmcsClient.mutate() read_only MODE_RESTRICTED check is an
-      // independent backstop beneath this gate.
+      // Record idempotency BEFORE the call so a concurrent/retry attempt is
+      // treated as a replay. The WhmcsClient.mutate() read_only
+      // MODE_RESTRICTED check is an independent backstop beneath this gate.
       ledger.record(intent.idempotency_key, { executing: true });
-      // approved → executed: we are now committing to the attempt (legal
-      // transition; failed/verified are only reachable from `executed`).
+      // approved → executed: committing to the attempt (legal transition;
+      // failed/verified are only reachable from `executed`).
       const executing = store.transition(intent.intent_id, 'executed');
-      audit.append(auditEvent('intent.executed', executing, 'attempting low-risk mutation'));
       try {
         await whmcs.mutate(intent.action, intent.params);
       } catch (e) {
@@ -463,6 +526,10 @@ export function registerWriteFlowTools(
           })
         );
       }
+      // Executed — tally the high-risk amount toward the daily cap.
+      if (isHigh && amountContext !== undefined) {
+        addDayAmount(intent.action, amountContext.amount);
+      }
 
       // Post-action verification: best-effort read-back. Never fails the
       // result if verification itself is unavailable — reports verified:false
@@ -476,9 +543,7 @@ export function registerWriteFlowTools(
       } catch {
         verified = false;
       }
-      const finalIntent = verified
-        ? store.transition(intent.intent_id, 'verified')
-        : executing;
+      const finalIntent = verified ? store.transition(intent.intent_id, 'verified') : executing;
       audit.append(
         auditEvent(
           verified ? 'intent.verified' : 'intent.executed',
