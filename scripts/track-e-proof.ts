@@ -76,13 +76,12 @@ registerWriteFlowTools(server as never, whmcs, log as never, { tryConsume: () =>
 const tok = { auth_token: RAW };
 const CLIENTID = Number(process.env.TRACKE_CLIENTID ?? 30);
 const stamp = new Date().toISOString();
-// validation needs clientid+note; WHMCS AddClientNote wants userid+notes —
-// supply both so the live call succeeds (param-naming nuance is a finding).
+// Pass only intent-contract names (clientid, note). The param mapper
+// (src/write/paramMapping.ts) now performs the WHMCS field-name translation
+// (clientid→userid, note→notes) at execute time — no double-naming needed.
 const params = {
   clientid: CLIENTID,
   note: `TRACK-E live proof ${stamp} (automated dev test)`,
-  userid: CLIENTID,
-  notes: `TRACK-E live proof ${stamp} (automated dev test)`,
 };
 
 console.log('env:', config.MCP_ENV, '| mode:', config.MCP_MODE, '| api:', config.WHMCS_API_URL);

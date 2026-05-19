@@ -107,15 +107,17 @@ describe('Phase G — dev/staging gated execution', () => {
     expect(['executed', 'verified']).toContain(rec(ep.intent).state);
   });
 
-  it('billing:credit:add (high-risk) is denied without configured caps ⇒ NOT executed', async () => {
+  it('billing:credit:add (high-risk) is denied without configured caps ⇒ NOT executed; no `amountin` ever set', async () => {
     // Phase G+: high-risk money actions need a human approval record (present
     // — approve() was called) AND explicitly-configured caps. The test config
     // mock sets no caps ⇒ caps coerce to 0 ⇒ amount_cap_exceeded, zero mutate.
+    // The param mapper would have produced WHMCS-shape `AddCredit` params
+    // (clientid/amount/description) — verifying it is never called at all.
     const { h, mutate } = harness();
     const id = await approved(
       h,
       'billing:credit:add',
-      { clientid: 1, amount: '5.00' },
+      { clientid: 1, amount: '5.00', description: 'goodwill' },
       'exec-credit-1'
     );
     const e = await h.execute_write_intent({ intent_id: id, ...tok });
@@ -123,6 +125,12 @@ describe('Phase G — dev/staging gated execution', () => {
     expect(ep.executed).toBe(false);
     expect(rec(ep.execution).blocked_reason).toBe('amount_cap_exceeded');
     expect(mutate).not.toHaveBeenCalled();
+    // Negative assertion: phantom-revenue guard — `amountin` must NEVER appear
+    // on any path the mapper produces (defence-in-depth even though mutate is
+    // not called here).
+    for (const call of mutate.mock.calls) {
+      expect(call[1]).not.toHaveProperty('amountin');
+    }
   });
 
   it('idempotency replay: re-executing the same intent is blocked, mutate not called twice', async () => {
