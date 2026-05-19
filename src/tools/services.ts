@@ -1,11 +1,11 @@
 /**
  * Service Lifecycle Tools for WHMCS MCP Server
- * 
+ *
  * Tools: suspend_service, unsuspend_service, terminate_service
  */
 
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
@@ -35,9 +35,12 @@ const unsuspendServiceSchema = z.object({
 const terminateServiceSchema = z.object({
   serviceid: z.number().int().positive('Service ID must be positive'),
   confirm: z.literal(true, {
-    message: 'Explicit confirm=true is required to terminate a service'
+    message: 'Explicit confirm=true is required to terminate a service',
   }),
-  confirm_with_unpaid: z.boolean().optional().describe('Set true to proceed even if client has unpaid invoices'),
+  confirm_with_unpaid: z
+    .boolean()
+    .optional()
+    .describe('Set true to proceed even if client has unpaid invoices'),
 });
 
 /**
@@ -49,49 +52,60 @@ export function registerServiceTools(
   logger: Logger,
   rateLimiter: RateLimiter
 ): void {
-  
   // ============================================
   // Tool: suspend_service
   // ============================================
   if (isToolAllowed('suspend_service')) {
-    server.tool(
-      'suspend_service',
-      `Suspend an active WHMCS service. Prefer this over termination when in doubt. Version: ${TOOL_VERSION}`,
-      { ...suspendServiceSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof suspendServiceSchema> & { auth_token?: string };
 
-          if (isClientMode()) {
-            return clientModeDenied('suspend_service');
-          }
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          toolLogger.logToolCall('suspend_service', params, true);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          if (whmcsClient.isReadOnly()) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: 'Tool not available in read_only mode' }) }],
-              isError: true,
-            };
-          }
-          
-          await whmcsClient.mutate('ModuleSuspend', {
-            serviceid: params.serviceid,
-            suspendreason: params.reason || 'Suspended via MCP',
-          });
-          
-          toolLogger.logToolResult('suspend_service', true, Date.now() - startTime);
-          
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          return clientModeDenied('suspend_service');
+        }
+
+        toolLogger.logToolCall('suspend_service', params, true);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        if (whmcsClient.isReadOnly()) {
           return {
-            content: [{
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Tool not available in read_only mode',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        await whmcsClient.mutate('ModuleSuspend', {
+          serviceid: params.serviceid,
+          suspendreason: params.reason || 'Suspended via MCP',
+        });
+
+        toolLogger.logToolResult('suspend_service', true, Date.now() - startTime);
+
+        return {
+          content: [
+            {
               type: 'text' as const,
               text: JSON.stringify({
                 serviceid: params.serviceid,
@@ -99,159 +113,223 @@ export function registerServiceTools(
                 reason: params.reason || 'Suspended via MCP',
                 success: true,
               }),
-            }],
+            },
+          ],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'suspend_service',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
           };
-          
-        } catch (error) {
-          toolLogger.logToolResult('suspend_service', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'suspend_service',
+      `Suspend an active WHMCS service. Prefer this over termination when in doubt. Version: ${TOOL_VERSION}`,
+      { ...suspendServiceSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: unsuspend_service
   // ============================================
   if (isToolAllowed('unsuspend_service')) {
-    server.tool(
-      'unsuspend_service',
-      `Unsuspend a previously suspended WHMCS service. Version: ${TOOL_VERSION}`,
-      { ...unsuspendServiceSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof unsuspendServiceSchema> & { auth_token?: string };
 
-          if (isClientMode()) {
-            return clientModeDenied('unsuspend_service');
-          }
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          toolLogger.logToolCall('unsuspend_service', params, true);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          if (whmcsClient.isReadOnly()) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: 'Tool not available in read_only mode' }) }],
-              isError: true,
-            };
-          }
-          
-          await whmcsClient.mutate('ModuleUnsuspend', {
-            serviceid: params.serviceid,
-          });
-          
-          toolLogger.logToolResult('unsuspend_service', true, Date.now() - startTime);
-          
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          return clientModeDenied('unsuspend_service');
+        }
+
+        toolLogger.logToolCall('unsuspend_service', params, true);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        if (whmcsClient.isReadOnly()) {
           return {
-            content: [{
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Tool not available in read_only mode',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        await whmcsClient.mutate('ModuleUnsuspend', {
+          serviceid: params.serviceid,
+        });
+
+        toolLogger.logToolResult('unsuspend_service', true, Date.now() - startTime);
+
+        return {
+          content: [
+            {
               type: 'text' as const,
               text: JSON.stringify({
                 serviceid: params.serviceid,
                 status: 'Active',
                 success: true,
               }),
-            }],
+            },
+          ],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'unsuspend_service',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
           };
-          
-        } catch (error) {
-          toolLogger.logToolResult('unsuspend_service', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'unsuspend_service',
+      `Unsuspend a previously suspended WHMCS service. Version: ${TOOL_VERSION}`,
+      { ...unsuspendServiceSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: terminate_service
   // ============================================
   if (isToolAllowed('terminate_service')) {
-    server.tool(
-      'terminate_service',
-      `Terminate a WHMCS service permanently. DANGEROUS: This action cannot be undone. Requires explicit confirm=true. Consider using suspend_service instead. Version: ${TOOL_VERSION}`,
-      { ...terminateServiceSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof terminateServiceSchema> & { auth_token?: string };
 
-          if (isClientMode()) {
-            return clientModeDenied('terminate_service');
-          }
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          toolLogger.logToolCall('terminate_service', params, true);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          if (whmcsClient.isReadOnly()) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: 'Tool not available in read_only mode' }) }],
-              isError: true,
-            };
-          }
-          
-          // Apply idempotency for dangerous operation
-          const idempotencyKey = rateLimiter.generateIdempotencyKey('terminate_service', params.serviceid);
-          const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
-          if (cached) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify(cached) }],
-            };
-          }
-          
-          // Safety check: Fetch service details to get client ID
-          const serviceDetails = await whmcsClient.read<{
-            serviceid: number;
-            clientid: number;
-            status: string;
-            product: string;
-          }>('GetClientsProducts', { serviceid: params.serviceid, limitnum: 1 });
-          
-          // Check for unpaid invoices
-          const clientInvoices = await whmcsClient.read<{
-            invoices?: { invoice?: { id: number; status: string; total: string }[] };
-            totalresults?: number;
-          }>('GetInvoices', {
-            userid: serviceDetails.clientid,
-            status: 'Unpaid',
-            limitnum: 5,
-          });
-          
-          const unpaidInvoices = clientInvoices.invoices?.invoice ?? [];
-          
-          if (Array.isArray(unpaidInvoices) && unpaidInvoices.length > 0 && !params.confirm_with_unpaid) {
-            const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + Number.parseFloat(inv.total || '0'), 0);
-            return {
-              content: [{
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          return clientModeDenied('terminate_service');
+        }
+
+        toolLogger.logToolCall('terminate_service', params, true);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        if (whmcsClient.isReadOnly()) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Tool not available in read_only mode',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Apply idempotency for dangerous operation
+        const idempotencyKey = rateLimiter.generateIdempotencyKey(
+          'terminate_service',
+          params.serviceid
+        );
+        const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+        if (cached) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(cached) }],
+          };
+        }
+
+        // Safety check: Fetch service details to get client ID
+        const serviceDetails = await whmcsClient.read<{
+          serviceid: number;
+          clientid: number;
+          status: string;
+          product: string;
+        }>('GetClientsProducts', { serviceid: params.serviceid, limitnum: 1 });
+
+        // Check for unpaid invoices
+        const clientInvoices = await whmcsClient.read<{
+          invoices?: { invoice?: { id: number; status: string; total: string }[] };
+          totalresults?: number;
+        }>('GetInvoices', {
+          userid: serviceDetails.clientid,
+          status: 'Unpaid',
+          limitnum: 5,
+        });
+
+        const unpaidInvoices = clientInvoices.invoices?.invoice ?? [];
+
+        if (
+          Array.isArray(unpaidInvoices) &&
+          unpaidInvoices.length > 0 &&
+          !params.confirm_with_unpaid
+        ) {
+          const totalUnpaid = unpaidInvoices.reduce(
+            (sum, inv) => sum + Number.parseFloat(inv.total || '0'),
+            0
+          );
+          return {
+            content: [
+              {
                 type: 'text' as const,
                 text: JSON.stringify({
                   requires_confirmation: true,
@@ -259,45 +337,61 @@ export function registerServiceTools(
                   unpaid_invoice_count: unpaidInvoices.length,
                   unpaid_total: totalUnpaid,
                   action: 'terminate_service',
-                  suggestion: 'Call this tool again with confirm_with_unpaid=true to proceed despite unpaid invoices.',
+                  suggestion:
+                    'Call this tool again with confirm_with_unpaid=true to proceed despite unpaid invoices.',
                 }),
-              }],
-            };
-          }
-          
-          await whmcsClient.mutate('ModuleTerminate', {
-            serviceid: params.serviceid,
-          });
-          
-          const result = {
-            serviceid: params.serviceid,
-            status: 'Terminated',
-            success: true,
-            warning: 'Service has been permanently terminated.',
+              },
+            ],
           };
-          
-          rateLimiter.cacheResult(idempotencyKey, result);
-          
-          toolLogger.logToolResult('terminate_service', true, Date.now() - startTime);
-          
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-          };
-          
-        } catch (error) {
-          toolLogger.logToolResult('terminate_service', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        await whmcsClient.mutate('ModuleTerminate', {
+          serviceid: params.serviceid,
+        });
+
+        const result = {
+          serviceid: params.serviceid,
+          status: 'Terminated',
+          success: true,
+          warning: 'Service has been permanently terminated.',
+        };
+
+        rateLimiter.cacheResult(idempotencyKey, result);
+
+        toolLogger.logToolResult('terminate_service', true, Date.now() - startTime);
+
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'terminate_service',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'terminate_service',
+      `Terminate a WHMCS service permanently. DANGEROUS: This action cannot be undone. Requires explicit confirm=true. Consider using suspend_service instead. Version: ${TOOL_VERSION}`,
+      { ...terminateServiceSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
 }

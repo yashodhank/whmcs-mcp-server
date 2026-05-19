@@ -1,16 +1,23 @@
 /**
  * Client Management Tools for WHMCS MCP Server
- * 
+ *
  * Tools: create_client, search_clients, get_client_details
  */
 
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
-import { ensureToolAuth, clientModeDenied, isClientMode, ensureClientAllowed, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
+import {
+  ensureToolAuth,
+  clientModeDenied,
+  isClientMode,
+  ensureClientAllowed,
+  ensureClientOwnership,
+  AUTH_SHAPE,
+} from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import {
   applyGovernanceOrLegacy,
@@ -94,7 +101,7 @@ function generateSecurePassword(length = 16): string {
   const digits = '0123456789';
   const special = '!@#$%^&*';
   const allChars = lowercase + uppercase + digits + special;
-  
+
   // Ensure at least one character from each category
   const bytes = crypto.randomBytes(length);
   const required = [
@@ -103,61 +110,66 @@ function generateSecurePassword(length = 16): string {
     digits[bytes[2] % digits.length],
     special[bytes[3] % special.length],
   ];
-  
+
   // Fill remaining with random characters
   let password = '';
   for (let i = 4; i < length; i++) {
     password += allChars[bytes[i] % allChars.length];
   }
-  
+
   // Combine and shuffle
   const combined = required.join('') + password;
-  const shuffled = combined.split('').sort(() => Math.random() - 0.5).join('');
-  
+  const shuffled = combined
+    .split('')
+    .sort(() => Math.random() - 0.5)
+    .join('');
+
   return shuffled;
 }
 
 /**
  * Create client input schema
  */
-const createClientSchema = z.object({
-  firstname: z.string().min(1, 'First name is required'),
-  lastname: z.string().min(1, 'Last name is required'),
-  email: z.string().email('Valid email is required'),
-  country: z.string().length(2, 'Country must be 2-letter ISO code'),
-  company: z.string().optional(),
-  address1: z.string().optional(),
-  address2: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  postcode: z.string().optional(),
-  phonenumber: z.string().optional(),
-  password: z.string().optional(),
-  owner_user_id: z.number().int().optional(),
-  send_email: z.boolean().default(false).describe('Send welcome email'),
-  skip_validation: z.boolean().default(false).describe('Bypass WHMCS required-field validation'),
-  mode: z.enum(['create_only', 'reuse_if_exists']).default('reuse_if_exists'),
-}).superRefine((val, ctx) => {
-  if (val.skip_validation) {
-    return;
-  }
-  const requiredFields: (keyof typeof val)[] = [
-    'address1',
-    'city',
-    'state',
-    'postcode',
-    'phonenumber',
-  ];
-  for (const field of requiredFields) {
-    if (!val[field] || String(val[field]).trim().length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [field],
-        message: `${field} is required unless skip_validation=true`,
-      });
+const createClientSchema = z
+  .object({
+    firstname: z.string().min(1, 'First name is required'),
+    lastname: z.string().min(1, 'Last name is required'),
+    email: z.string().email('Valid email is required'),
+    country: z.string().length(2, 'Country must be 2-letter ISO code'),
+    company: z.string().optional(),
+    address1: z.string().optional(),
+    address2: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    postcode: z.string().optional(),
+    phonenumber: z.string().optional(),
+    password: z.string().optional(),
+    owner_user_id: z.number().int().optional(),
+    send_email: z.boolean().default(false).describe('Send welcome email'),
+    skip_validation: z.boolean().default(false).describe('Bypass WHMCS required-field validation'),
+    mode: z.enum(['create_only', 'reuse_if_exists']).default('reuse_if_exists'),
+  })
+  .superRefine((val, ctx) => {
+    if (val.skip_validation) {
+      return;
     }
-  }
-});
+    const requiredFields: (keyof typeof val)[] = [
+      'address1',
+      'city',
+      'state',
+      'postcode',
+      'phonenumber',
+    ];
+    for (const field of requiredFields) {
+      if (!val[field] || String(val[field]).trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} is required unless skip_validation=true`,
+        });
+      }
+    }
+  });
 
 /**
  * Search clients input schema
@@ -197,14 +209,10 @@ async function checkClientExists(
     search: normalizedEmail,
     limitnum: 1,
   });
-  
-  const clients = normalizeToArray<WhmcsClientSummary>(
-    searchResult.clients?.client
-  );
-  
-  return clients.find(
-    (c) => normalizeEmail(c.email) === normalizedEmail
-  );
+
+  const clients = normalizeToArray<WhmcsClientSummary>(searchResult.clients?.client);
+
+  return clients.find((c) => normalizeEmail(c.email) === normalizedEmail);
 }
 
 /**
@@ -218,34 +226,38 @@ async function performClientCreation(
   const sanitizedFirstname = sanitizeTextInput(params.firstname);
   const sanitizedLastname = sanitizeTextInput(params.lastname);
   const sanitizedCompany = params.company ? sanitizeTextInput(params.company) : undefined;
-  
+
   // Generate password if not provided
   const password = params.password || generateSecurePassword();
-  
+
   const createResult = await whmcsClient.mutate<{
     clientid: number;
     owner_id?: number;
-  }>('AddClient', {
-    firstname: sanitizedFirstname,
-    lastname: sanitizedLastname,
-    email: normalizedEmail,
-    country: params.country.toUpperCase(), // Normalize country code
-    companyname: sanitizedCompany,
-    address1: params.address1 ? sanitizeTextInput(params.address1) : undefined,
-    address2: params.address2 ? sanitizeTextInput(params.address2) : undefined,
-    city: params.city ? sanitizeTextInput(params.city) : undefined,
-    state: params.state ? sanitizeTextInput(params.state) : undefined,
-    postcode: params.postcode ? sanitizeTextInput(params.postcode) : undefined,
-    phonenumber: params.phonenumber || undefined,
-    password2: password,
-    owner_user_id: params.owner_user_id,
-    noemail: params.send_email ? false : true,
-    skipvalidation: params.skip_validation ? true : undefined,
-  }, {
-    // BP-002: deterministic placeholder for simulate mode
-    clientid: 99999,
-  });
-  
+  }>(
+    'AddClient',
+    {
+      firstname: sanitizedFirstname,
+      lastname: sanitizedLastname,
+      email: normalizedEmail,
+      country: params.country.toUpperCase(), // Normalize country code
+      companyname: sanitizedCompany,
+      address1: params.address1 ? sanitizeTextInput(params.address1) : undefined,
+      address2: params.address2 ? sanitizeTextInput(params.address2) : undefined,
+      city: params.city ? sanitizeTextInput(params.city) : undefined,
+      state: params.state ? sanitizeTextInput(params.state) : undefined,
+      postcode: params.postcode ? sanitizeTextInput(params.postcode) : undefined,
+      phonenumber: params.phonenumber || undefined,
+      password2: password,
+      owner_user_id: params.owner_user_id,
+      noemail: params.send_email ? false : true,
+      skipvalidation: params.skip_validation ? true : undefined,
+    },
+    {
+      // BP-002: deterministic placeholder for simulate mode
+      clientid: 99999,
+    }
+  );
+
   return {
     clientid: createResult.clientid,
     created: true,
@@ -261,304 +273,361 @@ export function registerClientTools(
   logger: Logger,
   rateLimiter: RateLimiter
 ): void {
-  
   // ============================================
   // Tool: create_client
   // ============================================
   if (isToolAllowed('create_client')) {
-    server.tool(
-      'create_client',
-      `Create a new WHMCS client or reuse existing one by email. Version: ${TOOL_VERSION}`,
-      { ...createClientSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof createClientSchema> & { auth_token?: string };
 
-          if (isClientMode()) {
-            return clientModeDenied('create_client');
-          }
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          toolLogger.logToolCall('create_client', params, true);
-          
-          // Check rate limit
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          // Check mode restriction for mutating operation
-          if (whmcsClient.isReadOnly()) {
-            return {
-              content: [{
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          return clientModeDenied('create_client');
+        }
+
+        toolLogger.logToolCall('create_client', params, true);
+
+        // Check rate limit
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        // Check mode restriction for mutating operation
+        if (whmcsClient.isReadOnly()) {
+          return {
+            content: [
+              {
                 type: 'text' as const,
                 text: JSON.stringify({
                   isError: true,
                   error: 'Tool not available in read_only mode',
                 }),
-              }],
-              isError: true,
-            };
-          }
-          
-          // Normalize and sanitize inputs
-          const normalizedEmail = normalizeEmail(params.email);
-          
-          // Reuse logic: search for existing client
-          if (params.mode === 'reuse_if_exists') {
-            const existing = await checkClientExists(whmcsClient, normalizedEmail);
-            
-            if (existing) {
-              toolLogger.logToolResult('create_client', true, Date.now() - startTime);
-              return {
-                content: [{
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Normalize and sanitize inputs
+        const normalizedEmail = normalizeEmail(params.email);
+
+        // Reuse logic: search for existing client
+        if (params.mode === 'reuse_if_exists') {
+          const existing = await checkClientExists(whmcsClient, normalizedEmail);
+
+          if (existing) {
+            toolLogger.logToolResult('create_client', true, Date.now() - startTime);
+            return {
+              content: [
+                {
                   type: 'text' as const,
                   text: JSON.stringify({
                     clientid: existing.id,
                     created: false,
                     message: 'Existing client found and reused',
                   }),
-                }],
-              };
-            }
+                },
+              ],
+            };
           }
-          
-          // Create new client
-          const result = await performClientCreation(whmcsClient, params, normalizedEmail);
-          
-          toolLogger.logToolResult('create_client', true, Date.now() - startTime);
-          
-          return {
-            content: [{
+        }
+
+        // Create new client
+        const result = await performClientCreation(whmcsClient, params, normalizedEmail);
+
+        toolLogger.logToolResult('create_client', true, Date.now() - startTime);
+
+        return {
+          content: [
+            {
               type: 'text' as const,
               text: JSON.stringify(result),
-            }],
+            },
+          ],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'create_client',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
           };
-          
-        } catch (error) {
-          toolLogger.logToolResult('create_client', false, Date.now() - startTime, 
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          if (error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message, code: error.code }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        if (error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message, code: error.code }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'create_client',
+      `Create a new WHMCS client or reuse existing one by email. Version: ${TOOL_VERSION}`,
+      { ...createClientSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: search_clients
   // ============================================
   if (isToolAllowed('search_clients')) {
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof searchClientsSchema> & { auth_token?: string };
+
+      const toolLogger = logger.child();
+      const startTime = Date.now();
+
+      try {
+        // Capture the bearer token before ensureToolAuth strips it.
+        const pview = params as Record<string, unknown>;
+        const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+        const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
+
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          return clientModeDenied('search_clients');
+        }
+
+        toolLogger.logToolCall('search_clients', params, false);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        // BP-003: sanitize search term before passing to WHMCS API
+        const search = params.search ? sanitizeTextInput(params.search) : undefined;
+
+        const result = await whmcsClient.read<{
+          clients?: { client?: WhmcsClientSummary[] };
+          totalresults?: number;
+        }>('GetClients', {
+          search,
+          limitstart: params.offset,
+          limitnum: params.limit,
+        });
+
+        const clients = normalizeToArray<WhmcsClientSummary>(result.clients?.client);
+
+        // Return minimal summary
+        const summary = clients.map((c) => ({
+          clientid: c.id,
+          firstname: c.firstname,
+          lastname: c.lastname,
+          email: c.email,
+          companyname: c.companyname || null,
+        }));
+
+        toolLogger.logToolResult('search_clients', true, Date.now() - startTime);
+
+        const totalResults = result.totalresults || summary.length;
+        const legacyPayload = {
+          clients: summary,
+          total: totalResults,
+          offset: params.offset,
+          limit: params.limit,
+        };
+
+        return applyGovernanceOrLegacy({
+          enabled: governanceEnabled(),
+          legacy: legacyPayload,
+          govern: () =>
+            governedListResult({
+              rows: clients,
+              mapItem: mapToCanonicalClient,
+              envelope: {
+                total: totalResults,
+                offset: params.offset,
+                limit: params.limit,
+              },
+              authToken,
+              requestedContract,
+            }),
+        });
+      } catch (error) {
+        toolLogger.logToolResult(
+          'search_clients',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        throw error;
+      }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
     server.tool(
       'search_clients',
       `Search for WHMCS clients by name, email, or company. Returns minimal summary. Version: ${TOOL_VERSION}`,
       { ...searchClientsSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          // Capture the bearer token before ensureToolAuth strips it.
-          const pview = params as Record<string, unknown>;
-          const authToken =
-            typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
-          const requestedContract =
-            typeof pview.contract === 'string' ? pview.contract : undefined;
-
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
-
-          if (isClientMode()) {
-            return clientModeDenied('search_clients');
-          }
-
-          toolLogger.logToolCall('search_clients', params, false);
-
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-
-          // BP-003: sanitize search term before passing to WHMCS API
-          const search = params.search ? sanitizeTextInput(params.search) : undefined;
-
-          const result = await whmcsClient.read<{
-            clients?: { client?: WhmcsClientSummary[] };
-            totalresults?: number;
-          }>('GetClients', {
-            search,
-            limitstart: params.offset,
-            limitnum: params.limit,
-          });
-
-          const clients = normalizeToArray<WhmcsClientSummary>(result.clients?.client);
-
-          // Return minimal summary
-          const summary = clients.map((c) => ({
-            clientid: c.id,
-            firstname: c.firstname,
-            lastname: c.lastname,
-            email: c.email,
-            companyname: c.companyname || null,
-          }));
-
-          toolLogger.logToolResult('search_clients', true, Date.now() - startTime);
-
-          const totalResults = result.totalresults || summary.length;
-          const legacyPayload = {
-            clients: summary,
-            total: totalResults,
-            offset: params.offset,
-            limit: params.limit,
-          };
-
-          return applyGovernanceOrLegacy({
-            enabled: governanceEnabled(),
-            legacy: legacyPayload,
-            govern: () =>
-              governedListResult({
-                rows: clients,
-                mapItem: mapToCanonicalClient,
-                envelope: {
-                  total: totalResults,
-                  offset: params.offset,
-                  limit: params.limit,
-                },
-                authToken,
-                requestedContract,
-              }),
-          });
-
-        } catch (error) {
-          toolLogger.logToolResult('search_clients', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
-        }
-      }
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: get_client_details
   // ============================================
   if (isToolAllowed('get_client_details')) {
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof getClientDetailsSchema> & { auth_token?: string };
+
+      const toolLogger = logger.child();
+      const startTime = Date.now();
+
+      try {
+        // Capture the bearer token before ensureToolAuth strips it.
+        const pview = params as Record<string, unknown>;
+        const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+        const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
+
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          const scopeError = ensureClientAllowed(params.clientid);
+          if (scopeError) return scopeError;
+        }
+
+        toolLogger.logToolCall('get_client_details', params, false);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
+          clientid: params.clientid,
+          stats: true,
+        });
+
+        // Normalize custom fields
+        const customfields = normalizeToArray<{ id: number; value: string }>(
+          result.customfields
+        ).map((cf) => ({ id: cf.id, value: cf.value }));
+
+        toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
+
+        const legacyPayload = {
+          clientid: result.id,
+          firstname: result.firstname,
+          lastname: result.lastname,
+          fullname: result.fullname,
+          email: result.email,
+          companyname: result.companyname || null,
+          address1: result.address1 || null,
+          city: result.city || null,
+          state: result.state || null,
+          postcode: result.postcode || null,
+          country: result.country || null,
+          phonenumber: result.phonenumber || null,
+          status: result.status,
+          credit_balance: result.credit,
+          currency: result.currency_code,
+          payment_gateway: result.defaultgateway || null,
+          product_count: result.stats?.productsnumactive ?? 0,
+          product_count_total: result.stats?.productsnumtotal ?? 0,
+          domain_count: result.stats?.numactivedomains ?? 0,
+          domain_count_total: result.stats?.numdomains ?? 0,
+          custom_fields: customfields,
+        };
+
+        return applyGovernanceOrLegacy({
+          enabled: governanceEnabled(),
+          legacy: legacyPayload,
+          govern: () =>
+            governedToolResult({
+              canonical: mapToCanonicalClient(result),
+              authToken,
+              requestedContract,
+            }),
+        });
+      } catch (error) {
+        toolLogger.logToolResult(
+          'get_client_details',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        throw error;
+      }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
     server.tool(
       'get_client_details',
       `Get full details for a specific WHMCS client including credit balance and custom fields. Version: ${TOOL_VERSION}`,
       { ...getClientDetailsSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          // Capture the bearer token before ensureToolAuth strips it.
-          const pview = params as Record<string, unknown>;
-          const authToken =
-            typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
-          const requestedContract =
-            typeof pview.contract === 'string' ? pview.contract : undefined;
-
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
-
-          if (isClientMode()) {
-            const scopeError = ensureClientAllowed(params.clientid);
-            if (scopeError) return scopeError;
-          }
-
-          toolLogger.logToolCall('get_client_details', params, false);
-
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-
-          const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
-            clientid: params.clientid,
-            stats: true,
-          });
-
-          // Normalize custom fields
-          const customfields = normalizeToArray<{ id: number; value: string }>(
-            result.customfields
-          ).map((cf) => ({ id: cf.id, value: cf.value }));
-
-          toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
-
-          const legacyPayload = {
-            clientid: result.id,
-            firstname: result.firstname,
-            lastname: result.lastname,
-            fullname: result.fullname,
-            email: result.email,
-            companyname: result.companyname || null,
-            address1: result.address1 || null,
-            city: result.city || null,
-            state: result.state || null,
-            postcode: result.postcode || null,
-            country: result.country || null,
-            phonenumber: result.phonenumber || null,
-            status: result.status,
-            credit_balance: result.credit,
-            currency: result.currency_code,
-            payment_gateway: result.defaultgateway || null,
-            product_count: result.stats?.productsnumactive ?? 0,
-            product_count_total: result.stats?.productsnumtotal ?? 0,
-            domain_count: result.stats?.numactivedomains ?? 0,
-            domain_count_total: result.stats?.numdomains ?? 0,
-            custom_fields: customfields,
-          };
-
-          return applyGovernanceOrLegacy({
-            enabled: governanceEnabled(),
-            legacy: legacyPayload,
-            govern: () =>
-              governedToolResult({
-                canonical: mapToCanonicalClient(result),
-                authToken,
-                requestedContract,
-              }),
-          });
-
-        } catch (error) {
-          toolLogger.logToolResult('get_client_details', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
-        }
-      }
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: update_client
   // ============================================
@@ -578,88 +647,127 @@ export function registerClientTools(
       phonenumber: z.string().optional(),
       notes: z.string().optional(),
     });
-    
-    server.tool(
-      'update_client',
-      `Update an existing client's details. Only provided fields will be updated. Version: ${TOOL_VERSION}`,
-      { ...updateClientSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
 
-          if (isClientMode()) {
-            return clientModeDenied('update_client');
-          }
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      // Preserve original SDK callback semantics: the rest spread used by the
+      // body (`...updateFields`) needs `Object.entries(...)` to see explicit
+      // `| undefined` on optional string fields. Without this, the strict-typed
+      // narrowing (`value !== undefined`) is flagged as redundant. We mirror
+      // the SDK's ShapeOutput mapping (which keeps `T | undefined` instead of
+      // collapsing it under `?`).
+      type Shape = typeof updateClientSchema.shape;
+      const params = rawParams as { [K in keyof Shape]: z.infer<Shape[K]> } & {
+        auth_token?: string;
+      };
 
-          toolLogger.logToolCall('update_client', params, true);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
+      const toolLogger = logger.child();
+      const startTime = Date.now();
+
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        if (isClientMode()) {
+          return clientModeDenied('update_client');
+        }
+
+        toolLogger.logToolCall('update_client', params, true);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        if (whmcsClient.isReadOnly()) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Tool not available in read_only mode',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const { clientid, ...updateFields } = params;
+
+        // Sanitize text inputs
+        const sanitizedFields: Record<string, string | undefined> = {};
+        for (const [key, value] of Object.entries(updateFields)) {
+          if (value !== undefined) {
+            sanitizedFields[key] = typeof value === 'string' ? sanitizeTextInput(value) : value;
           }
-          
-          if (whmcsClient.isReadOnly()) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: 'Tool not available in read_only mode' }) }],
-              isError: true,
-            };
-          }
-          
-          const { clientid, ...updateFields } = params;
-          
-          // Sanitize text inputs
-          const sanitizedFields: Record<string, string | undefined> = {};
-          for (const [key, value] of Object.entries(updateFields)) {
-            if (value !== undefined) {
-              sanitizedFields[key] = typeof value === 'string' ? sanitizeTextInput(value) : value;
-            }
-          }
-          
-          // Normalize email if provided
-          if (sanitizedFields.email) {
-            sanitizedFields.email = normalizeEmail(sanitizedFields.email);
-          }
-          
-          const result = await whmcsClient.mutate<{ result: string; clientid?: number }>('UpdateClient', {
+        }
+
+        // Normalize email if provided
+        if (sanitizedFields.email) {
+          sanitizedFields.email = normalizeEmail(sanitizedFields.email);
+        }
+
+        const result = await whmcsClient.mutate<{ result: string; clientid?: number }>(
+          'UpdateClient',
+          {
             clientid,
             ...sanitizedFields,
-          });
-          
-          const success = result.result === 'success';
-          
-          toolLogger.logToolResult('update_client', success, Date.now() - startTime);
-          
-          return {
-            content: [{
+          }
+        );
+
+        const success = result.result === 'success';
+
+        toolLogger.logToolResult('update_client', success, Date.now() - startTime);
+
+        return {
+          content: [
+            {
               type: 'text' as const,
               text: JSON.stringify({
                 clientid,
                 success,
                 updated_fields: Object.keys(sanitizedFields),
               }),
-            }],
+            },
+          ],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'update_client',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
           };
-          
-        } catch (error) {
-          toolLogger.logToolResult('update_client', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'update_client',
+      `Update an existing client's details. Only provided fields will be updated. Version: ${TOOL_VERSION}`,
+      { ...updateClientSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: get_service_details
   // ============================================
@@ -671,166 +779,191 @@ export function registerClientTools(
         .optional()
         .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
-    
-    server.tool(
-      'get_service_details',
-      `Get detailed information about a client's service/product. Version: ${TOOL_VERSION}`,
-      { ...getServiceDetailsSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          // Capture the bearer token before ensureToolAuth strips it.
-          const pview = params as Record<string, unknown>;
-          const authToken =
-            typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
-          const requestedContract =
-            typeof pview.contract === 'string' ? pview.contract : undefined;
 
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof getServiceDetailsSchema> & { auth_token?: string };
 
-          toolLogger.logToolCall('get_service_details', params, false);
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          const result = await whmcsClient.read<{
-            result: string;
-            products?: {
-              product?: {
-                id: number;
-                clientid?: number;
-                pid?: number;
-                name?: string;
-                domain?: string;
-                status?: string;
-                billingcycle?: string;
-                nextduedate?: string;
-                firstpaymentamount?: string;
-                recurringamount?: string;
-                paymentmethod?: string;
-                regdate?: string;
-                username?: string;
-                server?: string;
-                customfields?: unknown;
-                configoptions?: unknown;
-              }[];
-            };
-          }>('GetClientsProducts', {
-            serviceid: params.serviceid,
-            limitnum: 1,
-          });
-          
-          const products = normalizeToArray<{
-            id: number;
-            clientid?: number;
-            pid?: number;
-            name?: string;
-            domain?: string;
-            status?: string;
-            billingcycle?: string;
-            nextduedate?: string;
-            firstpaymentamount?: string;
-            recurringamount?: string;
-            paymentmethod?: string;
-            regdate?: string;
-            username?: string;
-            server?: string;
-            customfields?: unknown;
-            configoptions?: unknown;
-          }>(result.products?.product);
-          const product = products[0];
-          
-          if (!product) {
-            return {
-              content: [{
+      try {
+        // Capture the bearer token before ensureToolAuth strips it.
+        const pview = params as Record<string, unknown>;
+        const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+        const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
+
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        toolLogger.logToolCall('get_service_details', params, false);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        const result = await whmcsClient.read<{
+          result: string;
+          products?: {
+            product?: {
+              id: number;
+              clientid?: number;
+              pid?: number;
+              name?: string;
+              domain?: string;
+              status?: string;
+              billingcycle?: string;
+              nextduedate?: string;
+              firstpaymentamount?: string;
+              recurringamount?: string;
+              paymentmethod?: string;
+              regdate?: string;
+              username?: string;
+              server?: string;
+              customfields?: unknown;
+              configoptions?: unknown;
+            }[];
+          };
+        }>('GetClientsProducts', {
+          serviceid: params.serviceid,
+          limitnum: 1,
+        });
+
+        const products = normalizeToArray<{
+          id: number;
+          clientid?: number;
+          pid?: number;
+          name?: string;
+          domain?: string;
+          status?: string;
+          billingcycle?: string;
+          nextduedate?: string;
+          firstpaymentamount?: string;
+          recurringamount?: string;
+          paymentmethod?: string;
+          regdate?: string;
+          username?: string;
+          server?: string;
+          customfields?: unknown;
+          configoptions?: unknown;
+        }>(result.products?.product);
+        const product = products[0];
+
+        if (!product) {
+          return {
+            content: [
+              {
                 type: 'text' as const,
                 text: JSON.stringify({
                   isError: true,
                   error: `Service not found: ${params.serviceid}`,
                 }),
-              }],
-              isError: true,
-            };
-          }
+              },
+            ],
+            isError: true,
+          };
+        }
 
-          if (isClientMode()) {
-            if (!product.clientid) {
-              return {
-                content: [{
+        if (isClientMode()) {
+          if (!product.clientid) {
+            return {
+              content: [
+                {
                   type: 'text' as const,
                   text: JSON.stringify({
                     isError: true,
                     error: 'Unable to validate service ownership for client access mode.',
                   }),
-                }],
-                isError: true,
-              };
-            }
-            const ownershipError = ensureClientOwnership(product.clientid, params as Record<string, unknown>);
-            if (ownershipError) return ownershipError;
-          }
-          
-          // Normalize custom fields
-          const customfieldsContainer = (product.customfields as { customfield?: unknown })?.customfield ?? product.customfields;
-          const customfields = normalizeToArray<{ id: number; name: string; value: string }>(
-            customfieldsContainer
-          );
-          
-          const configoptionsContainer = (product.configoptions as { configoption?: unknown })?.configoption ?? product.configoptions;
-          const configoptions = normalizeToArray<{ id: number; option: string; value: string }>(
-            configoptionsContainer
-          );
-          
-          toolLogger.logToolResult('get_service_details', true, Date.now() - startTime);
-
-          const legacyPayload = {
-            serviceid: product.id || params.serviceid,
-            clientid: product.clientid,
-            domain: product.domain,
-            status: product.status,
-            product: product.name,
-            product_id: product.pid,
-            billing_cycle: product.billingcycle,
-            next_due_date: product.nextduedate,
-            first_payment_amount: product.firstpaymentamount,
-            recurring_amount: product.recurringamount,
-            payment_method: product.paymentmethod,
-            registration_date: product.regdate,
-            username: product.username,
-            server: product.server,
-            custom_fields: customfields,
-            config_options: configoptions,
-          };
-
-          return applyGovernanceOrLegacy({
-            enabled: governanceEnabled(),
-            legacy: legacyPayload,
-            govern: () =>
-              governedToolResult({
-                canonical: mapToCanonicalService(product),
-                authToken,
-                requestedContract,
-              }),
-          });
-
-        } catch (error) {
-          toolLogger.logToolResult('get_service_details', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
+                },
+              ],
               isError: true,
             };
           }
-          
-          throw error;
+          const ownershipError = ensureClientOwnership(
+            product.clientid,
+            params as Record<string, unknown>
+          );
+          if (ownershipError) return ownershipError;
         }
+
+        // Normalize custom fields
+        const customfieldsContainer =
+          (product.customfields as { customfield?: unknown })?.customfield ?? product.customfields;
+        const customfields = normalizeToArray<{ id: number; name: string; value: string }>(
+          customfieldsContainer
+        );
+
+        const configoptionsContainer =
+          (product.configoptions as { configoption?: unknown })?.configoption ??
+          product.configoptions;
+        const configoptions = normalizeToArray<{ id: number; option: string; value: string }>(
+          configoptionsContainer
+        );
+
+        toolLogger.logToolResult('get_service_details', true, Date.now() - startTime);
+
+        const legacyPayload = {
+          serviceid: product.id || params.serviceid,
+          clientid: product.clientid,
+          domain: product.domain,
+          status: product.status,
+          product: product.name,
+          product_id: product.pid,
+          billing_cycle: product.billingcycle,
+          next_due_date: product.nextduedate,
+          first_payment_amount: product.firstpaymentamount,
+          recurring_amount: product.recurringamount,
+          payment_method: product.paymentmethod,
+          registration_date: product.regdate,
+          username: product.username,
+          server: product.server,
+          custom_fields: customfields,
+          config_options: configoptions,
+        };
+
+        return applyGovernanceOrLegacy({
+          enabled: governanceEnabled(),
+          legacy: legacyPayload,
+          govern: () =>
+            governedToolResult({
+              canonical: mapToCanonicalService(product),
+              authToken,
+              requestedContract,
+            }),
+        });
+      } catch (error) {
+        toolLogger.logToolResult(
+          'get_service_details',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'get_service_details',
+      `Get detailed information about a client's service/product. Version: ${TOOL_VERSION}`,
+      { ...getServiceDetailsSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
 }

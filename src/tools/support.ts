@@ -1,6 +1,6 @@
 /**
  * Support & Ticketing Tools for WHMCS MCP Server
- * 
+ *
  * Tools: create_ticket, reply_ticket
  */
 
@@ -10,7 +10,13 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
-import { ensureToolAuth, isClientMode, requireClientModeClientId, ensureClientOwnership, AUTH_SHAPE } from '../security.js';
+import {
+  ensureToolAuth,
+  isClientMode,
+  requireClientModeClientId,
+  ensureClientOwnership,
+  AUTH_SHAPE,
+} from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
 import { applyGovernanceOrLegacy, governanceEnabled } from '../governance/pipeline.js';
@@ -74,71 +80,90 @@ export function registerSupportTools(
   logger: Logger,
   rateLimiter: RateLimiter
 ): void {
-  
   // ============================================
   // Tool: create_ticket
   // ============================================
   if (isToolAllowed('create_ticket')) {
-    server.tool(
-      'create_ticket',
-      `Create a new support ticket in WHMCS. Version: ${TOOL_VERSION}`,
-      { ...createTicketSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof createTicketSchema> & { auth_token?: string };
 
-          if (isClientMode()) {
-            const scopeError = requireClientModeClientId(params as Record<string, unknown>);
-            if (scopeError) return scopeError;
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-            if (params.related_service_id) {
-              const services = await whmcsClient.read<{
-                products?: { product?: { id: number; clientid?: number }[] };
-              }>('GetClientsProducts', { serviceid: params.related_service_id, limitnum: 1 });
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
 
-              const products = normalizeToArray<{ id: number; clientid?: number }>(services.products?.product);
-              const service = products[0];
+        if (isClientMode()) {
+          const scopeError = requireClientModeClientId(params as Record<string, unknown>);
+          if (scopeError) return scopeError;
 
-              if (!service?.clientid) {
-                return {
-                  content: [{
+          if (params.related_service_id) {
+            const services = await whmcsClient.read<{
+              products?: { product?: { id: number; clientid?: number }[] };
+            }>('GetClientsProducts', { serviceid: params.related_service_id, limitnum: 1 });
+
+            const products = normalizeToArray<{ id: number; clientid?: number }>(
+              services.products?.product
+            );
+            const service = products[0];
+
+            if (!service?.clientid) {
+              return {
+                content: [
+                  {
                     type: 'text' as const,
                     text: JSON.stringify({
                       isError: true,
-                      error: 'Unable to validate related_service_id ownership for client access mode.',
+                      error:
+                        'Unable to validate related_service_id ownership for client access mode.',
                     }),
-                  }],
-                  isError: true,
-                };
-              }
-
-              const ownershipError = ensureClientOwnership(service.clientid, { clientid: service.clientid });
-              if (ownershipError) return ownershipError;
+                  },
+                ],
+                isError: true,
+              };
             }
-          }
 
-          toolLogger.logToolCall('create_ticket', params, true);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
+            const ownershipError = ensureClientOwnership(service.clientid, {
+              clientid: service.clientid,
+            });
+            if (ownershipError) return ownershipError;
           }
-          
-          if (whmcsClient.isReadOnly()) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: 'Tool not available in read_only mode' }) }],
-              isError: true,
-            };
-          }
-          
-          const result = await whmcsClient.mutate<{
-            id: number;
-            tid: string;
-            c?: string;
-          }>('OpenTicket', {
+        }
+
+        toolLogger.logToolCall('create_ticket', params, true);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        if (whmcsClient.isReadOnly()) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Tool not available in read_only mode',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const result = await whmcsClient.mutate<{
+          id: number;
+          tid: string;
+          c?: string;
+        }>(
+          'OpenTicket',
+          {
             deptid: params.deptid,
             subject: params.subject,
             message: params.message,
@@ -146,15 +171,18 @@ export function registerSupportTools(
             priority: params.priority,
             markdown: params.markdown,
             serviceid: params.related_service_id,
-          }, {
+          },
+          {
             id: Math.floor(Math.random() * 10000),
             tid: `TID${Date.now()}`,
-          });
-          
-          toolLogger.logToolResult('create_ticket', true, Date.now() - startTime);
-          
-          return {
-            content: [{
+          }
+        );
+
+        toolLogger.logToolResult('create_ticket', true, Date.now() - startTime);
+
+        return {
+          content: [
+            {
               type: 'text' as const,
               text: JSON.stringify({
                 ticketid: result.id,
@@ -163,125 +191,156 @@ export function registerSupportTools(
                 subject: params.subject,
                 status: 'Open',
               }),
-            }],
+            },
+          ],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'create_ticket',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
           };
-          
-        } catch (error) {
-          toolLogger.logToolResult('create_ticket', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'create_ticket',
+      `Create a new support ticket in WHMCS. Version: ${TOOL_VERSION}`,
+      { ...createTicketSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: reply_ticket
   // ============================================
   if (isToolAllowed('reply_ticket')) {
-    server.tool(
-      'reply_ticket',
-      `Reply to an existing support ticket. Use type='Client' for client-visible reply, 'AdminNote' for internal notes, 'AdminPublic' for admin reply visible to client. Version: ${TOOL_VERSION}`,
-      { ...replyTicketSchema.shape, ...AUTH_SHAPE },
-      async (params) => {
-        const toolLogger = logger.child();
-        const startTime = Date.now();
-        
-        try {
-          const authError = ensureToolAuth(params as Record<string, unknown>);
-          if (authError) return authError;
+    // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
+    // open `[x: string]: unknown` index signature; our shared `ensure*`/result
+    // helpers return the local closed `McpToolResponse`, which is structurally
+    // a subtype but not assignable through the inferred overload. Lift the
+    // handler and cast once at the boundary — pure type-only refactor.
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+      const params = rawParams as z.infer<typeof replyTicketSchema> & { auth_token?: string };
 
-          let clientReplyClientId: number | undefined;
+      const toolLogger = logger.child();
+      const startTime = Date.now();
 
-          toolLogger.logToolCall('reply_ticket', params, true);
-          
-          if (!rateLimiter.tryConsume()) {
-            throw new RateLimitError();
-          }
-          
-          if (whmcsClient.isReadOnly()) {
+      try {
+        const authError = ensureToolAuth(params as Record<string, unknown>);
+        if (authError) return authError;
+
+        let clientReplyClientId: number | undefined;
+
+        toolLogger.logToolCall('reply_ticket', params, true);
+
+        if (!rateLimiter.tryConsume()) {
+          throw new RateLimitError();
+        }
+
+        if (whmcsClient.isReadOnly()) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Tool not available in read_only mode',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        if (isClientMode()) {
+          if (params.type !== 'Client') {
             return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: 'Tool not available in read_only mode' }) }],
-              isError: true,
-            };
-          }
-          
-          if (isClientMode()) {
-            if (params.type !== 'Client') {
-              return {
-                content: [{
+              content: [
+                {
                   type: 'text' as const,
                   text: JSON.stringify({
                     isError: true,
                     error: 'Only Client replies are allowed in client access mode.',
                   }),
-                }],
-                isError: true,
-              };
-            }
+                },
+              ],
+              isError: true,
+            };
+          }
 
-            // Validate ticket ownership
-            const ticket = await whmcsClient.read<{
-              ticketid: number;
-              userid?: number;
-              clientid?: number;
-            }>('GetTicket', { ticketid: params.ticketid });
+          // Validate ticket ownership
+          const ticket = await whmcsClient.read<{
+            ticketid: number;
+            userid?: number;
+            clientid?: number;
+          }>('GetTicket', { ticketid: params.ticketid });
 
-            const ownerId = ticket.userid ?? ticket.clientid;
-            if (!ownerId) {
-              return {
-                content: [{
+          const ownerId = ticket.userid ?? ticket.clientid;
+          if (!ownerId) {
+            return {
+              content: [
+                {
                   type: 'text' as const,
                   text: JSON.stringify({
                     isError: true,
                     error: 'Unable to validate ticket ownership for client access mode.',
                   }),
-                }],
-                isError: true,
-              };
-            }
-
-            const ownershipError = ensureClientOwnership(ownerId, params as Record<string, unknown>);
-            if (ownershipError) return ownershipError;
-            clientReplyClientId = ownerId;
+                },
+              ],
+              isError: true,
+            };
           }
 
-          // Use different API actions based on reply type
-          let action = 'AddTicketReply';
-          const apiParams: Record<string, unknown> = {
-            ticketid: params.ticketid,
-            message: params.message,
-          };
+          const ownershipError = ensureClientOwnership(ownerId, params as Record<string, unknown>);
+          if (ownershipError) return ownershipError;
+          clientReplyClientId = ownerId;
+        }
 
-          if (clientReplyClientId) {
-            apiParams.clientid = clientReplyClientId;
-          }
-          
-          if (params.type === 'AdminNote') {
-            action = 'AddTicketNote';
-          } else if (params.type === 'AdminPublic') {
-            apiParams.admin = true;
-          }
-          
-          // Update ticket status if specified
-          if (params.status_after_reply) {
-            apiParams.status = params.status_after_reply;
-          }
-          
-          await whmcsClient.mutate(action, apiParams);
-          
-          toolLogger.logToolResult('reply_ticket', true, Date.now() - startTime);
-          
-          return {
-            content: [{
+        // Use different API actions based on reply type
+        let action = 'AddTicketReply';
+        const apiParams: Record<string, unknown> = {
+          ticketid: params.ticketid,
+          message: params.message,
+        };
+
+        if (clientReplyClientId) {
+          apiParams.clientid = clientReplyClientId;
+        }
+
+        if (params.type === 'AdminNote') {
+          action = 'AddTicketNote';
+        } else if (params.type === 'AdminPublic') {
+          apiParams.admin = true;
+        }
+
+        // Update ticket status if specified
+        if (params.status_after_reply) {
+          apiParams.status = params.status_after_reply;
+        }
+
+        await whmcsClient.mutate(action, apiParams);
+
+        toolLogger.logToolResult('reply_ticket', true, Date.now() - startTime);
+
+        return {
+          content: [
+            {
               type: 'text' as const,
               text: JSON.stringify({
                 ticketid: params.ticketid,
@@ -289,26 +348,41 @@ export function registerSupportTools(
                 status: params.status_after_reply || 'Unchanged',
                 success: true,
               }),
-            }],
+            },
+          ],
+        };
+      } catch (error) {
+        toolLogger.logToolResult(
+          'reply_ticket',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
+            isError: true,
           };
-          
-        } catch (error) {
-          toolLogger.logToolResult('reply_ticket', false, Date.now() - startTime,
-            error instanceof Error ? error.message : String(error));
-          
-          if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
-              isError: true,
-            };
-          }
-          
-          throw error;
         }
+
+        throw error;
       }
+    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+    server.tool(
+      'reply_ticket',
+      `Reply to an existing support ticket. Use type='Client' for client-visible reply, 'AdminNote' for internal notes, 'AdminPublic' for admin reply visible to client. Version: ${TOOL_VERSION}`,
+      { ...replyTicketSchema.shape, ...AUTH_SHAPE },
+      handler
     );
   }
-  
+
   // ============================================
   // Tool: get_ticket_departments
   // ============================================
@@ -325,9 +399,7 @@ export function registerSupportTools(
     // `structuredContent` when an `outputSchema` is declared). Registered via
     // `server.registerTool` (not the legacy `.tool()` signature) so the stable
     // `outputSchema` is part of the tool contract.
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      params: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
       const toolLogger = logger.child();
       const startTime = Date.now();
 
@@ -385,14 +457,22 @@ export function registerSupportTools(
             structuredContent: legacyPayload as unknown as Record<string, unknown>,
           }),
         });
-
       } catch (error) {
-        toolLogger.logToolResult('get_ticket_departments', false, Date.now() - startTime,
-          error instanceof Error ? error.message : String(error));
+        toolLogger.logToolResult(
+          'get_ticket_departments',
+          false,
+          Date.now() - startTime,
+          error instanceof Error ? error.message : String(error)
+        );
 
         if (error instanceof RateLimitError || error instanceof WhmcsBusinessError) {
           return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: error.message }) }],
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({ isError: true, error: error.message }),
+              },
+            ],
             isError: true,
           };
         }
