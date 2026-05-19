@@ -5,12 +5,15 @@
  * store, validation, idempotency, audit, support/billing draft tools,
  * execution gate) are built against THIS file.
  *
- * SAFETY INVARIANT: nothing in this framework calls a WHMCS mutating
- * action against production. The execution stage is gated by an explicit
- * ExecutionAuthorizer that DENIES by default; the existing read-only
- * WhmcsClient.mutate() MODE_RESTRICTED block remains the ultimate backstop.
- * Live production mutation requires separate, explicit, per-action runtime
- * authorization that is intentionally absent in the default posture.
+ * SAFETY INVARIANT: production execution is governed by a DENY-BY-DEFAULT
+ * risk-tiered policy table (see executionGate.ts), NOT an absolute env block.
+ * The keystone property holds: with no new env configured (kill switch off,
+ * empty prod allowlist, zero caps) the gate's behaviour is byte-identical to
+ * the legacy absolute-deny — production is fully sealed, zero live mutation.
+ * The read-only WhmcsClient.mutate() MODE_RESTRICTED block remains an
+ * independent backstop. Live production mutation requires explicit per-action
+ * allowlisting (+ human approval & caps for high-risk) that is intentionally
+ * absent in the default posture.
  */
 
 import type { ContractName } from '../governance/types.js';
@@ -152,29 +155,100 @@ export interface AuditEvent {
 
 export type ExecutionEnv = 'local' | 'staging' | 'production';
 
+/**
+ * Phase G+ — actions PERMANENTLY blocked in production, even if mistakenly
+ * added to the prod allowlist. Destructive client/invoice/transaction/service/
+ * domain/admin/config mutations and any mass/bulk or raw-DB write path. This
+ * gate is checked BEFORE the prod allowlist, so an allowlist mistake cannot
+ * reach a catastrophic action. Frozen.
+ */
+export const PROD_NEVER_EXECUTABLE: ReadonlySet<string> = new Set<string>([
+  // Destructive client / billing record deletion
+  'DeleteClient',
+  'DeleteInvoice',
+  'DeleteTransaction',
+  'DeletePayMethod',
+  // Service / module termination
+  'TerminateService',
+  'ModuleTerminate',
+  'MassTerminate',
+  // Domain destructive
+  'DomainTransfer',
+  'DomainRelease',
+  'DeleteDomain',
+  // Admin / API credential / security / config mutations
+  'SetConfigurationValue',
+  'UpdateAdmin',
+  'CreateAdmin',
+  'DeleteAdmin',
+  'CreateOAuthCredential',
+  'DeleteOAuthCredential',
+  'UpdateApiCredential',
+]);
+
+/** Recorded human approval for a high-risk (money) production action. */
+export interface HumanApprovalRecord {
+  readonly approver: string;
+  readonly at: string;
+}
+
+/** Monetary context + day-running-total for high-risk cap enforcement. */
+export interface AmountContext {
+  /** This action's monetary magnitude (absolute value). */
+  readonly amount: number;
+  /** Sum of same-tier amounts already executed in the current day window. */
+  readonly dayTotal: number;
+}
+
+/** High-risk caps. Default 0 ⇒ every money action denied until configured. */
+export interface HighRiskCaps {
+  readonly perAction: number;
+  readonly daily: number;
+}
+
 export interface ExecutionRequest {
   readonly intent: WriteIntent;
   readonly env: ExecutionEnv;
   /** MCP mode — execution is impossible unless this is NOT read_only. */
   readonly mcpMode: 'read_only' | 'simulate' | 'full';
   readonly consumerWriteCapability: string;
-  /** Actions explicitly authorized at runtime (env allowlist). Empty ⇒ none. */
+  /** Non-prod actions explicitly authorized at runtime. Empty ⇒ none. */
   readonly runtimeAuthorizedActions: readonly string[];
+  /* ── Phase G+ production policy inputs. ALL OPTIONAL: the defaults
+     (kill switch off, empty prod allowlist, no approval, zero caps) keep
+     the sealed-by-default posture byte-identical to the legacy gate. ── */
+  /** Global instant seal. Default false. */
+  readonly killSwitch?: boolean;
+  /** Production per-action allowlist. Default [] ⇒ production sealed. */
+  readonly prodAuthorizedActions?: readonly string[];
+  /** Human approval record (required for high-risk in any env). */
+  readonly humanApproval?: HumanApprovalRecord;
+  /** Monetary context for high-risk cap checks. */
+  readonly amountContext?: AmountContext;
+  /** High-risk caps. Default { perAction: 0, daily: 0 } ⇒ money denied. */
+  readonly caps?: HighRiskCaps;
 }
 
 export type ExecutionDeniedReason =
-  // Phase G: production can NEVER execute — hard environment gate, checked
-  // first, independent of mode/consumer/allowlist. (additive)
+  // Legacy (retained for compat; no longer emitted by the default authorizer
+  // now that production is governed by the deny-by-default policy table).
   | 'production_execution_forbidden'
+  | 'action_not_low_risk_executable'
+  // Core gates (priority order).
+  | 'kill_switch_engaged'
   | 'read_only_mode'
-  | 'consumer_not_execution_allowed'
-  | 'action_not_runtime_authorized'
   | 'intent_not_approved'
+  | 'consumer_not_execution_allowed'
   | 'idempotency_replay'
-  // Phase G: gates passed but the action is not in the dev/staging
-  // low-risk executable allowlist (billing/service/domain/etc. stay
-  // intent/validate-only). (additive)
-  | 'action_not_low_risk_executable';
+  | 'action_permanently_blocked'
+  | 'action_not_prod_authorized'
+  | 'action_not_runtime_authorized'
+  // Risk-tier policy.
+  | 'human_approval_required'
+  | 'amount_cap_exceeded'
+  // Execution-stage (emitted by the write-flow, not the pure gate).
+  | 'audit_write_failed'
+  | 'verification_failed';
 
 export type ExecutionDecision =
   | { readonly allowed: false; readonly reason: ExecutionDeniedReason }
@@ -200,7 +274,10 @@ export interface WriteToolResult {
   readonly required_approvals: number;
   readonly idempotency_key: string;
   /** What WHMCS call WOULD be made — for dry-run/preview. Never executed here. */
-  readonly would_call: { readonly action: string; readonly params: Readonly<Record<string, unknown>> };
+  readonly would_call: {
+    readonly action: string;
+    readonly params: Readonly<Record<string, unknown>>;
+  };
   /**
    * Phase G: widened from the Phase-F literal `false` to `boolean`. Still
    * `false` in production / read-only / non-approved / non-low-risk paths;
