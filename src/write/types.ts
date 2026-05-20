@@ -29,6 +29,7 @@ export const WRITE_SCOPES = [
   'billing:payment:add',
   'billing:credit:add',
   'billing:refund:record',
+  'service:price_restore',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -43,6 +44,7 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'billing:payment:add': 'AddInvoicePayment',
   'billing:credit:add': 'AddCredit',
   'billing:refund:record': 'AddTransaction',
+  'service:price_restore': 'UpdateClientProduct',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -58,6 +60,7 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   'billing:payment:add': 'high',
   'billing:credit:add': 'high',
   'billing:refund:record': 'high',
+  'service:price_restore': 'high',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */
@@ -248,7 +251,11 @@ export type ExecutionDeniedReason =
   | 'amount_cap_exceeded'
   // Execution-stage (emitted by the write-flow, not the pure gate).
   | 'audit_write_failed'
-  | 'verification_failed';
+  | 'verification_failed'
+  | 'precondition_mismatch'
+  | 'halt_after_target'
+  | 'target_amount_cap_exceeded'
+  | 'target_output_assertion_failed';
 
 export type ExecutionDecision =
   | { readonly allowed: false; readonly reason: ExecutionDeniedReason }
