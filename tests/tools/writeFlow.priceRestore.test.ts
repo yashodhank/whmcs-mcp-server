@@ -5,7 +5,7 @@
  * (UpdateClientProduct). Drives full Phase 1 / dry_run / Phase 2.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executePriceRestoreBatch } from '../../src/tools/writeFlow.js';
+import { executePriceRestoreBatch, registerWriteFlowTools } from '../../src/tools/writeFlow.js';
 import { createDraftIntent, IntentStore } from '../../src/write/intents.js';
 import { AuditLog } from '../../src/write/audit.js';
 import { IdempotencyLedger } from '../../src/write/idempotency.js';
@@ -307,5 +307,115 @@ describe('executePriceRestoreBatch — Phase 2', () => {
       serviceid: 569,
       recurringamount: 31350,
     });
+  });
+});
+
+import { createHash } from 'node:crypto';
+
+const RAW_TOKEN = 'PRICE-RESTORE-E2E-SYNTHETIC';
+const sha = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+
+beforeEach(() => {
+  process.env.MCP_CONSUMER_REGISTRY = JSON.stringify([
+    {
+      id: 'pr-test',
+      token_sha256: sha(RAW_TOKEN),
+      allowedScopes: ['read'],
+      defaultContract: 'ops_operator',
+      allowedContracts: ['ops_operator'],
+      allowedActions: [],
+      writeCapability: 'execution_allowed',
+      allowedWriteScopes: ['service:price_restore'],
+      envRestrictions: [],
+      anonymous: false,
+    },
+  ]);
+});
+
+vi.mock('../../src/config.js', () => ({
+  config: {
+    MCP_MODE: 'full',
+    MCP_ENV: 'local',
+    MCP_MAX_PAGE_SIZE: 100,
+    MCP_WRITE_KILL_SWITCH: false,
+    MCP_PROD_WRITE_AUTHORIZED: [],
+    MCP_WRITE_EXECUTION_AUTHORIZED: 'UpdateClientProduct',
+    MCP_PROD_HIGH_RISK_PER_ACTION_CAP: 20000,
+    MCP_PROD_HIGH_RISK_DAILY_CAP: 50000,
+    MCP_WRITE_AUDIT_PATH: '',
+    MCP_WRITE_IDEMPOTENCY_PATH: '',
+  },
+  isToolAllowed: () => true,
+}));
+vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {} }));
+
+describe('service:price_restore end-to-end via registered handlers', () => {
+  it('completes a 3-target restore on dev/staging path', async () => {
+    const handlers: Record<
+      string,
+      (a: Record<string, unknown>) => Promise<{ content: { text: string }[] }>
+    > = {};
+    const server = {
+      registerTool: (n: string, _c: unknown, cb: unknown) => {
+        handlers[n] = cb as never;
+      },
+    };
+    const read = vi.fn();
+    const mutate = vi.fn().mockResolvedValue({ result: 'success' });
+    for (const sid of [555, 569, 586]) {
+      read.mockResolvedValueOnce({
+        products: { product: [{ id: sid, recurringamount: '45000', domainstatus: 'Active' }] },
+      });
+    }
+    for (const sid of [555, 569, 586]) {
+      read.mockResolvedValueOnce({
+        products: { product: [{ id: sid, recurringamount: '31350', domainstatus: 'Active' }] },
+      });
+    }
+    const logger = {
+      child: () => logger,
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+    registerWriteFlowTools(
+      server as never,
+      { mutate, read } as never,
+      logger as never,
+      { tryConsume: () => true } as never
+    );
+    const tok = { auth_token: RAW_TOKEN };
+    const params = {
+      targets: [
+        { serviceid: 555, new_amount: 31350, expected_old_amount: 45000 },
+        { serviceid: 569, new_amount: 31350, expected_old_amount: 45000 },
+        { serviceid: 586, new_amount: 31350, expected_old_amount: 45000 },
+      ],
+    };
+    const d = await handlers.draft_write_intent({
+      scope: 'service:price_restore',
+      params,
+      naturalKey: 'e2e-3-target',
+      projected_effect: 'restore 3 services',
+      ...tok,
+    });
+    const draftBody = JSON.parse(d.content[0].text) as Record<string, unknown>;
+    const id = (draftBody.intent as Record<string, unknown>).intent_id as string;
+    const wouldCall = draftBody.would_call as Record<string, unknown>;
+    expect(Array.isArray(wouldCall.whmcs_params)).toBe(true);
+    expect(wouldCall.whmcs_params).toHaveLength(3);
+
+    await handlers.validate_write_intent({ intent_id: id, ...tok });
+    await handlers.approve_write_intent({
+      intent_id: id,
+      approver: 'op',
+      decision: 'approved',
+      ...tok,
+    });
+    const e = await handlers.execute_write_intent({ intent_id: id, ...tok });
+    const execBody = JSON.parse(e.content[0].text) as Record<string, unknown>;
+    expect(execBody.executed).toBe(true);
+    expect(mutate).toHaveBeenCalledTimes(3);
   });
 });

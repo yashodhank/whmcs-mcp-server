@@ -211,7 +211,9 @@ const RESULT_OUTPUT_SHAPE = {
       // Phase G+: mapped WHMCS-shape params (exact pre-execution call shape)
       // so operators see the real payload before approving/executing. Optional
       // because a mapping_error defers to the validator surfacing it.
-      whmcs_params: z.record(z.string(), z.unknown()).optional(),
+      whmcs_params: z
+        .union([z.record(z.string(), z.unknown()), z.array(z.record(z.string(), z.unknown()))])
+        .optional(),
     })
     .optional(),
   executed: z.boolean().optional(),
@@ -221,6 +223,9 @@ const RESULT_OUTPUT_SHAPE = {
       blocked_reason: z.string().optional(),
       note: z.string().optional(),
       verified: z.boolean().optional(),
+      phase_1: z.unknown().optional(),
+      phase_2: z.unknown().optional(),
+      dry_run: z.boolean().optional(),
     })
     .optional(),
   // Diagnostic keys carried only by an `err()` result (success never sets these).
@@ -285,13 +290,29 @@ function toToolResult(
   // Best-effort mapper preview for would_call. The validate-stage mapping_error
   // check is what FAILS a malformed intent — here we only catch so an ill-formed
   // intent at draft time still returns a structured payload to the caller.
-  let whmcsParams: Record<string, unknown> | undefined;
+  let whmcsParams: Record<string, unknown> | Record<string, unknown>[] | undefined;
   try {
-    whmcsParams = intentToWhmcsParams(
-      intentRec.scope,
-      intentRec.params as Record<string, unknown>,
-      { idempotency_key: intentRec.idempotency_key }
-    );
+    if (intentRec.scope === 'service:price_restore') {
+      const targets = intentRec.params.targets as
+        | readonly {
+            serviceid: number;
+            new_amount: number;
+          }[]
+        | undefined;
+      whmcsParams = (targets ?? []).map((t) => ({
+        action: 'UpdateClientProduct',
+        params: mapServicePriceRestoreTarget({
+          serviceid: t.serviceid,
+          new_amount: t.new_amount,
+        }),
+      }));
+    } else {
+      whmcsParams = intentToWhmcsParams(
+        intentRec.scope,
+        intentRec.params as Record<string, unknown>,
+        { idempotency_key: intentRec.idempotency_key }
+      );
+    }
   } catch {
     whmcsParams = undefined;
   }
@@ -808,6 +829,74 @@ export function registerWriteFlowTools(
         return out(
           toToolResult(intent, 'execute', {
             execution: { attempted: false, blocked_reason: 'intent_not_approved' },
+          })
+        );
+      }
+      // Batch scope dispatch — service:price_restore uses its own two-phase helper.
+      // The helper performs its own per-target authorization (idempotency,
+      // per-action + daily caps, scope-output assertion, fail-closed durable
+      // audit), so we branch BEFORE the single-call authorizer/mutate path.
+      // (intent.state === 'approved' is already enforced by the early-return above.)
+      if (intent.scope === 'service:price_restore') {
+        const approval = approvals.get(intent.intent_id);
+        if (!approval) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          audit.append(auditEvent('intent.execution_blocked', blocked, 'human_approval_required'));
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: { attempted: false, blocked_reason: 'human_approval_required' },
+            })
+          );
+        }
+        const batchRes = await executePriceRestoreBatch({
+          intent,
+          whmcs,
+          audit,
+          ledger,
+          caps: {
+            perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
+            daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
+          },
+          approval,
+          dayAmounts,
+        });
+        if (!batchRes.allowed) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          audit.append(
+            auditEvent('intent.execution_blocked', blocked, batchRes.reason ?? 'unknown')
+          );
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: {
+                attempted: false,
+                blocked_reason: batchRes.reason,
+                phase_1: batchRes.phase_1,
+                phase_2: batchRes.phase_2,
+              } as WriteToolResult['execution'],
+            })
+          );
+        }
+        if (batchRes.dry_run) {
+          return out(
+            toToolResult(intent, 'execute', {
+              executed: false,
+              execution: {
+                attempted: false,
+                dry_run: true,
+                phase_1: batchRes.phase_1,
+              } as WriteToolResult['execution'],
+            })
+          );
+        }
+        const finalState = store.transition(intent.intent_id, 'executed');
+        return out(
+          toToolResult(finalState, 'execute', {
+            executed: true,
+            execution: {
+              attempted: true,
+              phase_1: batchRes.phase_1,
+              phase_2: batchRes.phase_2,
+            } as WriteToolResult['execution'],
           })
         );
       }
