@@ -212,16 +212,24 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
   // Mapping-error backstop: invoke the mapper and surface any thrown error
   // here so structural problems are caught at validate stage (before approval),
   // not at execute stage.
-  try {
-    intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
-      idempotency_key: intent.idempotency_key,
-    });
-  } catch (e) {
-    issues.push({
-      code: 'mapping_error',
-      severity: 'error',
-      message: `Intent → WHMCS mapping failed: ${e instanceof Error ? e.message : String(e)}`,
-    });
+  //
+  // Batch-shaped scopes (e.g. service:price_restore) are SKIPPED — their
+  // dispatcher case is intentionally a defensive throw because batch intents
+  // don't fit the single-call mapper contract; the write-flow calls the
+  // per-target mapper directly. The batch-shape validator above (per-scope
+  // custom block) is the structural check for these intents.
+  if (intent.scope !== 'service:price_restore') {
+    try {
+      intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
+        idempotency_key: intent.idempotency_key,
+      });
+    } catch (e) {
+      issues.push({
+        code: 'mapping_error',
+        severity: 'error',
+        message: `Intent → WHMCS mapping failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
   }
 
   // WHMCS 9 compatibility advisory for billing scopes (non-blocking).
