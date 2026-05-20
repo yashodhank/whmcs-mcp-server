@@ -134,3 +134,72 @@ replay.
 - Product **pricing** IS available via `GetProducts` (the 6/12-month-cycle
   pricing question is answerable there). The MCP `list_products` tool omits
   both — a future read-tool enhancement, **out of scope** for this epic.
+
+## 6. Price restore operations (`service:price_restore`)
+
+A narrow, governed, audited path to restore a service's `recurringamount`
+through `UpdateClientProduct`. Production stays sealed unless explicitly
+allowlisted. See the implementation spec at
+`docs/superpowers/specs/2026-05-20-service-price-restore-design.md` for design
+detail.
+
+### Env for prod activation (operator action)
+
+```
+MCP_PROD_WRITE_AUTHORIZED=UpdateClientProduct
+MCP_PROD_HIGH_RISK_PER_ACTION_CAP=20000   # max |new−old| delta per target
+MCP_PROD_HIGH_RISK_DAILY_CAP=50000        # sum of executed deltas per UTC day
+```
+
+A consumer with `writeCapability='execution_allowed'` and
+`allowedWriteScopes=['service:price_restore']` must also exist in
+`MCP_CONSUMER_REGISTRY`.
+
+### Worked example — client 50 (svc 555/569/586) ₹45,000 → ₹31,350
+
+1. **Draft** (`draft_write_intent`):
+   ```jsonc
+   {
+     "scope": "service:price_restore",
+     "params": {
+       "targets": [
+         { "serviceid": 555, "new_amount": 31350, "expected_old_amount": 45000 },
+         { "serviceid": 569, "new_amount": 31350, "expected_old_amount": 45000 },
+         { "serviceid": 586, "new_amount": 31350, "expected_old_amount": 45000 }
+       ],
+       "dry_run": true
+     },
+     "naturalKey": "client50-vps-l-ssd-restore",
+     "projected_effect": "Restore svc 555/569/586 ₹45000→₹31350/qtr"
+   }
+   ```
+2. **Validate**, **approve** (with a real human approver token).
+3. **Execute** (with `dry_run: true`) → review `execution.phase_1.snapshots`.
+4. **Draft a fresh intent** identical but omit `dry_run` (or set to `false`).
+5. Validate, approve, **execute** (real).
+6. Confirm `execution.phase_2.outcomes[*].status === 'verified'`.
+
+### Atomicity contract
+
+- **Phase 1** (always): reads current `recurringamount` per target +
+  precondition (`expected_old_amount` match if provided; service status not
+  Terminated/Cancelled). Any failure → `precondition_mismatch`, **zero
+  mutation performed**.
+- **Phase 2** (sequential, fail-fast): each target has its own per-target
+  idempotency key (`intent.idempotency_key|serviceid`). A subsequent retry of
+  the SAME intent will skip already-done targets via the ledger. Caps:
+  per-target `|new−old|` delta capped + running daily sum capped (both reuse
+  existing high-risk env). First mutation failure halts later targets.
+- **Scope-output assertion**: defense-in-depth verification that the mapper
+  produced exactly `{serviceid, recurringamount}` — guards against future
+  scope leakage on the powerful `UpdateClientProduct` action.
+
+### Re-seal after completion
+
+```
+unset MCP_PROD_WRITE_AUTHORIZED
+unset MCP_PROD_HIGH_RISK_PER_ACTION_CAP
+unset MCP_PROD_HIGH_RISK_DAILY_CAP
+```
+
+Or set `MCP_WRITE_KILL_SWITCH=1` to instantly re-seal everything.
