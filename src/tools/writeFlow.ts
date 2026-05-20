@@ -36,8 +36,10 @@ import {
   WRITE_SCOPES,
   type WriteScope,
   type WriteToolResult,
+  type WriteIntent,
   type HumanApprovalRecord,
   type AmountContext,
+  type HighRiskCaps,
 } from '../write/types.js';
 import { createDraftIntent, IntentStore } from '../write/intents.js';
 import { validateIntent } from '../write/validation.js';
@@ -50,10 +52,6 @@ import {
   PRICE_RESTORE_RECURRING_FIELD,
 } from '../write/paramMapping.js';
 
-// Imported for T7 (price_restore execute-path uses the per-target mapper).
-// Side-effect-free reference so the unused-import check stays green until T7.
-void mapServicePriceRestoreTarget;
-
 /** Defense-in-depth: ensures the per-target mapper never leaks extra keys. */
 export class PriceRestoreOutputAssertionError extends Error {
   constructor(message: string) {
@@ -62,10 +60,7 @@ export class PriceRestoreOutputAssertionError extends Error {
   }
 }
 
-const PRICE_RESTORE_ALLOWED_KEYS = new Set<string>([
-  'serviceid',
-  PRICE_RESTORE_RECURRING_FIELD,
-]);
+const PRICE_RESTORE_ALLOWED_KEYS = new Set<string>(['serviceid', PRICE_RESTORE_RECURRING_FIELD]);
 
 /**
  * Scope-output assertion for `service:price_restore`. Verifies the mapper
@@ -388,6 +383,284 @@ function register(
     },
     handler
   );
+}
+
+/** Result of executePriceRestoreBatch — explicit shape for tests + UI. */
+export interface PriceRestoreBatchResult {
+  readonly allowed: boolean;
+  readonly reason?: string;
+  readonly dry_run?: boolean;
+  readonly phase_1?: {
+    readonly snapshots: readonly { serviceid: number; current_amount: number }[];
+    readonly failedTargets?: readonly number[];
+    readonly ok: boolean;
+  };
+  readonly phase_2?: {
+    readonly outcomes: readonly {
+      serviceid: number;
+      status: 'verified' | 'executed' | 'failed' | 'skipped';
+      old: number;
+      new: number;
+      delta: number;
+    }[];
+    readonly halted_after?: number | null;
+  };
+}
+
+interface PriceRestoreBatchArgs {
+  readonly intent: WriteIntent;
+  readonly whmcs: { read: WhmcsClient['read']; mutate: WhmcsClient['mutate'] };
+  readonly audit: AuditLog;
+  readonly ledger: IdempotencyLedger;
+  readonly caps: HighRiskCaps;
+  readonly approval: HumanApprovalRecord;
+  readonly dayAmounts: Map<string, number>;
+}
+
+/**
+ * Two-phase batch executor for `service:price_restore`. Pure-ish (mutates
+ * caller-supplied audit/ledger/dayAmounts and the WHMCS instance — never
+ * reaches in-module singletons).
+ *
+ * Phase 1 (always): read-only GetClientsProducts per target. Validates
+ * service exists, status not Terminated/Cancelled, expected_old_amount
+ * matches if provided. ABORTS with `precondition_mismatch` on any failure.
+ *
+ * dry_run early-exit: when `intent.params.dry_run === true`, returns the
+ * snapshots as preview, no Phase 2 / no mutations.
+ *
+ * Phase 2 (sequential, fail-fast): per-target idempotency
+ * (`${intent.idempotency_key}|${serviceid}`), per-action & daily cap
+ * check, scope-output assertion, fail-closed durable audit before mutate,
+ * UpdateClientProduct, read-back verify. Halts on first failure or cap.
+ */
+export async function executePriceRestoreBatch(
+  args: PriceRestoreBatchArgs
+): Promise<PriceRestoreBatchResult> {
+  const { intent, whmcs, audit, ledger, caps, dayAmounts } = args;
+  const targets = intent.params.targets as readonly {
+    serviceid: number;
+    new_amount: number;
+    expected_old_amount?: number;
+  }[];
+  const dryRun = intent.params.dry_run === true;
+
+  // PHASE 1 — read-only snapshot + precondition. No mutation reachable until
+  // every target passes.
+  const snapshots: { serviceid: number; current_amount: number }[] = [];
+  const failedTargets: number[] = [];
+  for (const t of targets) {
+    let resp: unknown;
+    try {
+      resp = await whmcs.read('GetClientsProducts', { serviceid: t.serviceid });
+    } catch {
+      failedTargets.push(t.serviceid);
+      continue;
+    }
+    const r = resp as { products?: { product?: readonly Record<string, unknown>[] } };
+    const p = r.products?.product?.[0];
+    if (!p) {
+      failedTargets.push(t.serviceid);
+      continue;
+    }
+    const statusRaw = p.domainstatus;
+    if (statusRaw === 'Terminated' || statusRaw === 'Cancelled') {
+      failedTargets.push(t.serviceid);
+      continue;
+    }
+    const currentRaw = p[PRICE_RESTORE_RECURRING_FIELD] ?? p.recurringamount;
+    const current = typeof currentRaw === 'number' ? currentRaw : Number(currentRaw);
+    if (!Number.isFinite(current) || current < 0) {
+      failedTargets.push(t.serviceid);
+      continue;
+    }
+    // Idempotency-aware precondition: a target already executed in a prior
+    // run will naturally have its current_amount === new_amount, NOT the
+    // expected_old_amount. Skip the precondition for that target so the
+    // re-run cleanly moves into Phase 2 and is marked 'skipped'.
+    const perTargetKeyP1 = `${intent.idempotency_key}|${String(t.serviceid)}`;
+    const alreadyDone = ledger.seen(perTargetKeyP1);
+    if (!alreadyDone && t.expected_old_amount !== undefined && t.expected_old_amount !== current) {
+      failedTargets.push(t.serviceid);
+      continue;
+    }
+    snapshots.push({ serviceid: t.serviceid, current_amount: current });
+  }
+
+  if (failedTargets.length > 0) {
+    audit.append(
+      auditEvent(
+        'intent.execution_blocked',
+        intent,
+        `precondition_mismatch: failedTargets=${failedTargets.join(',')}`
+      )
+    );
+    return {
+      allowed: false,
+      reason: 'precondition_mismatch',
+      phase_1: { snapshots, failedTargets, ok: false },
+    };
+  }
+
+  if (dryRun) {
+    audit.append(auditEvent('intent.execution_blocked', intent, 'dry_run_completed'));
+    return { allowed: true, dry_run: true, phase_1: { snapshots, ok: true } };
+  }
+
+  // PHASE 2 — sequential, fail-fast, per-target idempotency.
+  const outcomes: {
+    serviceid: number;
+    status: 'verified' | 'executed' | 'failed' | 'skipped';
+    old: number;
+    new: number;
+    delta: number;
+  }[] = [];
+  let halted_after: number | null = null;
+
+  const dayKey = `UpdateClientProduct|${new Date().toISOString().slice(0, 10)}`;
+  let dayRunning = dayAmounts.get(dayKey) ?? 0;
+
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    const snap = snapshots[i];
+    const delta = Math.abs(t.new_amount - snap.current_amount);
+
+    const perTargetKey = `${intent.idempotency_key}|${String(t.serviceid)}`;
+    if (ledger.seen(perTargetKey)) {
+      audit.append(
+        auditEvent('intent.executed', intent, `replay_skipped serviceid=${String(t.serviceid)}`)
+      );
+      outcomes.push({
+        serviceid: t.serviceid,
+        status: 'skipped',
+        old: snap.current_amount,
+        new: t.new_amount,
+        delta,
+      });
+      continue;
+    }
+
+    if (delta > caps.perAction || dayRunning + delta > caps.daily) {
+      audit.append(
+        auditEvent(
+          'intent.execution_blocked',
+          intent,
+          `target_amount_cap_exceeded serviceid=${String(t.serviceid)} delta=${String(delta)}`
+        )
+      );
+      return {
+        allowed: false,
+        reason: 'target_amount_cap_exceeded',
+        phase_1: { snapshots, ok: true },
+        phase_2: { outcomes, halted_after: t.serviceid },
+      };
+    }
+
+    const mapped = mapServicePriceRestoreTarget({
+      serviceid: t.serviceid,
+      new_amount: t.new_amount,
+    });
+    try {
+      assertPriceRestoreOutput(mapped);
+    } catch (e) {
+      audit.append(
+        auditEvent(
+          'intent.execution_blocked',
+          intent,
+          `target_output_assertion_failed serviceid=${String(t.serviceid)}: ${e instanceof Error ? e.message : String(e)}`
+        )
+      );
+      return {
+        allowed: false,
+        reason: 'target_output_assertion_failed',
+        phase_1: { snapshots, ok: true },
+        phase_2: { outcomes, halted_after: t.serviceid },
+      };
+    }
+
+    // Fail-closed durable audit BEFORE mutate. If the audit can't be
+    // persisted, refuse to mutate (no unauditable write).
+    try {
+      audit.appendDurable(
+        auditEvent(
+          'intent.executed',
+          intent,
+          `attempting target serviceid=${String(t.serviceid)} delta=${String(delta)}`
+        )
+      );
+    } catch (e) {
+      if (e instanceof AuditPersistError) {
+        return {
+          allowed: false,
+          reason: 'audit_write_failed',
+          phase_1: { snapshots, ok: true },
+          phase_2: { outcomes, halted_after: t.serviceid },
+        };
+      }
+      throw e;
+    }
+
+    ledger.record(perTargetKey, { attempting: true });
+
+    try {
+      await whmcs.mutate('UpdateClientProduct', mapped);
+    } catch (e) {
+      audit.append(
+        auditEvent(
+          'intent.failed',
+          intent,
+          `serviceid=${String(t.serviceid)}: ${e instanceof Error ? e.message : String(e)}`
+        )
+      );
+      outcomes.push({
+        serviceid: t.serviceid,
+        status: 'failed',
+        old: snap.current_amount,
+        new: t.new_amount,
+        delta,
+      });
+      halted_after = t.serviceid;
+      break;
+    }
+
+    // Read-back verify — best-effort. Verification failure does not roll
+    // back the write (UpdateClientProduct already returned success);
+    // outcome is 'executed' instead of 'verified'.
+    let verified = false;
+    try {
+      const verifyResp = await whmcs.read<{
+        products?: { product?: readonly Record<string, unknown>[] };
+      }>('GetClientsProducts', { serviceid: t.serviceid });
+      const vp = verifyResp.products?.product?.[0];
+      const after = vp ? Number(vp[PRICE_RESTORE_RECURRING_FIELD] ?? vp.recurringamount) : NaN;
+      verified = Number.isFinite(after) && after === t.new_amount;
+    } catch {
+      verified = false;
+    }
+    outcomes.push({
+      serviceid: t.serviceid,
+      status: verified ? 'verified' : 'executed',
+      old: snap.current_amount,
+      new: t.new_amount,
+      delta,
+    });
+
+    dayRunning += delta;
+    dayAmounts.set(dayKey, dayRunning);
+    audit.append(
+      auditEvent(
+        verified ? 'intent.verified' : 'intent.executed',
+        intent,
+        `serviceid=${String(t.serviceid)} ${String(snap.current_amount)}→${String(t.new_amount)}`
+      )
+    );
+  }
+
+  return {
+    allowed: true,
+    phase_1: { snapshots, ok: true },
+    phase_2: { outcomes, halted_after },
+  };
 }
 
 /**
