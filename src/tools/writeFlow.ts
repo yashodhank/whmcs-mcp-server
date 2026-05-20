@@ -44,7 +44,54 @@ import { validateIntent } from '../write/validation.js';
 import { IdempotencyLedger } from '../write/idempotency.js';
 import { AuditLog, AuditPersistError, auditEvent } from '../write/audit.js';
 import { defaultExecutionAuthorizer } from '../write/executionGate.js';
-import { intentToWhmcsParams } from '../write/paramMapping.js';
+import {
+  intentToWhmcsParams,
+  mapServicePriceRestoreTarget,
+  PRICE_RESTORE_RECURRING_FIELD,
+} from '../write/paramMapping.js';
+
+// Imported for T7 (price_restore execute-path uses the per-target mapper).
+// Side-effect-free reference so the unused-import check stays green until T7.
+void mapServicePriceRestoreTarget;
+
+/** Defense-in-depth: ensures the per-target mapper never leaks extra keys. */
+export class PriceRestoreOutputAssertionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PriceRestoreOutputAssertionError';
+  }
+}
+
+const PRICE_RESTORE_ALLOWED_KEYS = new Set<string>([
+  'serviceid',
+  PRICE_RESTORE_RECURRING_FIELD,
+]);
+
+/**
+ * Scope-output assertion for `service:price_restore`. Verifies the mapper
+ * produced exactly `{ serviceid, <recurring-field> }` and nothing else.
+ * Throws PriceRestoreOutputAssertionError on any extra/missing key.
+ */
+export function assertPriceRestoreOutput(out: Record<string, unknown>): void {
+  const keys = Object.keys(out);
+  for (const k of keys) {
+    if (!PRICE_RESTORE_ALLOWED_KEYS.has(k)) {
+      throw new PriceRestoreOutputAssertionError(
+        `scope-output assertion: unexpected key "${k}" in service:price_restore mapper output`
+      );
+    }
+  }
+  if (!('serviceid' in out)) {
+    throw new PriceRestoreOutputAssertionError(
+      'scope-output assertion: missing serviceid in service:price_restore mapper output'
+    );
+  }
+  if (!(PRICE_RESTORE_RECURRING_FIELD in out)) {
+    throw new PriceRestoreOutputAssertionError(
+      `scope-output assertion: missing ${PRICE_RESTORE_RECURRING_FIELD} in service:price_restore mapper output`
+    );
+  }
+}
 
 /*
  * Process-local intent state (in-memory, short TTL). The audit log and
