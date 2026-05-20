@@ -67,6 +67,14 @@ function safeIdPart(v: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * Canonical WHMCS UpdateClientProduct field for setting a service's recurring
+ * price. Pinned by `scripts/price-restore-spike.ts` + GetClientsProducts
+ * read-back verification on dev WHMCS9: WHMCS returns the recurring price
+ * under the key `recurringamount` (alongside `firstpaymentamount`).
+ */
+export const PRICE_RESTORE_RECURRING_FIELD = 'recurringamount';
+
 /* ───────────────────────────  Per-scope mappers  ────────────────────────── */
 
 /**
@@ -206,6 +214,21 @@ export function mapRefundRecordParams(
   return base;
 }
 
+/**
+ * Per-target mapper for `service:price_restore`. Pure; strict 2-key output.
+ * Any extra keys on the input target are intentionally dropped (defense in
+ * depth against future-scope or operator leakage).
+ */
+export function mapServicePriceRestoreTarget(target: {
+  readonly serviceid: number;
+  readonly new_amount: number;
+}): Record<string, unknown> {
+  return {
+    serviceid: target.serviceid,
+    [PRICE_RESTORE_RECURRING_FIELD]: target.new_amount,
+  };
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -242,6 +265,15 @@ export function intentToWhmcsParams(
       return mapCreditAddParams(params);
     case 'billing:refund:record':
       return mapRefundRecordParams(params, ctx);
+    case 'service:price_restore': {
+      // Batch scope — the dispatcher's single-call contract doesn't fit.
+      // The write-flow's executePriceRestoreBatch helper calls
+      // mapServicePriceRestoreTarget per target directly. This case throws
+      // to surface any accidental dispatcher use as a clear bug.
+      throw new Error(
+        'service:price_restore is batch-shaped; call mapServicePriceRestoreTarget per target'
+      );
+    }
     default: {
       // Exhaustiveness guard — typescript will flag any new scope here.
       const _exhaustive: never = scope;

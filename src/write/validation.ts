@@ -49,6 +49,7 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   // billing:refund:record — refund_type + paymentmethod required so the mapper
   // can produce the correct WHMCS `AddTransaction` payload (no `amountin`).
   'billing:refund:record': ['invoiceid', 'amount', 'refund_type', 'paymentmethod'],
+  'service:price_restore': ['targets'],
 };
 
 /** Allowed values for `ticket:status` `status`. */
@@ -211,21 +212,87 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
   // Mapping-error backstop: invoke the mapper and surface any thrown error
   // here so structural problems are caught at validate stage (before approval),
   // not at execute stage.
-  try {
-    intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
-      idempotency_key: intent.idempotency_key,
-    });
-  } catch (e) {
-    issues.push({
-      code: 'mapping_error',
-      severity: 'error',
-      message: `Intent → WHMCS mapping failed: ${e instanceof Error ? e.message : String(e)}`,
-    });
+  //
+  // Batch-shaped scopes (e.g. service:price_restore) are SKIPPED — their
+  // dispatcher case is intentionally a defensive throw because batch intents
+  // don't fit the single-call mapper contract; the write-flow calls the
+  // per-target mapper directly. The batch-shape validator above (per-scope
+  // custom block) is the structural check for these intents.
+  if (intent.scope !== 'service:price_restore') {
+    try {
+      intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
+        idempotency_key: intent.idempotency_key,
+      });
+    } catch (e) {
+      issues.push({
+        code: 'mapping_error',
+        severity: 'error',
+        message: `Intent → WHMCS mapping failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
   }
 
   // WHMCS 9 compatibility advisory for billing scopes (non-blocking).
   if (intent.scope.startsWith('billing:')) {
     compat_warnings.push(WHMCS9_BILLING_ADVISORY);
+  }
+
+  // service:price_restore — batch-shape: targets is a non-empty array of
+  // { serviceid:int>0, new_amount:number>0, expected_old_amount?:number>0 };
+  // optional intent-level dry_run:boolean.
+  if (intent.scope === 'service:price_restore') {
+    const targets = intent.params.targets;
+    if (!Array.isArray(targets) || targets.length === 0) {
+      issues.push({
+        code: 'invalid_targets_shape',
+        severity: 'error',
+        message: 'service:price_restore requires a non-empty `targets` array',
+      });
+    } else {
+      targets.forEach((t, i) => {
+        if (!isPlainObject(t)) {
+          issues.push({
+            code: 'invalid_target_entry',
+            severity: 'error',
+            message: `targets[${String(i)}] must be an object`,
+          });
+          return;
+        }
+        const sid = t.serviceid;
+        const na = t.new_amount;
+        const eoa = t.expected_old_amount;
+        if (typeof sid !== 'number' || !Number.isInteger(sid) || sid <= 0) {
+          issues.push({
+            code: 'invalid_target_entry',
+            severity: 'error',
+            message: `targets[${String(i)}].serviceid must be a positive integer`,
+          });
+        }
+        if (typeof na !== 'number' || !Number.isFinite(na) || na <= 0) {
+          issues.push({
+            code: 'invalid_target_entry',
+            severity: 'error',
+            message: `targets[${String(i)}].new_amount must be a positive number`,
+          });
+        }
+        if (eoa !== undefined) {
+          if (typeof eoa !== 'number' || !Number.isFinite(eoa) || eoa <= 0) {
+            issues.push({
+              code: 'invalid_target_entry',
+              severity: 'error',
+              message: `targets[${String(i)}].expected_old_amount must be a positive number when provided`,
+            });
+          }
+        }
+      });
+    }
+    if (intent.params.dry_run !== undefined && typeof intent.params.dry_run !== 'boolean') {
+      issues.push({
+        code: 'invalid_dry_run',
+        severity: 'error',
+        message: 'service:price_restore `dry_run` must be a boolean when provided',
+      });
+    }
   }
 
   const ok = !issues.some((i) => i.severity === 'error');
