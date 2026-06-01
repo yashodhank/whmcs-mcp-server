@@ -26,6 +26,7 @@ import {
   governanceEnabled,
 } from '../governance/pipeline.js';
 import { mapToCanonicalClient, mapToCanonicalService } from '../canonical/index.js';
+import { mapClientCustomFieldsForLegacy } from '../clientCustomFieldLabels.js';
 import crypto from 'node:crypto';
 
 const TOOL_VERSION = 'v1';
@@ -70,7 +71,7 @@ interface WhmcsClientDetails {
     numactivedomains?: number;
     numdomains?: number;
   };
-  customfields?: { id: number; value: string }[];
+  customfields?: unknown;
 }
 
 /**
@@ -555,10 +556,7 @@ export function registerClientTools(
           stats: true,
         });
 
-        // Normalize custom fields
-        const customfields = normalizeToArray<{ id: number; value: string }>(
-          result.customfields
-        ).map((cf) => ({ id: cf.id, value: cf.value }));
+        const customfields = mapClientCustomFieldsForLegacy(result.customfields);
 
         toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
 
