@@ -106,8 +106,9 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason) => {
-  process.stderr.write(`\n❌ Unhandled rejection: ${reason}\n`);
+process.on('unhandledRejection', (reason: unknown) => {
+  const detail = reason instanceof Error ? reason.message : String(reason);
+  process.stderr.write(`\n❌ Unhandled rejection: ${detail}\n`);
   process.exit(1);
 });
 
@@ -126,7 +127,8 @@ process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
 process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 
 // Start the server
-main().catch((error) => {
-  process.stderr.write(`\n❌ Failed to start server: ${error.message}\n`);
+main().catch((error: unknown) => {
+  const detail = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`\n❌ Failed to start server: ${detail}\n`);
   process.exit(1);
 });

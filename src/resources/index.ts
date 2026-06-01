@@ -457,11 +457,11 @@ export function registerResources(
         // sort client-side by date DESC (newest-first) then keep a compact
         // top-10 timeline. GetInvoices is already server-ordered+limited.
         const recentOrders = [...normalizeToArray<OrderSummary>(orders.orders?.order)]
-          .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+          .sort((a, b) => b.date.localeCompare(a.date))
           .slice(0, 10);
         const recentInvoices = normalizeToArray<InvoiceSummary>(invoices.invoices?.invoice);
         const recentTickets = [...normalizeToArray<TicketSummary>(tickets.tickets?.ticket)]
-          .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+          .sort((a, b) => b.date.localeCompare(a.date))
           .slice(0, 10);
 
         return {

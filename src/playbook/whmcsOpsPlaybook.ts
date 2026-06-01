@@ -135,7 +135,7 @@ export function registerPlaybookResource(
   server.resource(
     'ops-playbook',
     'whmcs://docs/ops-playbook',
-    async (uri) => {
+    (uri) => {
       logger.debug('Fetching ops-playbook resource');
 
       return {

@@ -474,7 +474,7 @@ export function registerBillingTools(
           'mark_invoice_paid',
           params.invoiceid
         );
-        const cachedMarkPaid = rateLimiter.getCachedResult<object>(idempotencyKey);
+        const cachedMarkPaid = rateLimiter.getCachedResult(idempotencyKey);
         if (cachedMarkPaid) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(cachedMarkPaid) }],
@@ -657,7 +657,7 @@ export function registerBillingTools(
           'record_refund',
           params.invoiceid
         );
-        const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+        const cached = rateLimiter.getCachedResult(idempotencyKey);
         if (cached) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(cached) }],
@@ -866,7 +866,7 @@ export function registerBillingTools(
           'capture_payment',
           params.invoiceid
         );
-        const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+        const cached = rateLimiter.getCachedResult(idempotencyKey);
         if (cached) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(cached) }],
@@ -1077,25 +1077,27 @@ export function registerBillingTools(
         }
 
         // Create the invoice
+        const lineItemFields = Object.fromEntries(
+          params.items.flatMap((item, i) => {
+            const idx = i + 1; // WHMCS expects 1-based item indexes
+            return [
+              [`itemdescription${idx}`, item.description],
+              [`itemamount${idx}`, item.amount],
+              [`itemtaxed${idx}`, item.taxed ? 1 : 0],
+            ];
+          })
+        ) as Record<string, unknown>;
+        const invoiceParams: Record<string, unknown> = {
+          userid: params.userid,
+          paymentmethod: params.paymentmethod,
+          sendinvoice: params.sendinvoice,
+          ...lineItemFields,
+        };
         const invoiceResult = await whmcsClient.mutate<{
           result: string;
           invoiceid?: number;
           status?: string;
-        }>('CreateInvoice', {
-          userid: params.userid,
-          paymentmethod: params.paymentmethod,
-          sendinvoice: params.sendinvoice,
-          ...Object.fromEntries(
-            params.items.flatMap((item, i) => {
-              const idx = i + 1; // WHMCS expects 1-based item indexes
-              return [
-                [`itemdescription${idx}`, item.description],
-                [`itemamount${idx}`, item.amount],
-                [`itemtaxed${idx}`, item.taxed ? 1 : 0],
-              ];
-            })
-          ),
-        });
+        }>('CreateInvoice', invoiceParams);
 
         const success = invoiceResult.result === 'success' && !!invoiceResult.invoiceid;
 
@@ -1204,7 +1206,7 @@ export function registerBillingTools(
           'add_credit',
           params.clientid
         );
-        const cachedAddCredit = rateLimiter.getCachedResult<object>(addCreditIdempotencyKey);
+        const cachedAddCredit = rateLimiter.getCachedResult(addCreditIdempotencyKey);
         if (cachedAddCredit) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(cachedAddCredit) }],

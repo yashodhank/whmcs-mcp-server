@@ -148,7 +148,7 @@ export class RateLimiter {
    * Get cached result for an idempotency key
    * @returns cached result if found and within window, undefined otherwise
    */
-  getCachedResult<T>(key: string): T | undefined {
+  getCachedResult(key: string): unknown {
     const cached = this.idempotencyCache.get(key);
     
     if (!cached) {
@@ -163,14 +163,14 @@ export class RateLimiter {
     }
     
     this.logger.info('Returning cached result (idempotency)', { key });
-    return cached.result as T;
+    return cached.result;
   }
 
   /**
    * Cache a result for idempotency
    * Enforces maximum cache size to prevent unbounded memory growth
    */
-  cacheResult<T>(key: string, result: T): void {
+  cacheResult(key: string, result: unknown): void {
     // Enforce maximum cache size by removing oldest entries if needed
     if (this.idempotencyCache.size >= MAX_CACHE_SIZE) {
       // Remove oldest entries (first 10%)

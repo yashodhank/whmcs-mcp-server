@@ -125,10 +125,10 @@ export function normalizeWhmcsResponse<T extends Record<string, unknown>>(
   response: T,
   action: string
 ): T {
-  const paths = NORMALIZER_PATHS[action];
-  if (!paths) {
+  if (!(action in NORMALIZER_PATHS)) {
     return response;
   }
+  const paths = NORMALIZER_PATHS[action];
   
   const normalized = { ...response };
 

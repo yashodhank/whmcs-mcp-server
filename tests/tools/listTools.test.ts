@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { it, expect, vi } from 'vitest';
 vi.mock('../../src/config.js', () => ({ config: { MCP_MAX_PAGE_SIZE: 100 }, isToolAllowed: () => true }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {}, ensureToolAuth: () => null, isClientMode: () => false, ensureClientAllowed: () => null }));
 import { registerListTool } from '../../src/tools/listTools.js';
@@ -20,7 +20,7 @@ it('maps limit/offset→limitnum/limitstart and returns envelope', async () => {
     clientParam: 'clientid', normalizerPath: 'things',
     extraSchema: {}, mapItem: (t: any) => ({ id: t.id }),
   });
-  const res = await handlers['list_things']({ clientid: 5, limit: 2, offset: 0 });
+  const res = await handlers.list_things({ clientid: 5, limit: 2, offset: 0 });
   expect(read).toHaveBeenCalledWith('GetThings', { clientid: 5, limitnum: 2, limitstart: 0 });
   const p = JSON.parse(res.content[0].text);
   expect(p).toMatchObject({ total: 3, count: 2, offset: 0, items: [{ id: 1 }, { id: 2 }] });
@@ -33,7 +33,7 @@ it('passes fixedParams into the WHMCS call', async () => {
     name: 'list_xs', description: 'd', action: 'GetXs', clientParam: 'userid',
     normalizerPath: 'xs', extraSchema: {}, fixedParams: { orderby: 'date', order: 'desc' }, mapItem: (x: any) => x,
   });
-  await handlers['list_xs']({ clientid: 7 });
+  await handlers.list_xs({ clientid: 7 });
   expect(read).toHaveBeenCalledWith('GetXs', { userid: 7, limitnum: 10, limitstart: 0, orderby: 'date', order: 'desc' });
 });
 
@@ -46,7 +46,7 @@ it('applies postSort and extraPayload', async () => {
     postSort: (xs: any[]) => [...xs].sort((a, b) => String(b.d).localeCompare(String(a.d))),
     extraPayload: { discovery: 'best-effort' },
   });
-  const res = await handlers['list_ys']({ clientid: 1 });
+  const res = await handlers.list_ys({ clientid: 1 });
   const p = JSON.parse(res.content[0].text);
   expect(p.items.map((i: any) => i.d)).toEqual(['2025', '2020']);
   expect(p.discovery).toBe('best-effort');
@@ -59,6 +59,6 @@ it('enforces client-mode scope', async () => {
   const { registerListTool: rlt } = await import('../../src/tools/listTools.js');
   const { server, handlers, logger, rateLimiter } = harness();
   rlt(server as any, { read: vi.fn() } as any, logger, rateLimiter, { name: 'list_z', description: 'd', action: 'GetZ', clientParam: 'clientid', normalizerPath: 'z', extraSchema: {}, mapItem: (t: any) => t });
-  const res = await handlers['list_z']({ clientid: 999 });
+  const res = await handlers.list_z({ clientid: 999 });
   expect(res.isError).toBe(true);
 });

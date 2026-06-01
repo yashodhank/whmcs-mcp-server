@@ -49,7 +49,7 @@ describe('registerListTools', () => {
       products: { product: [{ id: 545, pid: 413, name: 'Web Hosting', domain: 'example.org', status: 'Active', billingcycle: 'Triennially', nextduedate: '2030-04-14', recurringamount: '3.00', paymentmethod: 'card' }] },
     });
     registerListTools(server as any, whmcs, logger, rateLimiter);
-    const res = await handlers['list_client_services']({ clientid: 9001, limit: 2, offset: 0 });
+    const res = await handlers.list_client_services({ clientid: 9001, limit: 2, offset: 0 });
     expect(read).toHaveBeenCalledWith('GetClientsProducts', { clientid: 9001, limitnum: 2, limitstart: 0 });
     const p = JSON.parse(res.content[0].text);
     expect(p.items[0]).toEqual({ serviceid: 545, pid: 413, product: 'Web Hosting', domain: 'example.org', status: 'Active', billing_cycle: 'Triennially', next_due_date: '2030-04-14', recurring_amount: '3.00', payment_method: 'card' });
@@ -62,7 +62,7 @@ describe('registerListTools', () => {
       domains: { domain: [{ id: 615, domainname: 'example.net', registrar: 'r', status: 'Active', regdate: '2025-05-30', expirydate: '2026-07-09', nextduedate: '2026-07-09', donotrenew: '0' }] },
     });
     registerListTools(server as any, whmcs, logger, rateLimiter);
-    const res = await handlers['list_client_domains']({ clientid: 9001 });
+    const res = await handlers.list_client_domains({ clientid: 9001 });
     expect(read).toHaveBeenCalledWith('GetClientsDomains', { clientid: 9001, limitnum: 10, limitstart: 0 });
     const p = JSON.parse(res.content[0].text);
     expect(p.items[0]).toEqual({ domainid: 615, domain: 'example.net', registrar: 'r', status: 'Active', regdate: '2025-05-30', expiry_date: '2026-07-09', next_due_date: '2026-07-09', donotrenew: '0' });
@@ -75,7 +75,7 @@ describe('registerListTools', () => {
       invoices: { invoice: [{ id: 30001, invoicenum: 'X1', date: '2026-03-19', duedate: '2026-04-03', datepaid: '2026-03-19', status: 'Paid', total: '100.00', balance: '0.00' }] },
     });
     registerListTools(server as any, whmcs, logger, rateLimiter);
-    const res = await handlers['list_client_invoices']({ clientid: 9001, status: 'Paid' });
+    const res = await handlers.list_client_invoices({ clientid: 9001, status: 'Paid' });
     expect(read).toHaveBeenCalledWith('GetInvoices', { userid: 9001, limitnum: 10, limitstart: 0, orderby: 'date', order: 'desc', status: 'Paid' });
     const p = JSON.parse(res.content[0].text);
     expect(p.items[0]).toEqual({ invoiceid: 30001, invoicenum: 'X1', date: '2026-03-19', duedate: '2026-04-03', datepaid: '2026-03-19', status: 'Paid', total: '100.00', balance: '0.00' });
@@ -91,7 +91,7 @@ describe('registerListTools', () => {
       ] },
     });
     registerListTools(server as any, whmcs, logger, rateLimiter);
-    const res = await handlers['list_client_tickets']({ clientid: 9001 });
+    const res = await handlers.list_client_tickets({ clientid: 9001 });
     expect(read).toHaveBeenCalledWith('GetTickets', { clientid: 9001, limitnum: 10, limitstart: 0 });
     const p = JSON.parse(res.content[0].text);
     expect(p.items[0].ticketid).toBe(1001);
@@ -129,7 +129,7 @@ describe('registerListTools', () => {
       ] },
     });
     registerListTools(server as any, whmcs, logger, rateLimiter);
-    const res = await handlers['list_client_orders']({ clientid: 9001 });
+    const res = await handlers.list_client_orders({ clientid: 9001 });
     expect(read).toHaveBeenCalledWith('GetOrders', { userid: 9001, limitnum: 10, limitstart: 0 });
     const p = JSON.parse(res.content[0].text);
     expect(p.items[0].orderid).toBe(967);

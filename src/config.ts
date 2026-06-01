@@ -38,6 +38,19 @@ function isBlockedWhmcsHost(hostname: string): boolean {
   return false;
 }
 
+function preprocessOptionalEnvString(val: unknown): string | undefined {
+  if (val === undefined || val === '') return undefined;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  return undefined;
+}
+
+function preprocessCommaSeparatedString(val: unknown): string {
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  return '';
+}
+
 /**
  * Configuration schema with Zod validation
  */
@@ -47,23 +60,18 @@ const configSchema = z
     WHMCS_API_URL: z.string().min(1, 'WHMCS_API_URL is required'),
     WHMCS_IDENTIFIER: z.string().min(1, 'WHMCS_IDENTIFIER is required'),
     WHMCS_SECRET: z.string().min(1, 'WHMCS_SECRET is required'),
-    WHMCS_ACCESS_KEY: z.preprocess(
-      (val) => (val === undefined || val === '' ? undefined : String(val)),
-      z.string().optional()
-    ),
+    WHMCS_ACCESS_KEY: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     // SEC-005: allow http for WHMCS_API_URL only when explicitly opted in
     WHMCS_ALLOW_HTTP: z.preprocess(
       (val) => val === 'true' || val === '1',
       z.boolean().default(false)
     ),
-    MCP_AUTH_TOKEN: z.preprocess(
-      (val) => (val === undefined || val === '' ? undefined : String(val)),
-      z.string().optional()
-    ),
+    MCP_AUTH_TOKEN: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     MCP_ACCESS_MODE: z.enum(['admin', 'client']).default('admin'),
     MCP_ALLOWED_CLIENT_IDS: z.preprocess((val) => {
-      if (!val || val === '') return [];
-      return String(val)
+      const raw = preprocessCommaSeparatedString(val);
+      if (raw === '') return [];
+      return raw
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
@@ -78,8 +86,9 @@ const configSchema = z
     MCP_DEBUG: z.preprocess((val) => val === 'true' || val === '1', z.boolean().default(false)),
     MCP_MAX_PAGE_SIZE: z.coerce.number().int().positive().max(500).default(100),
     MCP_TOOL_ALLOWLIST: z.preprocess((val) => {
-      if (!val || val === '') return [];
-      return String(val)
+      const raw = preprocessCommaSeparatedString(val);
+      if (raw === '') return [];
+      return raw
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
@@ -88,9 +97,10 @@ const configSchema = z
     // Configured labels override WHMCS-provided field names when set.
     MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess(
       (val) => {
-        if (!val || val === '') return {};
+        const raw = preprocessCommaSeparatedString(val);
+        if (raw === '') return {};
         return Object.fromEntries(
-          String(val)
+          raw
             .split(',')
             .map((entry) => entry.trim())
             .filter(Boolean)

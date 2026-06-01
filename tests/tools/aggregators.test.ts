@@ -48,7 +48,7 @@ describe('get_account_360', () => {
       if (action === 'GetTickets') return { tickets: { ticket: [] } };
       return {};
     });
-    const res = await handlers['get_account_360']({ clientid: 30 });
+    const res = await handlers.get_account_360({ clientid: 30 });
     const p = JSON.parse(res.content[0].text);
     expect(p.client).toMatchObject({ clientid: 30, name: 'Test User', status: 'Active', credit_balance: '29.51', currency: 'INR' });
     expect(p.counts).toMatchObject({ services_active: 1, services_total: 4, domains_active: 4, domains_total: 24, unpaid_invoices: 0, overdue_invoices: 0 });
@@ -65,7 +65,7 @@ describe('get_account_360', () => {
       if (action === 'GetClientsProducts') throw new Error('boom-products');
       return { invoices: { invoice: [] }, domains: { domain: [] }, orders: { order: [] }, tickets: { ticket: [] } };
     });
-    const res = await handlers['get_account_360']({ clientid: 30 });
+    const res = await handlers.get_account_360({ clientid: 30 });
     const p = JSON.parse(res.content[0].text);
     expect(p.client.clientid).toBe(30);
     expect(p.recent.services).toEqual([]);
@@ -81,7 +81,7 @@ describe('get_billing_snapshot', () => {
       if (action === 'GetInvoices' && params.status === 'Overdue') return { invoices: { invoice: [{ id: 12, total: '300.00', duedate: '2026-04-01', status: 'Overdue', date: '2026-03-01' }] } };
       return {};
     });
-    const res = await handlers['get_billing_snapshot']({ clientid: 30 });
+    const res = await handlers.get_billing_snapshot({ clientid: 30 });
     const p = JSON.parse(res.content[0].text);
     expect(p).toMatchObject({ currency: 'INR', credit_balance: '29.51',
       unpaid: { count: 2, amount: '500.00' }, overdue: { count: 1, amount: '300.00' },
@@ -99,7 +99,7 @@ describe('get_support_snapshot', () => {
       if (action === 'GetTickets') return { tickets: { ticket: [{ id: 1001, tid: 'TST01', subject: 's', status: 'Answered', lastreply: '2026-05-18 07:31:27' }] } };
       return {};
     });
-    const res = await handlers['get_support_snapshot']({ clientid: 30 });
+    const res = await handlers.get_support_snapshot({ clientid: 30 });
     const p = JSON.parse(res.content[0].text);
     expect(p.departments).toEqual([
       { id: 1, name: 'Help Desk', open_tickets: 7, awaiting_reply: 7 },
@@ -124,7 +124,7 @@ describe('get_renewal_snapshot', () => {
         { id: 99, domainname: 'far.test', status: 'Active', expirydate: '2031-01-01', nextduedate: '2031-01-01' } ] } };
       return {};
     });
-    const res = await handlers['get_renewal_snapshot']({ clientid: 30, days: 9999 });
+    const res = await handlers.get_renewal_snapshot({ clientid: 30, days: 9999 });
     const p = JSON.parse(res.content[0].text);
     expect(p.upcoming.map((u: any) => `${u.type}:${u.id}`)).toEqual(['domain:314', 'service:545', 'domain:99', 'service:9']);
     expect(p.upcoming[0]).toMatchObject({ type: 'domain', id: 314, name: 'example.net', due_date: '2026-05-25', status: 'Active' });
@@ -137,7 +137,7 @@ describe('get_renewal_snapshot', () => {
       if (action === 'GetClientsDomains') return { domains: { domain: [] } };
       return {};
     });
-    const res = await handlers['get_renewal_snapshot']({ clientid: 30, days: 30 });
+    const res = await handlers.get_renewal_snapshot({ clientid: 30, days: 30 });
     const p = JSON.parse(res.content[0].text);
     expect(p.upcoming).toEqual([]);
   });
@@ -150,7 +150,7 @@ describe('get_renewal_snapshot', () => {
         { id: 9, domainname: 'nodate.test', status: 'Active', expirydate: '0000-00-00', nextduedate: '0000-00-00' } ] } };
       return {};
     });
-    const res = await handlers['get_renewal_snapshot']({ clientid: 30, days: 9999 });
+    const res = await handlers.get_renewal_snapshot({ clientid: 30, days: 9999 });
     const p = JSON.parse(res.content[0].text);
     expect(p.upcoming.map((u: any) => `${u.type}:${u.id}`)).toEqual(['service:2']);
   });

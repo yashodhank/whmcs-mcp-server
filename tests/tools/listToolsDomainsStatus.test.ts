@@ -59,10 +59,10 @@ function harness() {
     logToolResult: vi.fn(),
     info: vi.fn(),
     error: vi.fn(),
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- self-referential test logger stub (mirrors existing test harness convention)
+     
     child: () => childLogger,
   };
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- self-referential test logger stub (mirrors existing test harness convention)
+   
   const logger: any = { child: () => childLogger };
   const rateLimiter: any = { tryConsume: () => true };
   return { server, handlers, logger, rateLimiter };

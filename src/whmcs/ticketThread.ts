@@ -11,10 +11,20 @@
  * This function performs no logging or IO — it is pure.
  */
 
+import { asRecord, num, str } from '../canonical/_shared.js';
 import { normalizeToArray } from './normalizers.js';
 
+/** WHMCS may return numeric or string ids (e.g. replyid "0", noteid "n1"). */
+function whmcsId(source: Record<string, unknown>, key: string): string | number {
+  const asString = str(source, key);
+  if (asString !== undefined) {
+    return asString;
+  }
+  return num(source, key) ?? 0;
+}
+
 interface Reply {
-  replyid: number;
+  replyid: string | number;
   date: string;
   name: string;
   message: string;
@@ -22,48 +32,85 @@ interface Reply {
 }
 
 interface Note {
-  noteid: number;
+  noteid: string | number;
   date: string;
   admin: string;
   message: string;
 }
 
 export interface TicketThread {
-  ticketid: any;
-  ticket_number: any;
-  department: any;
-  subject: any;
-  status: any;
-  date: any;
+  ticketid: number | undefined;
+  ticket_number: string | undefined;
+  department: string | undefined;
+  subject: string | undefined;
+  status: string | undefined;
+  date: string | undefined;
   initial_message: string;
-  replies: Array<{ id: any; date: any; from: any; is_admin: boolean; message: any }>;
-  internal_notes: Array<{ id: any; date: any; admin: any; message: any }>;
+  replies: {
+    id: string | number;
+    date: string;
+    from: string;
+    is_admin: boolean;
+    message: string;
+  }[];
+  internal_notes: {
+    id: string | number;
+    date: string;
+    admin: string;
+    message: string;
+  }[];
+}
+
+function parseReply(raw: unknown): Reply {
+  const r = asRecord(raw);
+  const admin = str(r, 'admin');
+  return {
+    replyid: whmcsId(r, 'replyid'),
+    date: str(r, 'date') ?? '',
+    name: str(r, 'name') ?? '',
+    message: str(r, 'message') ?? '',
+    ...(admin !== undefined ? { admin } : {}),
+  };
+}
+
+function parseNote(raw: unknown): Note {
+  const n = asRecord(raw);
+  return {
+    noteid: whmcsId(n, 'noteid'),
+    date: str(n, 'date') ?? '',
+    admin: str(n, 'admin') ?? '',
+    message: str(n, 'message') ?? '',
+  };
 }
 
 /**
  * Format a raw WHMCS GetTicket response into the public ticket-thread shape.
  */
-export function formatTicketThread(ticket: any): TicketThread {
-  const allReplies = normalizeToArray<Reply>(ticket.replies?.reply);
-  const notes = normalizeToArray<Note>(ticket.notes?.note);
-  // WHMCS GetTicket returns NO top-level `message`; the opening post
-  // is replies.reply[0], and the rest are the actual replies.
-  const opening = allReplies[0];
-  const subsequentReplies = allReplies.slice(1);
+export function formatTicketThread(ticket: unknown): TicketThread {
+  const t = asRecord(ticket);
+  const repliesWrap = asRecord(t.replies);
+  const notesWrap = asRecord(t.notes);
+  const allReplies = normalizeToArray<unknown>(repliesWrap.reply).map(parseReply);
+  const notes = normalizeToArray<unknown>(notesWrap.note).map(parseNote);
+  const subsequentReplies = allReplies.length > 1 ? allReplies.slice(1) : [];
+  const initialMessage =
+    allReplies.length > 0
+      ? allReplies[0].message || str(t, 'message') || ''
+      : str(t, 'message') || '';
 
   return {
-    ticketid: ticket.ticketid,
-    ticket_number: ticket.tid,
-    department: ticket.deptname,
-    subject: ticket.subject,
-    status: ticket.status,
-    date: ticket.date,
-    initial_message: opening?.message ?? ticket.message ?? '',
+    ticketid: num(t, 'ticketid'),
+    ticket_number: str(t, 'tid'),
+    department: str(t, 'deptname'),
+    subject: str(t, 'subject'),
+    status: str(t, 'status'),
+    date: str(t, 'date'),
+    initial_message: initialMessage,
     replies: subsequentReplies.map((r) => ({
       id: r.replyid,
       date: r.date,
-      from: r.admin || r.name,
-      is_admin: !!r.admin,
+      from: r.admin ?? r.name,
+      is_admin: r.admin !== undefined && r.admin !== '',
       message: r.message,
     })),
     internal_notes: notes.map((n) => ({

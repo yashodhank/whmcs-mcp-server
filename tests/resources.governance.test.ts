@@ -38,9 +38,9 @@ function makeServer() {
   const server = { resource: (n: string, _t: unknown, cb: any) => { handlers[n] = cb; } };
   return { server, handlers };
 }
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return -- self-referential test logger stub (mirrors existing resources test harness convention)
+ 
 const childLogger: any = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => childLogger };
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return -- self-referential test logger stub (mirrors existing resources test harness convention)
+ 
 const logger: any = { child: () => childLogger, info: vi.fn(), debug: vi.fn() };
 const rateLimiter: any = { tryConsume: () => true };
 

@@ -31,6 +31,102 @@ import {
   mapToCanonicalCreditNotes,
   type CanonicalCreditNote,
 } from '../canonical/creditNote.js';
+import { asRecord, isRecord, num, str } from '../canonical/_shared.js';
+
+/** Loose WHMCS API row / container object. */
+type WhmcsRow = Record<string, unknown>;
+
+function requireClientId(params: Record<string, unknown>): number {
+  const id = num(params, 'clientid');
+  if (id === undefined) {
+    throw new Error('clientid is required');
+  }
+  return id;
+}
+
+function ticketSortKey(row: WhmcsRow): string {
+  return str(row, 'lastreply') ?? str(row, 'date') ?? '';
+}
+
+function mapServiceRow(p: WhmcsRow) {
+  return {
+    serviceid: num(p, 'id'),
+    product: str(p, 'name'),
+    domain: str(p, 'domain'),
+    status: str(p, 'status'),
+    next_due_date: str(p, 'nextduedate'),
+  };
+}
+
+function mapDomainRow(d: WhmcsRow) {
+  return {
+    domainid: num(d, 'id'),
+    domain: str(d, 'domainname'),
+    status: str(d, 'status'),
+    expiry_date: str(d, 'expirydate'),
+  };
+}
+
+function mapInvoiceSummaryRow(i: WhmcsRow) {
+  return {
+    invoiceid: num(i, 'id'),
+    status: str(i, 'status'),
+    total: str(i, 'total'),
+    date: str(i, 'date'),
+    duedate: str(i, 'duedate'),
+  };
+}
+
+function mapOrderRow(o: WhmcsRow) {
+  return {
+    orderid: num(o, 'id'),
+    date: str(o, 'date'),
+    status: str(o, 'status'),
+    amount: str(o, 'amount'),
+  };
+}
+
+function mapTicketRow(t: WhmcsRow) {
+  return {
+    ticketid: num(t, 'id'),
+    tid: str(t, 'tid'),
+    subject: str(t, 'subject'),
+    status: str(t, 'status'),
+    lastreply: str(t, 'lastreply'),
+  };
+}
+
+function mapInvoiceBillingRow(i: WhmcsRow) {
+  return {
+    invoiceid: num(i, 'id'),
+    total: str(i, 'total'),
+    duedate: str(i, 'duedate'),
+    date: str(i, 'date'),
+    status: str(i, 'status'),
+  };
+}
+
+function mapReconInvoiceRow(i: WhmcsRow) {
+  return {
+    invoiceid: num(i, 'id'),
+    status: str(i, 'status'),
+    total: str(i, 'total'),
+    balance: str(i, 'balance'),
+    date: str(i, 'date'),
+    datepaid: str(i, 'datepaid'),
+  };
+}
+
+function mapProvisioningServiceRow(s: WhmcsRow) {
+  return {
+    serviceid: num(s, 'id'),
+    product: str(s, 'name'),
+    domain: str(s, 'domain'),
+    status: str(s, 'status'),
+    regdate: str(s, 'regdate'),
+    next_due_date: str(s, 'nextduedate'),
+  };
+}
 
 /**
  * Shared best-effort discovery caveat for ticket sections (see C2).
@@ -377,12 +473,12 @@ async function safeSection<T>(
  * Normalize a WHMCS list container (e.g. `{ product: [...] }`) to an array,
  * tolerating both wrapped and bare shapes.
  */
-function norm<T>(container: any, singular: string): T[] {
-  return normalizeToArray<T>(
-    container && typeof container === 'object'
-      ? (container[singular] ?? container)
-      : container
-  );
+function norm<T>(container: unknown, singular: string): T[] {
+  const inner =
+    isRecord(container) && singular in container
+      ? container[singular]
+      : container;
+  return normalizeToArray<T>(inner);
 }
 
 /**
@@ -519,7 +615,7 @@ function register(
   extra: z.ZodRawShape,
   logger: Logger,
   rl: RateLimiter,
-  run: (params: any) => Promise<unknown>
+  run: (params: Record<string, unknown>) => Promise<unknown>
 ): void {
   if (!isToolAllowed(name)) return;
   const schema = z.object({
@@ -535,22 +631,28 @@ function register(
   // lacks the SDK's `[x: string]: unknown` index signature, so the inferred
   // callback return type is not structurally assignable to `ToolCallback`.
   // This is a type-only boundary cast; runtime behavior is unchanged.
-  const handler: ToolCallback<z.ZodRawShape> = (async (params: any) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
       // Capture the bearer token + requested contract before
       // ensureToolAuth strips auth fields from params.
-      const pview = params as Record<string, unknown>;
       const authToken =
-        typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+        typeof params.auth_token === 'string' ? params.auth_token : undefined;
       const requestedContract =
-        typeof pview.contract === 'string' ? pview.contract : undefined;
+        typeof params.contract === 'string' ? params.contract : undefined;
 
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
       if (isClientMode()) {
-        const s = ensureClientAllowed(params.clientid);
+        const scopedClientId = num(params, 'clientid');
+        if (scopedClientId === undefined) {
+          return {
+            content: [{ type: 'text', text: 'clientid is required' }],
+            isError: true,
+          };
+        }
+        const s = ensureClientAllowed(scopedClientId);
         if (s) return s;
       }
       log.logToolCall(name, params, false);
@@ -621,39 +723,30 @@ export function registerAggregatorTools(
     rl,
     async (params) => {
       const errs: PartialError[] = [];
-      const cid = params.clientid;
-      const n = params.recent ?? 5;
-      const cd: any = await safeSection('client', errs, {}, () =>
-        whmcs.read('GetClientsDetails', { clientid: cid, stats: true })
+      const cid = requireClientId(params);
+      const n = num(params, 'recent') ?? 5;
+      const cd = asRecord(
+        await safeSection('client', errs, {}, () =>
+          whmcs.read('GetClientsDetails', { clientid: cid, stats: true })
+        )
       );
-      const st = cd.stats ?? {};
+      const st = asRecord(cd.stats);
       const services = await safeSection('services', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetClientsProducts', { clientid: cid, limitnum: n })).products,
+        norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetClientsProducts', { clientid: cid, limitnum: n })).products,
           'product'
-        ).map((p) => ({
-          serviceid: p.id,
-          product: p.name,
-          domain: p.domain,
-          status: p.status,
-          next_due_date: p.nextduedate,
-        }))
+        ).map(mapServiceRow)
       );
       const domains = await safeSection('domains', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetClientsDomains', { clientid: cid, limitnum: n })).domains,
+        norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetClientsDomains', { clientid: cid, limitnum: n })).domains,
           'domain'
-        ).map((d) => ({
-          domainid: d.id,
-          domain: d.domainname,
-          status: d.status,
-          expiry_date: d.expirydate,
-        }))
+        ).map(mapDomainRow)
       );
       const invoices = await safeSection('invoices', errs, [], async () =>
-        norm<any>(
+        norm<WhmcsRow>(
           (
-            await whmcs.read<any>('GetInvoices', {
+            await whmcs.read<Record<string, unknown>>('GetInvoices', {
               userid: cid,
               limitnum: n,
               orderby: 'date',
@@ -661,57 +754,43 @@ export function registerAggregatorTools(
             })
           ).invoices,
           'invoice'
-        ).map((i) => ({
-          invoiceid: i.id,
-          status: i.status,
-          total: i.total,
-          date: i.date,
-          duedate: i.duedate,
-        }))
+        ).map(mapInvoiceSummaryRow)
       );
       const orders = await safeSection('orders', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetOrders', { userid: cid, limitnum: 25 })).orders,
+        norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetOrders', { userid: cid, limitnum: 25 })).orders,
           'order'
         )
-          .map((o) => ({ orderid: o.id, date: o.date, status: o.status, amount: o.amount }))
-          .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+          .map(mapOrderRow)
+          .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
           .slice(0, n)
       );
       const tickets = await safeSection('tickets', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
+        norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
           'ticket'
         )
-          .map((t) => ({
-            ticketid: t.id,
-            tid: t.tid,
-            subject: t.subject,
-            status: t.status,
-            lastreply: t.lastreply,
-          }))
-          .sort((a, b) =>
-            String(b.lastreply || '').localeCompare(String(a.lastreply || ''))
-          )
+          .map(mapTicketRow)
+          .sort((a, b) => ticketSortKey(b).localeCompare(ticketSortKey(a)))
           .slice(0, n)
       );
       return {
         client: {
-          clientid: cd.id,
-          name: `${cd.firstname ?? ''} ${cd.lastname ?? ''}`.trim(),
-          email: cd.email,
-          status: cd.status,
-          credit_balance: cd.credit,
-          currency: cd.currency_code,
+          clientid: num(cd, 'id'),
+          name: `${str(cd, 'firstname') ?? ''} ${str(cd, 'lastname') ?? ''}`.trim(),
+          email: str(cd, 'email'),
+          status: str(cd, 'status'),
+          credit_balance: str(cd, 'credit'),
+          currency: str(cd, 'currency_code'),
         },
         counts: {
-          services_active: st.productsnumactive ?? 0,
-          services_total: st.productsnumtotal ?? 0,
-          domains_active: st.numactivedomains ?? 0,
-          domains_total: st.numdomains ?? 0,
-          unpaid_invoices: st.numunpaidinvoices ?? 0,
-          overdue_invoices: st.numoverdueinvoices ?? 0,
-          active_tickets: st.numactivetickets ?? 0,
+          services_active: num(st, 'productsnumactive') ?? 0,
+          services_total: num(st, 'productsnumtotal') ?? 0,
+          domains_active: num(st, 'numactivedomains') ?? 0,
+          domains_total: num(st, 'numdomains') ?? 0,
+          unpaid_invoices: num(st, 'numunpaidinvoices') ?? 0,
+          overdue_invoices: num(st, 'numoverdueinvoices') ?? 0,
+          active_tickets: num(st, 'numactivetickets') ?? 0,
         },
         recent: {
           services,
@@ -733,24 +812,17 @@ export function registerAggregatorTools(
     rl,
     async (params) => {
       const errs: PartialError[] = [];
-      const cid = params.clientid;
-      const cd: any = await safeSection('client', errs, {}, () =>
-        whmcs.read('GetClientsDetails', { clientid: cid, stats: true })
+      const cid = requireClientId(params);
+      const cd = asRecord(
+        await safeSection('client', errs, {}, () =>
+          whmcs.read('GetClientsDetails', { clientid: cid, stats: true })
+        )
       );
-      const st = cd.stats ?? {};
-      const mapInv = (arr: any[]) =>
-        arr.map((i) => ({
-          invoiceid: i.id,
-          total: i.total,
-          duedate: i.duedate,
-          date: i.date,
-          status: i.status,
-        }));
+      const st = asRecord(cd.stats);
       const recent_unpaid = await safeSection('unpaid', errs, [], async () =>
-        mapInv(
-          norm<any>(
+        norm<WhmcsRow>(
             (
-              await whmcs.read<any>('GetInvoices', {
+              await whmcs.read<Record<string, unknown>>('GetInvoices', {
                 userid: cid,
                 status: 'Unpaid',
                 limitnum: 5,
@@ -759,14 +831,12 @@ export function registerAggregatorTools(
               })
             ).invoices,
             'invoice'
-          )
-        )
+          ).map(mapInvoiceBillingRow)
       );
       const recent_overdue = await safeSection('overdue', errs, [], async () =>
-        mapInv(
-          norm<any>(
+        norm<WhmcsRow>(
             (
-              await whmcs.read<any>('GetInvoices', {
+              await whmcs.read<Record<string, unknown>>('GetInvoices', {
                 userid: cid,
                 status: 'Overdue',
                 limitnum: 5,
@@ -775,27 +845,26 @@ export function registerAggregatorTools(
               })
             ).invoices,
             'invoice'
-          )
-        )
+          ).map(mapInvoiceBillingRow)
       );
       return {
-        currency: cd.currency_code,
-        credit_balance: st.creditbalance ?? cd.credit,
+        currency: str(cd, 'currency_code'),
+        credit_balance: str(st, 'creditbalance') ?? str(cd, 'credit'),
         unpaid: {
-          count: st.numunpaidinvoices ?? 0,
-          amount: st.unpaidinvoicesamount ?? '0.00',
+          count: num(st, 'numunpaidinvoices') ?? 0,
+          amount: str(st, 'unpaidinvoicesamount') ?? '0.00',
         },
         overdue: {
-          count: st.numoverdueinvoices ?? 0,
-          amount: st.overdueinvoicesbalance ?? '0.00',
+          count: num(st, 'numoverdueinvoices') ?? 0,
+          amount: str(st, 'overdueinvoicesbalance') ?? '0.00',
         },
         paid: {
-          count: st.numpaidinvoices ?? 0,
-          amount: st.paidinvoicesamount ?? '0.00',
+          count: num(st, 'numpaidinvoices') ?? 0,
+          amount: str(st, 'paidinvoicesamount') ?? '0.00',
         },
-        cancelled: { count: st.numcancelledinvoices ?? 0 },
-        refunded: { count: st.numrefundedinvoices ?? 0 },
-        draft: { count: st.numDraftInvoices ?? 0 },
+        cancelled: { count: num(st, 'numcancelledinvoices') ?? 0 },
+        refunded: { count: num(st, 'numrefundedinvoices') ?? 0 },
+        draft: { count: num(st, 'numDraftInvoices') ?? 0 },
         recent_unpaid,
         recent_overdue,
         partial_errors: errs,
@@ -812,33 +881,25 @@ export function registerAggregatorTools(
     rl,
     async (params) => {
       const errs: PartialError[] = [];
-      const cid = params.clientid;
+      const cid = requireClientId(params);
       const departments = await safeSection('departments', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetSupportDepartments', {})).departments,
+        norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetSupportDepartments', {})).departments,
           'department'
         ).map((d) => ({
-          id: d.id,
-          name: d.name,
-          open_tickets: d.opentickets ?? 0,
-          awaiting_reply: d.awaitingreply ?? 0,
+          id: num(d, 'id'),
+          name: str(d, 'name'),
+          open_tickets: num(d, 'opentickets') ?? 0,
+          awaiting_reply: num(d, 'awaitingreply') ?? 0,
         }))
       );
       const items = await safeSection('tickets', errs, [], async () =>
-        norm<any>(
-          (await whmcs.read<any>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
+        norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
           'ticket'
         )
-          .map((t) => ({
-            ticketid: t.id,
-            tid: t.tid,
-            subject: t.subject,
-            status: t.status,
-            lastreply: t.lastreply,
-          }))
-          .sort((a, b) =>
-            String(b.lastreply || '').localeCompare(String(a.lastreply || ''))
-          )
+          .map(mapTicketRow)
+          .sort((a, b) => (b.lastreply ?? '').localeCompare(a.lastreply ?? ''))
           .slice(0, 10)
       );
       return {
@@ -859,8 +920,9 @@ export function registerAggregatorTools(
     rl,
     async (params) => {
       const errs: PartialError[] = [];
-      const cid = params.clientid;
-      const horizon = new Date(Date.now() + (params.days ?? 60) * 86400000)
+      const cid = requireClientId(params);
+      const windowDays = num(params, 'days') ?? 60;
+      const horizon = new Date(Date.now() + windowDays * 86400000)
         .toISOString()
         .slice(0, 10);
       const inWindow = (d?: string) =>
@@ -870,45 +932,45 @@ export function registerAggregatorTools(
         d.slice(0, 10) <= horizon;
       const truncated = { services: false, domains: false };
       const svc = await safeSection('services', errs, [], async () => {
-        const raw = norm<any>(
-          (await whmcs.read<any>('GetClientsProducts', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
+        const raw = norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetClientsProducts', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
             .products,
           'product'
         );
         truncated.services = raw.length >= RENEWAL_FETCH_LIMIT;
         return raw
-          .filter((p) => inWindow(p.nextduedate))
+          .filter((p) => inWindow(str(p, 'nextduedate')))
           .map((p) => ({
             type: 'service' as const,
-            id: p.id,
-            name: p.name,
-            due_date: p.nextduedate,
-            status: p.status,
-            recurring_amount: p.recurringamount,
+            id: num(p, 'id'),
+            name: str(p, 'name'),
+            due_date: str(p, 'nextduedate'),
+            status: str(p, 'status'),
+            recurring_amount: str(p, 'recurringamount'),
           }));
       });
       const dom = await safeSection('domains', errs, [], async () => {
-        const raw = norm<any>(
-          (await whmcs.read<any>('GetClientsDomains', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
+        const raw = norm<WhmcsRow>(
+          (await whmcs.read<Record<string, unknown>>('GetClientsDomains', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
             .domains,
           'domain'
         );
         truncated.domains = raw.length >= RENEWAL_FETCH_LIMIT;
         return raw
-          .filter((d) => inWindow(d.expirydate ?? d.nextduedate))
+          .filter((d) => inWindow(str(d, 'expirydate') ?? str(d, 'nextduedate')))
           .map((d) => ({
             type: 'domain' as const,
-            id: d.id,
-            name: d.domainname,
-            due_date: d.expirydate ?? d.nextduedate,
-            status: d.status,
+            id: num(d, 'id'),
+            name: str(d, 'domainname'),
+            due_date: str(d, 'expirydate') ?? str(d, 'nextduedate'),
+            status: str(d, 'status'),
           }));
       });
       const upcoming = [...dom, ...svc].sort((a, b) =>
-        String(a.due_date).localeCompare(String(b.due_date))
+        (a.due_date ?? '').localeCompare(b.due_date ?? '')
       );
       return {
-        window_days: params.days ?? 60,
+        window_days: windowDays,
         horizon,
         upcoming,
         truncated,
@@ -952,23 +1014,27 @@ export function registerAggregatorTools(
     logger,
     rl,
     async (params) => {
-      const p = params as Record<string, unknown>;
-      const cid = p.clientid as number;
-      const n = (p.limit as number | undefined) ?? 20;
+      const cid = requireClientId(params);
+      const n = num(params, 'limit') ?? 20;
       const errs: PartialError[] = [];
       const events: {
         type: string;
-        id: unknown;
-        date: unknown;
-        summary: unknown;
+        id: number | string | undefined;
+        date: string | undefined;
+        summary: string;
       }[] = [];
       await safeSection('activity', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetActivityLog', {
           clientid: cid,
           limitnum: n,
         });
-        for (const e of norm<Record<string, unknown>>(r.activity, 'entry')) {
-          events.push({ type: 'activity', id: e.id, date: e.date, summary: e.description });
+        for (const e of norm<WhmcsRow>(r.activity, 'entry')) {
+          events.push({
+            type: 'activity',
+            id: num(e, 'id') ?? str(e, 'id'),
+            date: str(e, 'date'),
+            summary: str(e, 'description') ?? '',
+          });
         }
         return [];
       });
@@ -979,12 +1045,12 @@ export function registerAggregatorTools(
           orderby: 'date',
           order: 'desc',
         });
-        for (const i of norm<Record<string, unknown>>(r.invoices, 'invoice')) {
+        for (const i of norm<WhmcsRow>(r.invoices, 'invoice')) {
           events.push({
             type: 'invoice',
-            id: i.id,
-            date: i.date,
-            summary: `invoice ${String(i.status)} total ${String(i.total)}`,
+            id: num(i, 'id') ?? str(i, 'id'),
+            date: str(i, 'date'),
+            summary: `invoice ${str(i, 'status') ?? ''} total ${str(i, 'total') ?? ''}`,
           });
         }
         return [];
@@ -994,18 +1060,18 @@ export function registerAggregatorTools(
           userid: cid,
           limitnum: n,
         });
-        for (const o of norm<Record<string, unknown>>(r.orders, 'order')) {
+        for (const o of norm<WhmcsRow>(r.orders, 'order')) {
           events.push({
             type: 'order',
-            id: o.id,
-            date: o.date,
-            summary: `order ${String(o.status)} amount ${String(o.amount)}`,
+            id: num(o, 'id') ?? str(o, 'id'),
+            date: str(o, 'date'),
+            summary: `order ${str(o, 'status') ?? ''} amount ${str(o, 'amount') ?? ''}`,
           });
         }
         return [];
       });
       const timeline = events
-        .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+        .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
         .slice(0, n);
       return { clientid: cid, count: timeline.length, timeline, partial_errors: errs };
     }
@@ -1019,8 +1085,7 @@ export function registerAggregatorTools(
     logger,
     rl,
     async (params) => {
-      const p = params as Record<string, unknown>;
-      const cid = p.clientid as number;
+      const cid = requireClientId(params);
       const errs: PartialError[] = [];
       const invoices = await safeSection('invoices', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
@@ -1029,14 +1094,7 @@ export function registerAggregatorTools(
           orderby: 'date',
           order: 'desc',
         });
-        return norm<Record<string, unknown>>(r.invoices, 'invoice').map((i) => ({
-          invoiceid: i.id,
-          status: i.status,
-          total: i.total,
-          balance: i.balance,
-          date: i.date,
-          datepaid: i.datepaid,
-        }));
+        return norm<WhmcsRow>(r.invoices, 'invoice').map(mapReconInvoiceRow);
       });
 
       const base: Record<string, unknown> = {
@@ -1134,33 +1192,21 @@ export function registerAggregatorTools(
     logger,
     rl,
     async (params) => {
-      const p = params as Record<string, unknown>;
-      const cid = p.clientid as number;
+      const cid = requireClientId(params);
       const errs: PartialError[] = [];
       const services = await safeSection('services', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
           clientid: cid,
           limitnum: 100,
         });
-        return norm<Record<string, unknown>>(r.products, 'product').map((s) => ({
-          serviceid: s.id,
-          product: s.name,
-          domain: s.domain,
-          status: s.status,
-          regdate: s.regdate,
-          next_due_date: s.nextduedate,
-        }));
+        return norm<WhmcsRow>(r.products, 'product').map(mapProvisioningServiceRow);
       });
       const orders = await safeSection('orders', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetOrders', {
           userid: cid,
           limitnum: 25,
         });
-        return norm<Record<string, unknown>>(r.orders, 'order').map((o) => ({
-          orderid: o.id,
-          status: o.status,
-          date: o.date,
-        }));
+        return norm<WhmcsRow>(r.orders, 'order').map(mapOrderRow);
       });
       return {
         clientid: cid,
@@ -1181,8 +1227,7 @@ export function registerAggregatorTools(
     logger,
     rl,
     async (params) => {
-      const p = params as Record<string, unknown>;
-      const cid = p.clientid as number;
+      const cid = requireClientId(params);
       const errs: PartialError[] = [];
       const overdue = await safeSection('overdue', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
@@ -1192,10 +1237,10 @@ export function registerAggregatorTools(
           orderby: 'duedate',
           order: 'asc',
         });
-        return norm<Record<string, unknown>>(r.invoices, 'invoice').map((i) => ({
-          invoiceid: i.id,
-          balance: i.balance,
-          duedate: i.duedate,
+        return norm<WhmcsRow>(r.invoices, 'invoice').map((i) => ({
+          invoiceid: num(i, 'id'),
+          balance: str(i, 'balance'),
+          duedate: str(i, 'duedate'),
         }));
       });
       const suspended = await safeSection('suspended_services', errs, [], async () => {
@@ -1203,12 +1248,16 @@ export function registerAggregatorTools(
           clientid: cid,
           limitnum: 100,
         });
-        return norm<Record<string, unknown>>(r.products, 'product')
-          .filter((s) => String(s.status) === 'Suspended')
-          .map((s) => ({ serviceid: s.id, product: s.name, status: s.status }));
+        return norm<WhmcsRow>(r.products, 'product')
+          .filter((s) => str(s, 'status') === 'Suspended')
+          .map((s) => ({
+            serviceid: num(s, 'id'),
+            product: str(s, 'name'),
+            status: str(s, 'status'),
+          }));
       });
       const overdueBalance = overdue.reduce(
-        (sum, i) => sum + (Number(i.balance) || 0),
+        (sum, i) => sum + (Number(i.balance ?? 0) || 0),
         0
       );
       return {

@@ -111,7 +111,7 @@ export function registerSupportTools(
             const products = normalizeToArray<{ id: number; clientid?: number }>(
               services.products?.product
             );
-            const service = products[0];
+            const service = products.at(0);
 
             if (!service?.clientid) {
               return {

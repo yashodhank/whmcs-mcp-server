@@ -128,9 +128,9 @@ describe('registerTicketThreadTool — governed path', () => {
         handlers[n] = cb;
       },
     };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test harness double mirrors existing harness() convention
+     
     const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test harness double mirrors existing harness() convention
+     
     const logger: any = { child: () => childLogger };
     const rateLimiter: any = { tryConsume: () => true };
     const read = vi.fn().mockResolvedValue(rawTicket);

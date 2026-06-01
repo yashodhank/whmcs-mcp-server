@@ -21,6 +21,7 @@ import {
   governanceEnabled,
 } from '../governance/pipeline.js';
 import { mapToCanonicalTicket } from '../canonical/index.js';
+import { asRecord, num } from '../canonical/_shared.js';
 
 /**
  * Register the read-only `get_ticket_thread` tool on the MCP server.
@@ -48,31 +49,38 @@ export function registerTicketThreadTool(
   // callback return type is not structurally assignable to `ToolCallback`.
   // This is a type-only boundary cast; runtime behavior is unchanged and the
   // returned envelope is a valid MCP tool result.
-  const handler: ToolCallback<z.ZodRawShape> = (async (params: any) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
-      // Capture the bearer token before ensureToolAuth strips it.
-      const pview = params as Record<string, unknown>;
       const authToken =
-        typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+        typeof params.auth_token === 'string' ? params.auth_token : undefined;
       const requestedContract =
-        typeof pview.contract === 'string' ? pview.contract : undefined;
+        typeof params.contract === 'string' ? params.contract : undefined;
 
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
 
       log.logToolCall('get_ticket_thread', params, false);
 
       if (!rateLimiter.tryConsume()) throw new RateLimitError();
 
-      const ticket = await whmcsClient.read<Record<string, any>>('GetTicket', {
-        ticketid: params.ticketid,
+      const ticketId = num(params, 'ticketid');
+      if (ticketId === undefined) {
+        return {
+          content: [{ type: 'text', text: 'ticketid is required' }],
+          isError: true,
+        };
+      }
+
+      const ticket = await whmcsClient.read<Record<string, unknown>>('GetTicket', {
+        ticketid: ticketId,
       });
 
       if (isClientMode()) {
-        const ownerId = ticket.userid ?? ticket.clientid;
-        if (!ownerId) {
+        const t = asRecord(ticket);
+        const ownerId = num(t, 'userid') ?? num(t, 'clientid');
+        if (ownerId === undefined) {
           log.logToolResult('get_ticket_thread', false, Date.now() - t0, 'ownership unresolved');
           return {
             content: [
@@ -84,7 +92,7 @@ export function registerTicketThreadTool(
             isError: true,
           };
         }
-        const ownershipErr = ensureClientOwnership(ownerId, params as Record<string, unknown>);
+        const ownershipErr = ensureClientOwnership(ownerId, params);
         if (ownershipErr) return ownershipErr;
       }
 
@@ -114,7 +122,10 @@ export function registerTicketThreadTool(
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify({ isError: true, error: (e as Error).message }),
+              text: JSON.stringify({
+                isError: true,
+                error: e instanceof Error ? e.message : String(e),
+              }),
             },
           ],
           isError: true,

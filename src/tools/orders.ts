@@ -127,7 +127,8 @@ export function registerOrderTools(
             id: p.pid,
             name: p.name,
             group_name: p.groupname || null,
-            description: p.description?.substring(0, 200) || null,
+            description:
+              typeof p.description === 'string' ? p.description.substring(0, 200) : null,
             type: p.type,
             isHidden: whmcsToBool(p.hidden),
             // gid is always present in WHMCS GetProducts responses.
@@ -240,7 +241,7 @@ export function registerOrderTools(
 
         // Apply idempotency
         const idempotencyKey = rateLimiter.generateIdempotencyKey('accept_order', params.orderid);
-        const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+        const cached = rateLimiter.getCachedResult(idempotencyKey);
         if (cached) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(cached) }],

@@ -32,6 +32,7 @@ import {
   mapToCanonicalOrder,
   mapToCanonicalActivity,
 } from '../canonical/index.js';
+import { asRecord, num, str } from '../canonical/_shared.js';
 
 /**
  * Bounded-scan caps for honest client-side status filtering.
@@ -254,7 +255,7 @@ export interface ListToolConfig<T> {
   /** Constant params always sent to the WHMCS API. */
   fixedParams?: Record<string, unknown>;
   /** Maps a raw WHMCS row to the public item shape (legacy output). */
-  mapItem: (raw: any) => T;
+  mapItem: (raw: unknown) => T;
   /**
    * Maps a raw WHMCS row to a canonical entity for governed projection.
    * Required for governed output; if absent, legacy output is used even
@@ -297,22 +298,27 @@ export function registerListTool<T>(
   // callback return type is not structurally assignable to `ToolCallback`.
   // This is a type-only boundary cast; runtime behavior is unchanged and the
   // returned envelope is a valid MCP tool result.
-  const handler: ToolCallback<z.ZodRawShape> = (async (params: any) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
       const log = logger.child();
       const t0 = Date.now();
       try {
-        // Capture the bearer token before ensureToolAuth strips it.
-        const pview = params as Record<string, unknown>;
         const authToken =
-          typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
+          typeof params.auth_token === 'string' ? params.auth_token : undefined;
         const requestedContract =
-          typeof pview.contract === 'string' ? pview.contract : undefined;
+          typeof params.contract === 'string' ? params.contract : undefined;
 
-        const authErr = ensureToolAuth(params as Record<string, unknown>);
+        const authErr = ensureToolAuth(params);
         if (authErr) return authErr;
 
         if (isClientMode()) {
-          const scopeErr = ensureClientAllowed(params.clientid);
+          const scopedClientId = num(params, 'clientid');
+          if (scopedClientId === undefined) {
+            return {
+              content: [{ type: 'text', text: 'clientid is required' }],
+              isError: true,
+            };
+          }
+          const scopeErr = ensureClientAllowed(scopedClientId);
           if (scopeErr) return scopeErr;
         }
 
@@ -320,21 +326,15 @@ export function registerListTool<T>(
 
         if (!rl.tryConsume()) throw new RateLimitError();
 
-        const { limit = 10, offset = 0, clientid } = params;
         const singular =
           c.singular ??
           c.normalizerPath.replace(/ies$/, 'y').replace(/s$/, '');
 
-        // Cleanly-typed views of the (schema-validated) numeric params for
-        // the new bounded-scan path — avoids propagating the handler's
-        // legacy `any` params type into the typed scan helper.
-        const pbag = params as Record<string, unknown>;
-        const limitNum =
-          typeof pbag.limit === 'number' ? pbag.limit : Number(limit);
-        const offsetNum =
-          typeof pbag.offset === 'number' ? pbag.offset : Number(offset);
+        const limitNum = num(params, 'limit') ?? 10;
+        const offsetNum = num(params, 'offset') ?? 0;
+        const clientIdNum = num(params, 'clientid');
 
-        const rawStatus = pbag.status;
+        const rawStatus = params.status;
         const requestedStatus: string | undefined =
           typeof rawStatus === 'string' && rawStatus.length > 0
             ? rawStatus
@@ -350,17 +350,13 @@ export function registerListTool<T>(
           // HONEST client-side status filter via a bounded multi-page scan.
           // WHMCS GetClientsDomains ignores any `status` param, so it is
           // intentionally NOT forwarded — we filter the scanned rows here.
-          const clientIdNum =
-            typeof pbag.clientid === 'number'
-              ? pbag.clientid
-              : Number(clientid);
           const baseParams: Record<string, unknown> = {
             [c.clientParam]: clientIdNum,
             ...(c.fixedParams ?? {}),
           };
           for (const k of Object.keys(c.extraSchema)) {
             if (k === 'status') continue; // honoured client-side, not by WHMCS
-            if (pbag[k] !== undefined) baseParams[k] = pbag[k];
+            if (params[k] !== undefined) baseParams[k] = params[k];
           }
 
           const scan = await scanByStatus(
@@ -409,25 +405,25 @@ export function registerListTool<T>(
           }
         } else {
           const apiParams: Record<string, unknown> = {
-            [c.clientParam]: clientid,
-            limitnum: limit,
-            limitstart: offset,
+            [c.clientParam]: clientIdNum,
+            limitnum: limitNum,
+            limitstart: offsetNum,
             ...(c.fixedParams ?? {}),
           };
           for (const k of Object.keys(c.extraSchema)) {
             if (params[k] !== undefined) apiParams[k] = params[k];
           }
 
-          const resp = await whmcs.read<Record<string, any>>(
+          const resp = await whmcs.read<Record<string, unknown>>(
             c.action,
             apiParams
           );
           rows = extractRows(resp, c.normalizerPath, singular);
           envelope = {
-            total: resp.totalresults ?? rows.length,
-            count: resp.numreturned ?? rows.length,
-            offset: resp.startnumber ?? offset,
-            limit,
+            total: num(resp, 'totalresults') ?? rows.length,
+            count: num(resp, 'numreturned') ?? rows.length,
+            offset: num(resp, 'startnumber') ?? offsetNum,
+            limit: limitNum,
             ...(c.extraPayload ?? {}),
           };
         }
@@ -463,7 +459,10 @@ export function registerListTool<T>(
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ isError: true, error: (e as Error).message }),
+                text: JSON.stringify({
+                  isError: true,
+                  error: e instanceof Error ? e.message : String(e),
+                }),
               },
             ],
             isError: true,
@@ -505,17 +504,20 @@ export function registerListTools(
     clientParam: 'clientid',
     normalizerPath: 'products',
     extraSchema: { status: z.string().optional() },
-    mapItem: (p: any) => ({
-      serviceid: p.id,
-      pid: p.pid,
-      product: p.name,
-      domain: p.domain,
-      status: p.status,
-      billing_cycle: p.billingcycle,
-      next_due_date: p.nextduedate,
-      recurring_amount: p.recurringamount,
-      payment_method: p.paymentmethod,
-    }),
+    mapItem: (raw: unknown) => {
+      const p = asRecord(raw);
+      return {
+        serviceid: num(p, 'id'),
+        pid: num(p, 'pid'),
+        product: str(p, 'name'),
+        domain: str(p, 'domain'),
+        status: str(p, 'status'),
+        billing_cycle: str(p, 'billingcycle'),
+        next_due_date: str(p, 'nextduedate'),
+        recurring_amount: str(p, 'recurringamount'),
+        payment_method: str(p, 'paymentmethod'),
+      };
+    },
     canonicalMap: mapToCanonicalService,
   });
 
@@ -527,16 +529,19 @@ export function registerListTools(
     clientParam: 'clientid',
     normalizerPath: 'domains',
     extraSchema: { status: z.string().optional() },
-    mapItem: (d: any) => ({
-      domainid: d.id,
-      domain: d.domainname,
-      registrar: d.registrar,
-      status: d.status,
-      regdate: d.regdate,
-      expiry_date: d.expirydate,
-      next_due_date: d.nextduedate,
-      donotrenew: d.donotrenew,
-    }),
+    mapItem: (raw: unknown) => {
+      const d = asRecord(raw);
+      return {
+        domainid: num(d, 'id'),
+        domain: str(d, 'domainname'),
+        registrar: str(d, 'registrar'),
+        status: str(d, 'status'),
+        regdate: str(d, 'regdate'),
+        expiry_date: str(d, 'expirydate'),
+        next_due_date: str(d, 'nextduedate'),
+        donotrenew: str(d, 'donotrenew'),
+      };
+    },
     canonicalMap: mapToCanonicalDomain,
   });
 
@@ -549,16 +554,19 @@ export function registerListTools(
     normalizerPath: 'invoices',
     extraSchema: { status: z.string().optional() },
     fixedParams: { orderby: 'date', order: 'desc' },
-    mapItem: (i: any) => ({
-      invoiceid: i.id,
-      invoicenum: i.invoicenum,
-      date: i.date,
-      duedate: i.duedate,
-      datepaid: i.datepaid,
-      status: i.status,
-      total: i.total,
-      balance: i.balance,
-    }),
+    mapItem: (raw: unknown) => {
+      const i = asRecord(raw);
+      return {
+        invoiceid: num(i, 'id'),
+        invoicenum: str(i, 'invoicenum'),
+        date: str(i, 'date'),
+        duedate: str(i, 'duedate'),
+        datepaid: str(i, 'datepaid'),
+        status: str(i, 'status'),
+        total: str(i, 'total'),
+        balance: str(i, 'balance'),
+      };
+    },
     canonicalMap: mapToCanonicalInvoice,
   });
 
@@ -574,19 +582,24 @@ export function registerListTools(
       deptid: z.number().int().optional(),
       subject: z.string().optional(),
     },
-    mapItem: (t: any) => ({
-      ticketid: t.id,
-      tid: t.tid,
-      subject: t.subject,
-      status: t.status,
-      deptname: t.deptname,
-      date: t.date,
-      lastreply: t.lastreply,
-    }),
-    postSort: (xs: any[]) =>
-      [...xs].sort((a, b) =>
-        String(b.lastreply || b.date).localeCompare(String(a.lastreply || a.date))
-      ),
+    mapItem: (raw: unknown) => {
+      const t = asRecord(raw);
+      return {
+        ticketid: num(t, 'id'),
+        tid: str(t, 'tid'),
+        subject: str(t, 'subject'),
+        status: str(t, 'status'),
+        deptname: str(t, 'deptname'),
+        date: str(t, 'date'),
+        lastreply: str(t, 'lastreply'),
+      };
+    },
+    postSort: (xs) =>
+      [...xs].sort((a, b) => {
+        const ak = a.lastreply ?? a.date ?? '';
+        const bk = b.lastreply ?? b.date ?? '';
+        return bk.localeCompare(ak);
+      }),
     extraPayload: {
       discovery: 'best-effort',
       note: 'GetTickets clientid discovery may miss operator/admin-created tickets; use get_ticket_thread by known ticketid/tid for reliable retrieval.',
@@ -602,17 +615,20 @@ export function registerListTools(
     clientParam: 'userid',
     normalizerPath: 'orders',
     extraSchema: { status: z.string().optional() },
-    mapItem: (o: any) => ({
-      orderid: o.id,
-      ordernum: o.ordernum,
-      date: o.date,
-      amount: o.amount,
-      status: o.status,
-      invoiceid: o.invoiceid,
-      name: o.name,
-    }),
-    postSort: (xs: any[]) =>
-      [...xs].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+    mapItem: (raw: unknown) => {
+      const o = asRecord(raw);
+      return {
+        orderid: num(o, 'id'),
+        ordernum: str(o, 'ordernum'),
+        date: str(o, 'date'),
+        amount: str(o, 'amount'),
+        status: str(o, 'status'),
+        invoiceid: num(o, 'invoiceid'),
+        name: str(o, 'name'),
+      };
+    },
+    postSort: (xs) =>
+      [...xs].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')),
     canonicalMap: mapToCanonicalOrder,
   });
 
@@ -632,13 +648,16 @@ export function registerListTools(
       date: z.string().optional(),
       user: z.string().optional(),
     },
-    mapItem: (e: Record<string, unknown>) => ({
-      id: e.id,
-      date: e.date,
-      user: e.user,
-      description: e.description,
-      ipaddr: e.ipaddr ?? e.ipaddress,
-    }),
+    mapItem: (raw: unknown) => {
+      const e = asRecord(raw);
+      return {
+        id: num(e, 'id'),
+        date: str(e, 'date'),
+        user: str(e, 'user'),
+        description: str(e, 'description'),
+        ipaddr: str(e, 'ipaddr') ?? str(e, 'ipaddress'),
+      };
+    },
     postSort: (xs) =>
       [...xs].sort((a, b) =>
         String(b.date).localeCompare(String(a.date))
