@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Forced-command wrapper. The allowed-action list below MUST stay in lock-step
+# with the dispatcher switch in /usr/local/libexec/whmcs_api_ip_updater.php
+# (see action_* functions and the `switch ($action)` block). Adding an action
+# here without adding the dispatcher case (or vice versa) results in either
+# an INVALID_ACTION response or a silently rejected command.
+
+emit_json_error() {
+  local code="$1"
+  local message="$2"
+  printf '{"ok":false,"code":"%s","message":"%s","data":{}}\n' "$code" "$message"
+  exit 1
+}
+
+orig="${SSH_ORIGINAL_COMMAND:-}"
+if [[ -z "$orig" ]]; then
+  emit_json_error "EMPTY_COMMAND" "No remote command supplied"
+fi
+
+action=""
+payload=""
+extra=""
+IFS=' ' read -r action payload extra <<< "$orig"
+
+case "$action" in
+  verify|read|update|rollback|test_api_local)
+    ;;
+  *)
+    emit_json_error "INVALID_ACTION" "Action must be one of verify/read/update/rollback/test_api_local"
+    ;;
+esac
+
+if [[ -n "$extra" ]]; then
+  emit_json_error "INVALID_COMMAND" "Only action and optional payload are allowed"
+fi
+
+if [[ -n "$payload" && ! "$payload" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  emit_json_error "INVALID_PAYLOAD" "Payload must be base64url"
+fi
+
+worker="/usr/local/libexec/whmcs_api_ip_updater.php"
+if [[ ! -f "$worker" ]]; then
+  emit_json_error "WORKER_MISSING" "Remote worker script missing"
+fi
+
+exec /usr/bin/php "$worker" "$action" "$payload"
