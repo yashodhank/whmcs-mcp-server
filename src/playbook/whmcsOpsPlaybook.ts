@@ -18,6 +18,24 @@ export const WHMCS_OPS_PLAYBOOK = `
 
 This playbook provides guidelines for AI agents administering WHMCS installations.
 
+## What This MCP Knows
+
+This MCP is connected directly to WHMCS (billing, clients, services, domains, tickets).
+Use read-only list tools for reports; prefer \`list_invoices\` and \`list_services\` for
+cross-client revenue and paying-client questions.
+
+## Reporting Patterns
+
+- For revenue / highest-return clients: \`list_invoices\` with \`status='Paid'\`,
+  \`datepaid_from\`/\`datepaid_to\`, a large enough \`scan_limit\`, then group by
+  \`clientid\` and sum \`total\`.
+- For unpaid or overdue billing: \`list_invoices\` with \`status='Unpaid'\` or
+  \`status='Overdue'\` (or \`duedate_to\` on Unpaid).
+- For currently paying clients / active MRR: \`list_services\` with \`status='Active'\`
+  and \`paying_only=true\`; use \`unique_client_count\` for distinct paying clients.
+- Client-scoped lists: \`list_client_invoices\`, \`list_client_services\`, etc.
+- If \`complete_scan=false\`, increase \`scan_limit\` before drawing conclusions.
+
 ## Core Principles
 
 ### 1. Search Before Creating
