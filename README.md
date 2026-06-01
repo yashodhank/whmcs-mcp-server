@@ -33,6 +33,61 @@ A production-ready **Model Context Protocol (MCP)** server that enables AI agent
   - Graceful shutdown with cleanup
   - Retry policy with exponential backoff for transient errors
 
+## Ops + Dev Deep Dive
+
+### System Architecture
+
+- **Transport boundary**: MCP host (Kilo/Cursor/Claude) communicates with this server over stdio JSON-RPC.
+- **Server core**: `src/index.ts` wires configuration, tool/resource registration, and runtime policy gates.
+- **Policy layer**: mode (`read_only`/`simulate`/`full`), access mode (`admin`/`client`), allowlists, and capability registry checks.
+- **WHMCS adapter**: `src/whmcs/WhmcsClient.ts` handles request shaping, retries, normalization, and error mapping.
+- **Governance primitives**: capability matrix, read allowlist, controlled writes (intent/approval/execute), and immutable audit trail.
+
+### Execution Flow
+
+1. MCP host invokes a tool with validated input schema.
+2. Mode and access checks run before any WHMCS API call.
+3. Tool maps arguments to WHMCS action + params.
+4. WHMCS response is normalized (`array|object|string` edge handling).
+5. Output returns as deterministic JSON; failures return structured errors.
+
+### Ops Use Cases
+
+- **Production-safe read operations**: account snapshots, invoice lookups, service/domain/ticket context.
+- **Governed write operations**: draft intent -> validate -> human approval -> execute with caps and audit.
+- **Incident triage**: separate transport failures, auth failures, capability gate failures, and business-rule denials.
+- **Upgrade compatibility**: WHMCS 9 immutable invoice behavior represented in read/write semantics.
+- **Least-privilege deployments**: client-scoped mode with bounded client IDs for support/chatbot scenarios.
+
+### Developer Use Cases
+
+- **Tool-first integration testing**: unit + integration + production test harness (`scripts/mcp-production-test-program.mjs`).
+- **Schema-first evolution**: zod-validated contracts for stable agent behavior.
+- **Composable tooling**: individual API tools plus composite workflows for reconciliation and snapshots.
+- **Environment profiling**: `.env` base with `MCP_ENV` overlays (`.env.local`, `.env.staging`, etc.).
+- **Local reproducibility**: full dual-WHMCS disposable stack for end-to-end behavior parity.
+
+### Connected-but-403 Troubleshooting Matrix
+
+`Connected` in MCP only confirms stdio transport health. `403` is usually downstream authorization/policy.
+
+| Symptom | Likely Layer | Fast Check | Fix |
+|---|---|---|---|
+| All tools fail immediately | MCP auth or server boot config | Verify server starts and tool list is visible | Fix MCP config/env and restart host |
+| Some tools work, invoice tools 403 | WHMCS API role/action ACL | Compare `search_clients` vs `get_invoice`/`GetInvoices` | Grant missing WHMCS API actions to credential role |
+| Works from one host, fails from another | IP allowlist / egress path | Compare public IPv4/IPv6 for each host | Add both IPs or route through fixed egress |
+| `consumer denied` or capability unavailable payload | Governance policy | Check access mode + capability matrix | Update consumer/registry/policy instead of WHMCS |
+| Resource reads work, tool calls fail | Tool auth or action gate | Confirm whether `MCP_AUTH_TOKEN` is required | Pass valid `auth_token` in tool calls |
+
+## AI Agent Local Runbook
+
+Use [docs/ai-agent-local-runbook.md](docs/ai-agent-local-runbook.md) for a practical operator guide that covers:
+
+- where local MCP and WHMCS config files are typically located,
+- how to diagnose 403s by layer,
+- what to validate before running billing/report tasks,
+- and how to keep host-specific configurations aligned.
+
 ## Installation
 
 ```bash

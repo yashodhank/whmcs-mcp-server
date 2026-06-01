@@ -36,10 +36,12 @@ Short runbook for manually verifying that the WHMCS MCP server’s read-only too
 
 - WHMCS API is likely IP-restricted or credentials differ for the environment.
 - Document that the WHMCS API IP allowlist must include the machine running Cursor.
+- A successful `search_clients` call does not prove invoice/service actions are authorized. Verify at least one tool per domain (`get_invoice`, `get_service_details`, `get_ticket_departments`) before declaring the environment healthy.
 - Integration tests are written to skip (not fail) when the API returns 403 or is unreachable; see [tests/integration.test.ts](../tests/integration.test.ts) and the README section on integration tests.
 
 ## Related
 
 - [README – Verifying read-only in Cursor](../README.md#verifying-read-only-in-cursor)
 - [README – Integration tests and 403 / unreachable API](../README.md#integration-tests-and-403--unreachable-api)
+- [docs/ai-agent-local-runbook.md](ai-agent-local-runbook.md)
 - [docs/cursor-skills.md](cursor-skills.md)
