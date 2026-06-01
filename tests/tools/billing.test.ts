@@ -5,6 +5,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  buildDeterministicPaymentTransId,
+  buildDeterministicRefundTransId,
+} from '../../src/tools/billing.js';
 
 // Mock modules
 vi.mock('../src/config.js', () => ({
@@ -57,6 +61,34 @@ describe('Billing Tools', () => {
       expect(markInvoicePaidSchema.safeParse({ invoiceid: 200 }).success).toBe(true);
       expect(markInvoicePaidSchema.safeParse({ invoiceid: 200, gateway: 'mailin' }).success).toBe(true);
       expect(markInvoicePaidSchema.safeParse({}).success).toBe(false);
+    });
+
+    it('generates deterministic synthetic transid for same logical payment payload', () => {
+      const a = buildDeterministicPaymentTransId({
+        invoiceid: 200,
+        gateway: 'stripe',
+        amount: 120.5,
+        fees: 0,
+        date: 'auto',
+      });
+      const b = buildDeterministicPaymentTransId({
+        invoiceid: 200,
+        gateway: 'stripe',
+        amount: 120.5,
+        fees: 0,
+        date: 'auto',
+      });
+      const c = buildDeterministicPaymentTransId({
+        invoiceid: 200,
+        gateway: 'stripe',
+        amount: 121,
+        fees: 0,
+        date: 'auto',
+      });
+
+      expect(a).toBe(b);
+      expect(a).not.toBe(c);
+      expect(a.startsWith('MCP-PAY-200-')).toBe(true);
     });
   });
 
@@ -119,6 +151,25 @@ describe('Billing Tools', () => {
       expect(requiresConfirmation(1500, true)).toBe(false);
       expect(requiresConfirmation(1000)).toBe(false); // Exactly at threshold
       expect(requiresConfirmation(1001)).toBe(true);
+    });
+
+    it('generates deterministic synthetic refund transid for idempotent replay', () => {
+      const a = buildDeterministicRefundTransId({
+        invoiceid: 100,
+        idempotencyKey: 'record_refund:100:12345',
+      });
+      const b = buildDeterministicRefundTransId({
+        invoiceid: 100,
+        idempotencyKey: 'record_refund:100:12345',
+      });
+      const c = buildDeterministicRefundTransId({
+        invoiceid: 100,
+        idempotencyKey: 'record_refund:100:12346',
+      });
+
+      expect(a).toBe(b);
+      expect(a).not.toBe(c);
+      expect(a.startsWith('REFUND-100-')).toBe(true);
     });
   });
 
