@@ -188,13 +188,113 @@ const searchClientsSchema = z.object({
 /**
  * Get client details input schema
  */
-const getClientDetailsSchema = z.object({
-  clientid: z.number().int().positive('Client ID must be positive'),
-  contract: z
-    .string()
-    .optional()
-    .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
-});
+const clientIdSchema = z.number().int().positive('Client ID must be positive');
+const getClientDetailsSchema = z
+  .object({
+    clientid: clientIdSchema
+      .or(
+        z
+          .array(clientIdSchema)
+          .min(1, 'At least one client ID is required')
+          .max(config.MCP_MAX_PAGE_SIZE)
+      )
+      .optional()
+      .describe('Single client ID, or an array of client IDs.'),
+    clientids: z
+      .array(clientIdSchema)
+      .min(1, 'At least one client ID is required')
+      .max(config.MCP_MAX_PAGE_SIZE)
+      .optional()
+      .describe('One or more client IDs to fetch in a single call.'),
+    contract: z
+      .string()
+      .optional()
+      .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
+  })
+  .superRefine((value, ctx) => {
+    if (value.clientid !== undefined || value.clientids !== undefined) {
+      return;
+    }
+    ctx.addIssue({
+      code: 'custom',
+      message: 'clientid or clientids is required',
+    });
+  });
+
+interface ClientDetailsLegacyPayload {
+  clientid: number;
+  firstname: string;
+  lastname: string;
+  fullname: string;
+  email: string;
+  companyname: string | null;
+  address1: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+  phonenumber: string | null;
+  status: string;
+  credit_balance: string;
+  currency: string;
+  payment_gateway: string | null;
+  product_count: number;
+  product_count_total: number;
+  domain_count: number;
+  domain_count_total: number;
+  custom_fields: {
+    id: number;
+    value: string;
+  }[];
+}
+
+function resolveClientDetailIds(params: z.infer<typeof getClientDetailsSchema>): number[] {
+  if (params.clientids && params.clientids.length > 0) {
+    return params.clientids;
+  }
+
+  if (Array.isArray(params.clientid)) {
+    return params.clientid;
+  }
+
+  if (params.clientid !== undefined) {
+    return [params.clientid];
+  }
+
+  return [];
+}
+
+function buildClientDetailsLegacyPayload(result: WhmcsClientDetails): ClientDetailsLegacyPayload {
+  const customfields = mapClientCustomFieldsForLegacy(result.customfields);
+
+  return {
+    clientid: result.id,
+    firstname: result.firstname,
+    lastname: result.lastname,
+    fullname: result.fullname,
+    email: result.email,
+    companyname: result.companyname || null,
+    address1: result.address1 || null,
+    city: result.city || null,
+    state: result.state || null,
+    postcode: result.postcode || null,
+    country: result.country || null,
+    phonenumber: result.phonenumber || null,
+    status: result.status,
+    credit_balance: result.credit,
+    currency: result.currency_code,
+    payment_gateway: result.defaultgateway || null,
+    product_count: result.stats?.productsnumactive ?? 0,
+    product_count_total: result.stats?.productsnumtotal ?? 0,
+    domain_count: result.stats?.numactivedomains ?? 0,
+    domain_count_total: result.stats?.numdomains ?? 0,
+    custom_fields: customfields,
+  };
+}
+
+function isBatchClientDetailsRequest(params: z.infer<typeof getClientDetailsSchema>): boolean {
+  return params.clientids !== undefined || Array.isArray(params.clientid);
+}
 
 /**
  * Check if a client exists by email (for reuse_if_exists mode)
@@ -540,49 +640,75 @@ export function registerClientTools(
         const authError = ensureToolAuth(params as Record<string, unknown>);
         if (authError) return authError;
 
+        const clientIds = resolveClientDetailIds(params);
+        if (clientIds.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'clientid or clientids is required.',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         if (isClientMode()) {
-          const scopeError = ensureClientAllowed(params.clientid);
-          if (scopeError) return scopeError;
+          for (const clientId of clientIds) {
+            const scopeError = ensureClientAllowed(clientId);
+            if (scopeError) return scopeError;
+          }
         }
 
         toolLogger.logToolCall('get_client_details', params, false);
+
+        const batchResponse = isBatchClientDetailsRequest(params);
+
+        if (batchResponse) {
+          const clients: ClientDetailsLegacyPayload[] = [];
+          for (const clientId of clientIds) {
+            if (!rateLimiter.tryConsume()) {
+              throw new RateLimitError();
+            }
+
+            const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
+              clientid: clientId,
+              stats: true,
+            });
+
+            clients.push(buildClientDetailsLegacyPayload(result));
+          }
+
+          toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  clients,
+                  total: clients.length,
+                }),
+              },
+            ],
+          };
+        }
 
         if (!rateLimiter.tryConsume()) {
           throw new RateLimitError();
         }
 
         const result = await whmcsClient.read<WhmcsClientDetails>('GetClientsDetails', {
-          clientid: params.clientid,
+          clientid: clientIds[0],
           stats: true,
         });
 
-        const customfields = mapClientCustomFieldsForLegacy(result.customfields);
-
         toolLogger.logToolResult('get_client_details', true, Date.now() - startTime);
 
-        const legacyPayload = {
-          clientid: result.id,
-          firstname: result.firstname,
-          lastname: result.lastname,
-          fullname: result.fullname,
-          email: result.email,
-          companyname: result.companyname || null,
-          address1: result.address1 || null,
-          city: result.city || null,
-          state: result.state || null,
-          postcode: result.postcode || null,
-          country: result.country || null,
-          phonenumber: result.phonenumber || null,
-          status: result.status,
-          credit_balance: result.credit,
-          currency: result.currency_code,
-          payment_gateway: result.defaultgateway || null,
-          product_count: result.stats?.productsnumactive ?? 0,
-          product_count_total: result.stats?.productsnumtotal ?? 0,
-          domain_count: result.stats?.numactivedomains ?? 0,
-          domain_count_total: result.stats?.numdomains ?? 0,
-          custom_fields: customfields,
-        };
+        const legacyPayload = buildClientDetailsLegacyPayload(result);
 
         return applyGovernanceOrLegacy({
           enabled: governanceEnabled(),
@@ -620,7 +746,7 @@ export function registerClientTools(
 
     server.tool(
       'get_client_details',
-      `Get full details for a specific WHMCS client including credit balance and custom fields. Version: ${TOOL_VERSION}`,
+      `Get full WHMCS customer/client details for one or more clients, including contact data, status, credit balance, product/domain counts, payment gateway, and custom fields. Use clientid for one client, clientid as an array, or clientids for multiple clients. Version: ${TOOL_VERSION}`,
       { ...getClientDetailsSchema.shape, ...AUTH_SHAPE },
       handler
     );

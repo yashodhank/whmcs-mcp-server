@@ -31,16 +31,35 @@ describe('Billing Tools', () => {
   });
 
   describe('get_invoice', () => {
-    it('should validate invoiceid is positive integer', () => {
+    it('should validate invoice IDs are positive integers', () => {
       const { z } = require('zod');
-      
-      const getInvoiceSchema = z.object({
-        invoiceid: z.number().int().positive('Invoice ID must be positive'),
-      });
+      const invoiceIdSchema = z.number().int().positive('Invoice ID must be positive');
+
+      const getInvoiceSchema = z
+        .object({
+          invoiceid: invoiceIdSchema
+            .or(z.array(invoiceIdSchema).min(1).max(100))
+            .optional(),
+          invoiceids: z.array(invoiceIdSchema).min(1).max(100).optional(),
+        })
+        .superRefine((value, ctx) => {
+          if (value.invoiceid !== undefined || value.invoiceids !== undefined) {
+            return;
+          }
+          ctx.addIssue({
+            code: 'custom',
+            message: 'invoiceid or invoiceids is required',
+          });
+        });
 
       expect(getInvoiceSchema.safeParse({ invoiceid: 100 }).success).toBe(true);
+      expect(getInvoiceSchema.safeParse({ invoiceid: [100, 101, 102] }).success).toBe(true);
+      expect(getInvoiceSchema.safeParse({ invoiceids: [100, 101, 102] }).success).toBe(true);
       expect(getInvoiceSchema.safeParse({ invoiceid: 0 }).success).toBe(false);
       expect(getInvoiceSchema.safeParse({ invoiceid: -5 }).success).toBe(false);
+      expect(getInvoiceSchema.safeParse({ invoiceid: [] }).success).toBe(false);
+      expect(getInvoiceSchema.safeParse({ invoiceids: [] }).success).toBe(false);
+      expect(getInvoiceSchema.safeParse({}).success).toBe(false);
     });
   });
 
