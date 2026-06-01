@@ -291,7 +291,7 @@ export function registerServiceTools(
           'terminate_service',
           params.serviceid
         );
-        const cached = rateLimiter.getCachedResult<object>(idempotencyKey);
+        const cached = rateLimiter.getCachedResult(idempotencyKey);
         if (cached) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(cached) }],

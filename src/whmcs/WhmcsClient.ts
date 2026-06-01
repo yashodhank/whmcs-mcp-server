@@ -299,7 +299,9 @@ export class WhmcsClient {
                       ? body.substring(0, 2000)
                       : typeof body === 'object'
                         ? JSON.stringify(body).substring(0, 2000)
-                        : String(body),
+                        : typeof body === 'number' || typeof body === 'boolean'
+                          ? String(body)
+                          : '[unserializable]',
                 });
               }
               throw new WhmcsTransportError(

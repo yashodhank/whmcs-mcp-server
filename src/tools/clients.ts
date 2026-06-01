@@ -81,7 +81,8 @@ interface WhmcsClientDetails {
 function sanitizeTextInput(input: string): string {
   return input
     .replaceAll(/[<>]/g, '') // Remove HTML-like angle brackets
-    .replaceAll(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+    // eslint-disable-next-line no-control-regex -- strip ASCII control chars from user input
+    .replaceAll(/[\x00-\x1F\x7F]/g, '')
     .trim();
 }
 
@@ -1004,9 +1005,9 @@ export function registerClientTools(
           customfields?: unknown;
           configoptions?: unknown;
         }>(result.products?.product);
-        const product = products[0];
+        const product = products.at(0);
 
-        if (!product) {
+        if (product === undefined) {
           return {
             content: [
               {
@@ -1045,13 +1046,13 @@ export function registerClientTools(
 
         // Normalize custom fields
         const customfieldsContainer =
-          (product.customfields as { customfield?: unknown })?.customfield ?? product.customfields;
+          (product.customfields as { customfield?: unknown }).customfield ?? product.customfields;
         const customfields = normalizeToArray<{ id: number; name: string; value: string }>(
           customfieldsContainer
         );
 
         const configoptionsContainer =
-          (product.configoptions as { configoption?: unknown })?.configoption ??
+          (product.configoptions as { configoption?: unknown }).configoption ??
           product.configoptions;
         const configoptions = normalizeToArray<{ id: number; option: string; value: string }>(
           configoptionsContainer

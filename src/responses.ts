@@ -65,12 +65,12 @@ interface McpToolResponse {
  * @param warnings - Optional warning messages
  * @returns Formatted MCP tool response
  */
-export function success<T>(
-  data: T, 
+export function success(
+  data: unknown,
   message?: string,
   warnings?: string[]
 ): McpToolResponse {
-  const response: SuccessResponse<T> = {
+  const response: SuccessResponse = {
     success: true,
     data,
     ...(message && { message }),
