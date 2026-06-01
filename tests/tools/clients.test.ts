@@ -258,17 +258,34 @@ describe('Client Tools', () => {
   });
 
   describe('get_client_details', () => {
-    it('should validate clientid is positive integer', () => {
+    it('should validate client IDs are positive integers', () => {
       const { z } = require('zod');
-      
-      const getClientDetailsSchema = z.object({
-        clientid: z.number().int().positive('Client ID must be positive'),
-      });
+      const clientIdSchema = z.number().int().positive('Client ID must be positive');
+
+      const getClientDetailsSchema = z
+        .object({
+          clientid: clientIdSchema.or(z.array(clientIdSchema).min(1).max(100)).optional(),
+          clientids: z.array(clientIdSchema).min(1).max(100).optional(),
+        })
+        .superRefine((value, ctx) => {
+          if (value.clientid !== undefined || value.clientids !== undefined) {
+            return;
+          }
+          ctx.addIssue({
+            code: 'custom',
+            message: 'clientid or clientids is required',
+          });
+        });
 
       expect(getClientDetailsSchema.safeParse({ clientid: 123 }).success).toBe(true);
+      expect(getClientDetailsSchema.safeParse({ clientid: [123, 456, 789] }).success).toBe(true);
+      expect(getClientDetailsSchema.safeParse({ clientids: [123, 456, 789] }).success).toBe(true);
       expect(getClientDetailsSchema.safeParse({ clientid: 0 }).success).toBe(false);
       expect(getClientDetailsSchema.safeParse({ clientid: -1 }).success).toBe(false);
       expect(getClientDetailsSchema.safeParse({ clientid: 1.5 }).success).toBe(false);
+      expect(getClientDetailsSchema.safeParse({ clientid: [] }).success).toBe(false);
+      expect(getClientDetailsSchema.safeParse({ clientids: [] }).success).toBe(false);
+      expect(getClientDetailsSchema.safeParse({}).success).toBe(false);
     });
   });
 
