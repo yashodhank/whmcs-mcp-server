@@ -20,6 +20,7 @@ import { registerServiceTools } from './tools/services.js';
 import { registerDomainTools } from './tools/domains.js';
 import { registerSupportTools } from './tools/support.js';
 import { registerListTools } from './tools/listTools.js';
+import { registerReportingListTools } from './tools/reportingListTools.js';
 import { registerTicketThreadTool } from './tools/ticketThreadTool.js';
 import { registerAggregatorTools } from './tools/aggregators.js';
 import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
   registerDomainTools(server, whmcsClient, logger, rateLimiter);
   registerSupportTools(server, whmcsClient, logger, rateLimiter);
   registerListTools(server, whmcsClient, logger, rateLimiter);
+  registerReportingListTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
   registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
