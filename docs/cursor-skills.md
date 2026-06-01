@@ -2,6 +2,8 @@
 
 Recommended [antigravity-awesome-skills](https://github.com/sickn33/antigravity-awesome-skills) for this project. Install with `npx antigravity-awesome-skills --cursor`; then use `@skill-name` in Cursor chat.
 
+Repo-specific agent guidance lives in [AGENTS.md](../AGENTS.md) and [.cursor/rules/whmcs-mcp-server.mdc](../.cursor/rules/whmcs-mcp-server.mdc).
+
 ## MCP and agent design
 
 | Skill | Rationale |

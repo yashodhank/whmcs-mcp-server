@@ -1,6 +1,8 @@
 # WHMCS MCP Server - Development Specification
 
-> **Note:** This document serves as the complete specification for building a production-ready Model Context Protocol (MCP) server that enables AI agents to administrate WHMCS installations.
+> **Note:** This document is the **original full build specification** (tool-by-tool). For current repo orientation — governance, write-flow, env vars, scripts, and doc map — use **[AGENTS.md](AGENTS.md)** and **[README.md](README.md)** first. Archived earlier drafts: [docs/archive/](docs/archive/).
+
+> This document serves as the complete specification for building a production-ready Model Context Protocol (MCP) server that enables AI agents to administrate WHMCS installations.
 
 ## Common MCP Failure Modes (Lessons Learned)
 

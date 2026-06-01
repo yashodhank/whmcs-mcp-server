@@ -2,23 +2,25 @@
 
 A production-ready **Model Context Protocol (MCP)** server that enables AI agents (via Cursor or other MCP hosts) to administrate WHMCS installations through the External API.
 
+For agent/contributor orientation (architecture, governance, write-flow, doc map), see **[AGENTS.md](AGENTS.md)**.
+
 ## Features
 
-- **25 MCP Tools** for comprehensive WHMCS management:
-  - Client management (create, search, get details, update)
-  - Billing operations (invoices, payments, refunds, credits)
-  - Order processing (products, accept orders)
-  - Service lifecycle (suspend, unsuspend, terminate, details)
-  - Domain management (availability, register, renew, transfer, sync)
-  - Support ticketing (create, reply, departments)
+- **~50 MCP tools** across several layers:
+  - **Legacy WHMCS actions** — clients, billing, orders, services, domains, support (direct API wrappers; batch-friendly `get_invoice` / `get_client_details`)
+  - **Governed list & reporting** — per-client lists (`list_client_*`), global `list_invoices` / `list_services`, `get_activity_log`
+  - **Aggregators** — `get_account_360`, `get_billing_snapshot`, `get_support_snapshot`, `get_renewal_snapshot`
+  - **Capability & probes** — `get_capability_matrix`, `get_stats`, transactions, automation log, todo items (`list_users` remains unverified — see [docs/getusers-investigation.md](docs/getusers-investigation.md))
+  - **Controlled write-flow** — `draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent` → `get_write_intent` (production deny-by-default; scopes include e.g. `service:price_restore`)
 
-- **6 MCP Resources** for passive context:
-  - Client summaries
-  - Client activity log (recent orders, invoices, tickets)
-  - Invoice history
-  - Ticket threads
-  - System activity (global activity + admin logs)
-  - Ops playbook
+- **7 MCP resources** for passive context:
+  - Client summary and activity log
+  - Invoice history and ticket thread
+  - System activity (admin)
+  - Ops playbook (`whmcs://docs/ops-playbook`)
+  - WHMCS 8.13 / 9.x compatibility (`whmcs://docs/compat-9x`)
+
+- **Opt-in governance (Phase B)** — consumer registry, data contracts, and projection boundary (`MCP_GOVERNANCE_ENABLED`). See [docs/PHASE_B_GOVERNANCE.md](docs/PHASE_B_GOVERNANCE.md).
 
 - **Safety Features**:
   - Three operation modes: `read_only`, `simulate`, `full`
@@ -32,6 +34,24 @@ A production-ready **Model Context Protocol (MCP)** server that enables AI agent
   - Email/domain normalization and validation (IDN support)
   - Graceful shutdown with cleanup
   - Retry policy with exponential backoff for transient errors
+  - `WHMCS_API_URL` HTTPS enforcement (with explicit `WHMCS_ALLOW_HTTP` for local dev only)
+  - Configurable client custom-field labels (`MCP_CLIENT_CUSTOM_FIELD_LABELS`)
+
+## Documentation
+
+| Topic | Doc |
+|-------|-----|
+| Agent / contributor guide | [AGENTS.md](AGENTS.md) |
+| Local operator runbook | [docs/ai-agent-local-runbook.md](docs/ai-agent-local-runbook.md) |
+| Governance & contracts | [docs/PHASE_B_GOVERNANCE.md](docs/PHASE_B_GOVERNANCE.md) |
+| Controlled writes | [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md) |
+| Production write runbook | [docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md](docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md) |
+| Capability probes | [docs/capability-probe-runbook.md](docs/capability-probe-runbook.md) |
+| Read-only testing | [docs/testing-readonly.md](docs/testing-readonly.md) |
+| Production test program | [docs/whmcs-mcp-production-test-program.md](docs/whmcs-mcp-production-test-program.md) |
+| Local WHMCS stack | [docs/local-whmcs-testing.md](docs/local-whmcs-testing.md) |
+| App examples (`structuredContent`) | [examples/README.md](examples/README.md) |
+| Cursor skills | [docs/cursor-skills.md](docs/cursor-skills.md) |
 
 ## Ops + Dev Deep Dive
 
@@ -154,6 +174,17 @@ cp .env.example .env
 | `MCP_MAX_PAGE_SIZE`  | `100`       | Maximum pagination size                         |
 | `MCP_TOOL_ALLOWLIST` | (empty)     | Comma-separated list of allowed tools           |
 | `MCP_LARGE_REFUND_THRESHOLD` | `1000` | Refunds above this amount require `confirm_large_refund: true` |
+| `MCP_CLIENT_CUSTOM_FIELD_LABELS` | (empty) | Comma-separated `fieldId:label` overrides for client custom fields |
+| `MCP_GOVERNANCE_ENABLED` | `false` | Opt-in consumer-aware projection for reads (see Phase B docs) |
+| `MCP_ALLOW_ANON_LLM` | `false` | Allow anonymous `llm_safe_summary` fallback when governance is on |
+| `MCP_CONSUMER_REGISTRY` | (empty) | JSON consumer registry (`token_sha256` only — see consumer-registry example) |
+| `MCP_PROD_WRITE_AUTHORIZED` | (empty) | Comma-separated WHMCS actions allowed for production write execution |
+| `MCP_WRITE_EXECUTION_AUTHORIZED` | (empty) | Non-prod runtime write allowlist |
+| `MCP_WRITE_KILL_SWITCH` | `false` | Emergency block on controlled writes |
+| `MCP_WRITE_AUDIT_PATH` | (empty) | Durable audit log path (required when prod writes are allowlisted) |
+| `MCP_WRITE_IDEMPOTENCY_PATH` | (empty) | Durable idempotency store path |
+| `MCP_PROD_HIGH_RISK_PER_ACTION_CAP` | `0` | Per-action cap for high-risk write scopes |
+| `MCP_PROD_HIGH_RISK_DAILY_CAP` | `0` | Daily aggregate cap for high-risk writes |
 | `WHMCS_ACCESS_KEY`   | (empty)     | Optional WHMCS API access key (for IP restricted setups) |
 | `WHMCS_ALLOW_HTTP`   | `false`     | Allow an `http://` `WHMCS_API_URL` (not recommended; credentials sent in clear). Otherwise `https` is required. |
 
@@ -226,6 +257,28 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
 - `create_ticket` - Create a support ticket
 - `reply_ticket` - Reply to ticket (client/admin/note)
 - `get_ticket_departments` - List support departments
+
+### Governed lists & reporting
+
+- `list_client_services`, `list_client_domains`, `list_client_invoices`, `list_client_tickets`, `list_client_orders` — paginated per-client lists (honest client-side filters where WHMCS lacks server-side status filters)
+- `list_invoices`, `list_services` — global reporting lists (paid revenue, paying clients, etc.)
+- `get_activity_log` — activity log with canonical mapping when governance is enabled
+- `get_ticket_thread` — full ticket thread (tool; also available as resource URI)
+
+### Aggregators & capability
+
+- `get_account_360`, `get_billing_snapshot`, `get_support_snapshot`, `get_renewal_snapshot`
+- `get_capability_matrix` — version/capability status for integrators
+- `list_client_transactions`, `get_stats`, `get_todo_items`, `get_automation_log`
+- `list_users` — present but **unverified** on production matrix (do not rely without probe)
+
+### Controlled write-flow (Phase F–G+)
+
+These tools perform **no WHMCS mutation** until `execute_write_intent` passes the execution gate (and `MCP_MODE` / authorizer allowlists permit the underlying action):
+
+- `draft_write_intent`, `validate_write_intent`, `approve_write_intent`, `execute_write_intent`, `get_write_intent`
+
+Scopes are consumer-gated and environment-sealed by default in production. See [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md).
 
 ## Authentication & Access Modes
 
@@ -413,7 +466,7 @@ This project follows strict AI coding rules to ensure production-grade quality, 
 3. **Idiomatic Style** (Strict TypeScript, consistent formatting)
 4. **Performance** (Efficient algorithms, proper resource management)
 
-For detailed rules, see [.cursorrules](.cursorrules).
+For detailed rules, see [.cursorrules](.cursorrules) and [.cursor/rules/whmcs-mcp-server.mdc](.cursor/rules/whmcs-mcp-server.mdc).
 
 ## License
 

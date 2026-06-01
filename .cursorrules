@@ -185,3 +185,17 @@ In case of conflict, follow this priority order:
 3) **Idiomatic style for the chosen stack**
 4) **Performance & Scalability**
 5) **Minimal diff & ease of review**
+
+==================================================
+11. WHMCS MCP SERVER (THIS REPO)
+==================================================
+
+When editing this repository:
+
+- MCP transport is **stdio** — never write logs to stdout; use `src/logging.ts` (stderr).
+- Register tools in the appropriate `src/tools/*.ts` module; wire from `src/index.ts`.
+- Tools with `outputSchema` must return **`structuredContent`** valid against that schema.
+- Governance is **opt-in** (`MCP_GOVERNANCE_ENABLED`); default path preserves legacy output.
+- Production **controlled writes** use `src/tools/writeFlow.ts` + `src/write/*` (deny-by-default authorizer); do not bypass without explicit review.
+- Never commit secrets, raw consumer tokens, `.env.local`, or `.cursor/hooks/state/`.
+- Contributor quick reference: **AGENTS.md**; Cursor rule: **.cursor/rules/whmcs-mcp-server.mdc**.
