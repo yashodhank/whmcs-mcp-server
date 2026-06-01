@@ -1,0 +1,35 @@
+---
+description: WHMCS MCP server — tools, governance, writes, and stdio constraints
+globs:
+  - src/**
+  - tests/**
+  - docs/**
+  - scripts/**
+  - "*.md"
+---
+
+# WHMCS MCP Server (Cursor)
+
+## Stack
+
+- TypeScript, `@modelcontextprotocol/sdk`, zod, axios, Vitest.
+- Entry: `src/index.ts` registers tools from `src/tools/*` and resources from `src/resources/`.
+
+## Non-negotiables
+
+- **stdio MCP:** never log to stdout; use `Logger` (stderr).
+- **Secrets:** only in env / secret manager — never commit `WHMCS_SECRET`, `MCP_AUTH_TOKEN`, or raw consumer tokens.
+- **outputSchema:** tools that declare `outputSchema` must return valid `structuredContent` (see `tests/tools/outputSchemaCompliance.test.ts`).
+
+## Before changing tools
+
+1. Find the right module (`listTools.ts`, `aggregators.ts`, `writeFlow.ts`, legacy `billing.ts`, etc.).
+2. Check governance path: `applyGovernanceOrLegacy` / `governedToolResult` when `MCP_GOVERNANCE_ENABLED`.
+3. For mutations: prefer write-flow (`draft_write_intent` … `execute_write_intent`) over ad-hoc `whmcs.mutate` unless explicitly legacy.
+4. Run `npm run typecheck && npm test` after edits.
+
+## Contributor docs
+
+- Quick orientation: [AGENTS.md](../../AGENTS.md)
+- Full spec (legacy): [AGENT.md](../../AGENT.md)
+- Ops runbook: [docs/ai-agent-local-runbook.md](../../docs/ai-agent-local-runbook.md)
