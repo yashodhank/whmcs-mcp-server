@@ -118,14 +118,15 @@ function generateSecurePassword(length = 16): string {
     password += allChars[bytes[i] % allChars.length];
   }
 
-  // Combine and shuffle
-  const combined = required.join('') + password;
-  const shuffled = combined
-    .split('')
-    .sort(() => Math.random() - 0.5)
-    .join('');
+  // Combine and shuffle using Fisher-Yates with cryptographically secure randomness
+  const combined = (required.join('') + password).split('');
+  const shuffleBytes = crypto.randomBytes(combined.length);
+  for (let i = combined.length - 1; i > 0; i--) {
+    const j = shuffleBytes[i] % (i + 1);
+    [combined[i], combined[j]] = [combined[j], combined[i]];
+  }
 
-  return shuffled;
+  return combined.join('');
 }
 
 /**
@@ -770,6 +771,10 @@ export function registerClientTools(
       country: z.string().optional(),
       phonenumber: z.string().optional(),
       notes: z.string().optional(),
+      confirm: z
+        .boolean()
+        .default(false)
+        .describe('Must be true to apply the update (dry-run preview when false)'),
     });
 
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
@@ -800,6 +805,30 @@ export function registerClientTools(
           return clientModeDenied('update_client');
         }
 
+        if (!params.confirm) {
+          const previewFields = Object.entries(params)
+            .filter(
+              ([k, v]) =>
+                !['clientid', 'confirm', 'auth_token', 'contract'].includes(k) && v !== undefined
+            )
+            .map(([k]) => k);
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error:
+                    'Confirmation required. Re-submit with confirm=true to apply the update.',
+                  clientid: params.clientid,
+                  fields_to_update: previewFields,
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         toolLogger.logToolCall('update_client', params, true);
 
         if (!rateLimiter.tryConsume()) {
@@ -821,7 +850,7 @@ export function registerClientTools(
           };
         }
 
-        const { clientid, ...updateFields } = params;
+        const { clientid, confirm: _confirm, auth_token: _authToken, ...updateFields } = params;
 
         // Sanitize text inputs
         const sanitizedFields: Record<string, string | undefined> = {};

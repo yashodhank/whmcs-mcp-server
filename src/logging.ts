@@ -44,6 +44,9 @@ const SENSITIVE_FIELDS = [
   'bearer',
   'auth_token',
   'mcp_auth_token',
+  'accesskey',
+  'access_key',
+  'WHMCS_ACCESS_KEY',
   // Payment data (PCI compliance)
   'cvv',
   'cardnumber',

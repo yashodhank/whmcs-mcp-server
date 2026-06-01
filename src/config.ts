@@ -27,6 +27,17 @@ loadEnv({ quiet: true }); // base .env fallback
  */
 export type McpMode = 'read_only' | 'simulate' | 'full';
 
+/** Block loopback, link-local metadata, and RFC1918 hosts (non-local MCP_ENV only). */
+function isBlockedWhmcsHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  const blocked = ['localhost', '127.0.0.1', '::1', '0.0.0.0', '169.254.169.254'];
+  if (blocked.includes(host)) return true;
+  if (/^10\.\d+\.\d+\.\d+$/.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(host)) return true;
+  if (/^192\.168\.\d+\.\d+$/.test(host)) return true;
+  return false;
+}
+
 /**
  * Configuration schema with Zod validation
  */
@@ -200,6 +211,14 @@ const configSchema = z
             scheme === 'http:'
               ? 'WHMCS_API_URL uses http: credentials would be sent in clear. Use https, or set WHMCS_ALLOW_HTTP=true to override (not recommended).'
               : `WHMCS_API_URL must use the https scheme (got "${scheme}").`,
+        });
+      }
+      if (val.MCP_ENV !== 'local' && isBlockedWhmcsHost(parsedUrl.hostname)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['WHMCS_API_URL'],
+          message:
+            'WHMCS_API_URL must not target localhost, private, or link-local addresses when MCP_ENV is not local (use MCP_ENV=local for dockerized dev).',
         });
       }
     }
