@@ -9,6 +9,7 @@
  * See docs/PHASE_B_GOVERNANCE.md §3.
  */
 import type { Canonical } from '../governance/types.js';
+import { resolveClientCustomFieldLabel } from '../clientCustomFieldLabels.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';
 
 export interface CanonicalCustomField {
@@ -69,11 +70,26 @@ export function mapToCanonicalClient(
   const customFields: CanonicalCustomField[] = listOf(
     src.customfields,
     'customfield'
-  ).map((cf) => ({
-    id: num(cf, 'id') ?? null,
-    name: str(cf, 'fieldname') ?? null,
-    value: str(cf, 'value') ?? null,
-  }));
+  ).map((cf) => {
+    const id = num(cf, 'id');
+    const value = str(cf, 'value') ?? null;
+    const whmcsName = str(cf, 'fieldname') ?? str(cf, 'name') ?? str(cf, 'label');
+    const resolvedName =
+      id !== undefined && value !== null
+        ? resolveClientCustomFieldLabel({
+            id,
+            value,
+            name: str(cf, 'name') ?? undefined,
+            label: str(cf, 'label') ?? undefined,
+            fieldname: str(cf, 'fieldname') ?? undefined,
+          })
+        : whmcsName;
+    return {
+      id: id ?? null,
+      name: resolvedName ?? whmcsName ?? null,
+      value,
+    };
+  });
 
   const data: CanonicalClient = {
     clientId: num(src, 'id') ?? num(src, 'userid') ?? num(src, 'clientid') ?? null,

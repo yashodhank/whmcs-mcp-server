@@ -84,6 +84,29 @@ const configSchema = z
         .map((s) => s.trim())
         .filter(Boolean);
     }, z.array(z.string()).default([])),
+    // Optional id:label map for client custom fields (e.g. "12:Tax ID,34:VAT Number").
+    // Configured labels override WHMCS-provided field names when set.
+    MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess(
+      (val) => {
+        if (!val || val === '') return {};
+        return Object.fromEntries(
+          String(val)
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+            .map((entry) => {
+              const separatorIndex = entry.indexOf(':');
+              if (separatorIndex === -1) return null;
+              const id = Number.parseInt(entry.slice(0, separatorIndex).trim(), 10);
+              const label = entry.slice(separatorIndex + 1).trim();
+              if (!Number.isFinite(id) || id <= 0 || !label) return null;
+              return [String(id), label] as const;
+            })
+            .filter((entry): entry is readonly [string, string] => entry !== null)
+        );
+      },
+      z.record(z.string(), z.string()).default({})
+    ),
     MCP_LARGE_REFUND_THRESHOLD: z.coerce.number().positive().default(1000),
     // Phase B governance: allow the deliberate anonymous llm_safe_summary
     // fallback for unknown/no-token callers. Never grants a privileged
