@@ -72,9 +72,131 @@ interface WhmcsInvoice {
 /**
  * Get invoice input schema
  */
-const getInvoiceSchema = z.object({
-  invoiceid: z.number().int().positive('Invoice ID must be positive'),
-});
+const invoiceIdSchema = z.number().int().positive('Invoice ID must be positive');
+const getInvoiceSchema = z
+  .object({
+    invoiceid: invoiceIdSchema
+      .or(
+        z
+          .array(invoiceIdSchema)
+          .min(1, 'At least one invoice ID is required')
+          .max(config.MCP_MAX_PAGE_SIZE)
+      )
+      .optional()
+      .describe('Single invoice ID, or an array of invoice IDs.'),
+    invoiceids: z
+      .array(invoiceIdSchema)
+      .min(1, 'At least one invoice ID is required')
+      .max(config.MCP_MAX_PAGE_SIZE)
+      .optional()
+      .describe('One or more invoice IDs to fetch in a single call.'),
+  })
+  .superRefine((value, ctx) => {
+    if (value.invoiceid !== undefined || value.invoiceids !== undefined) {
+      return;
+    }
+    ctx.addIssue({
+      code: 'custom',
+      message: 'invoiceid or invoiceids is required',
+    });
+  });
+
+interface InvoiceResponse {
+  invoiceid: number;
+  invoicenum: string | null;
+  clientid: number;
+  date: string;
+  duedate: string;
+  datepaid: string | null;
+  status: string;
+  subtotal: string;
+  total: string;
+  balance: string;
+  tax: string;
+  credit_applied: string;
+  payment_method: string | null;
+  items: {
+    id: number;
+    type: string;
+    description: string;
+    amount: string;
+    taxed: boolean;
+  }[];
+  transactions: {
+    id: number;
+    transid: string;
+    date: string;
+    gateway: string;
+    amount_in: string;
+    amount_out: string;
+  }[];
+}
+
+function resolveInvoiceIds(params: z.infer<typeof getInvoiceSchema>): number[] {
+  if (params.invoiceids && params.invoiceids.length > 0) {
+    return params.invoiceids;
+  }
+
+  if (Array.isArray(params.invoiceid)) {
+    return params.invoiceid;
+  }
+
+  if (params.invoiceid !== undefined) {
+    return [params.invoiceid];
+  }
+
+  return [];
+}
+
+function firstNonEmptyInvoiceText(...values: (string | undefined)[]): string | null {
+  for (const value of values) {
+    if (value !== undefined && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function formatInvoice(invoice: WhmcsInvoice): InvoiceResponse {
+  const items = normalizeToArray<InvoiceItem>(invoice.items?.item);
+  const transactions = normalizeToArray<Transaction>(invoice.transactions?.transaction);
+
+  return {
+    invoiceid: invoice.invoiceid,
+    invoicenum: firstNonEmptyInvoiceText(invoice.invoicenum),
+    clientid: invoice.userid,
+    date: invoice.date,
+    duedate: invoice.duedate,
+    datepaid: firstNonEmptyInvoiceText(invoice.datepaid),
+    status: invoice.status,
+    subtotal: invoice.subtotal,
+    total: invoice.total,
+    balance: invoice.balance,
+    tax: invoice.tax,
+    credit_applied: invoice.credit,
+    payment_method: firstNonEmptyInvoiceText(invoice.paymentmethod),
+    items: items.map((i) => ({
+      id: i.id,
+      type: i.type,
+      description: i.description,
+      amount: i.amount,
+      taxed: i.taxed === 1,
+    })),
+    transactions: transactions.map((t) => ({
+      id: t.id,
+      transid: t.transid,
+      date: t.date,
+      gateway: t.gateway,
+      amount_in: t.amountin,
+      amount_out: t.amountout,
+    })),
+  };
+}
+
+function isBatchInvoiceRequest(params: z.infer<typeof getInvoiceSchema>): boolean {
+  return params.invoiceids !== undefined || Array.isArray(params.invoiceid);
+}
 
 /**
  * Mark invoice paid input schema
@@ -208,63 +330,61 @@ export function registerBillingTools(
         const authError = ensureToolAuth(params as Record<string, unknown>);
         if (authError) return authError;
 
+        const invoiceIds = resolveInvoiceIds(params);
+        if (invoiceIds.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'invoiceid or invoiceids is required.',
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         toolLogger.logToolCall('get_invoice', params, false);
 
-        if (!rateLimiter.tryConsume()) {
-          throw new RateLimitError();
+        const invoices: InvoiceResponse[] = [];
+        for (const invoiceId of invoiceIds) {
+          if (!rateLimiter.tryConsume()) {
+            throw new RateLimitError();
+          }
+
+          const invoice = await whmcsClient.read<WhmcsInvoice>('GetInvoice', {
+            invoiceid: invoiceId,
+          });
+
+          if (isClientMode()) {
+            const ownershipError = ensureClientOwnership(
+              invoice.userid,
+              params as Record<string, unknown>
+            );
+            if (ownershipError) return ownershipError;
+          }
+
+          invoices.push(formatInvoice(invoice));
         }
-
-        const invoice = await whmcsClient.read<WhmcsInvoice>('GetInvoice', {
-          invoiceid: params.invoiceid,
-        });
-
-        if (isClientMode()) {
-          const ownershipError = ensureClientOwnership(
-            invoice.userid,
-            params as Record<string, unknown>
-          );
-          if (ownershipError) return ownershipError;
-        }
-
-        const items = normalizeToArray<InvoiceItem>(invoice.items?.item);
-        const transactions = normalizeToArray<Transaction>(invoice.transactions?.transaction);
 
         toolLogger.logToolResult('get_invoice', true, Date.now() - startTime);
+
+        const batchResponse = isBatchInvoiceRequest(params);
 
         return {
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify({
-                invoiceid: invoice.invoiceid,
-                invoicenum: invoice.invoicenum || null,
-                clientid: invoice.userid,
-                date: invoice.date,
-                duedate: invoice.duedate,
-                datepaid: invoice.datepaid || null,
-                status: invoice.status,
-                subtotal: invoice.subtotal,
-                total: invoice.total,
-                balance: invoice.balance,
-                tax: invoice.tax,
-                credit_applied: invoice.credit,
-                payment_method: invoice.paymentmethod || null,
-                items: items.map((i) => ({
-                  id: i.id,
-                  type: i.type,
-                  description: i.description,
-                  amount: i.amount,
-                  taxed: i.taxed === 1,
-                })),
-                transactions: transactions.map((t) => ({
-                  id: t.id,
-                  transid: t.transid,
-                  date: t.date,
-                  gateway: t.gateway,
-                  amount_in: t.amountin,
-                  amount_out: t.amountout,
-                })),
-              }),
+              text: JSON.stringify(
+                batchResponse
+                  ? {
+                      invoices,
+                      total: invoices.length,
+                    }
+                  : invoices[0]
+              ),
             },
           ],
         };
@@ -294,7 +414,7 @@ export function registerBillingTools(
 
     server.tool(
       'get_invoice',
-      `Get full invoice details including line items and transactions. Version: ${TOOL_VERSION}`,
+      `Get full invoice details for one or more invoices, including line items and transactions. Use invoiceid for one invoice, invoiceid as an array, or invoiceids for multiple invoices. Version: ${TOOL_VERSION}`,
       { ...getInvoiceSchema.shape, ...AUTH_SHAPE },
       handler
     );
