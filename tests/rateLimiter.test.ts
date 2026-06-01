@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { RateLimitError } from '../src/rateLimiter.js';
 
 // Create a minimal mock logger that satisfies the Logger interface
-function createMockLogger() {
+function _createMockLogger() {
   return {
     debug: () => {},
     info: () => {},

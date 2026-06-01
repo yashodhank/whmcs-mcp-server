@@ -247,7 +247,7 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
         failures.push(`${name}: no structuredContent`);
         continue;
       }
-      const validate = ajv.compile(schemaByName.get(name) as object);
+      const validate = ajv.compile(schemaByName.get(name)!);
       if (!validate(res.structuredContent)) {
         const argTag = args.status ? ` [status=${String(args.status)}]` : '';
         failures.push(

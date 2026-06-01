@@ -68,7 +68,7 @@ export function registerCompat9xResource(
 ): void {
   logger.info('Registering WHMCS 8.13/9.x compatibility resource');
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- mirrors the existing resource-registration convention (whmcsOpsPlaybook / resources/index)
+   
   server.resource(
     'compat-9x',
     'whmcs://docs/compat-9x',

@@ -667,7 +667,7 @@ export function registerDomainTools(
     // helpers return the local closed `McpToolResponse`, which is structurally
     // a subtype but not assignable through the inferred overload. Lift the
     // handler and cast once at the boundary — pure type-only refactor.
-    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
+    const handler: ToolCallback<z.ZodRawShape> = ((rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof syncDomainSchema> & { auth_token?: string };
 
       const toolLogger = logger.child();
