@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.securiace.whmcs-ip-updater</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/bin/env</string>
+      <string>python3</string>
+      <string>/ABSOLUTE/PATH/TO/whmcs_ip_updater.py</string>
+      <string>oneshot</string>
+      <string>--ssh-host</string>
+      <string>195.7.4.219</string>
+      <string>--ssh-user</string>
+      <string>whmcs-ip-updater</string>
+      <string>--ssh-key</string>
+      <string>/ABSOLUTE/PATH/TO/id_ed25519_whmcs_updater</string>
+      <string>--ipv6-policy</string>
+      <string>only-if-detected</string>
+      <string>--state-file</string>
+      <string>/Users/REPLACE/.local/state/whmcs-ip-updater/state.json</string>
+      <string>--reason</string>
+      <string>launchd scheduled refresh</string>
+      <string>--validate-api-after-update</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/REPLACE/.local/state/whmcs-ip-updater/launchd.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/REPLACE/.local/state/whmcs-ip-updater/launchd.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+  </dict>
+</plist>
