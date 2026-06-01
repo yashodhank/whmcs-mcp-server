@@ -17,6 +17,7 @@ const { cfg } = vi.hoisted(() => ({
     MCP_DEBUG: false,
     MCP_MAX_PAGE_SIZE: 100,
     MCP_TOOL_ALLOWLIST: [],
+    MCP_CLIENT_CUSTOM_FIELD_LABELS: {},
     MCP_LARGE_REFUND_THRESHOLD: 1000,
     MCP_GOVERNANCE_ENABLED: false,
     MCP_ALLOW_ANON_LLM: false,
@@ -81,6 +82,38 @@ describe('get_client_details (#10 stats counts)', () => {
     expect(payload.product_count_total).toBe(3);
     expect(payload.domain_count).toBe(4);
     expect(payload.domain_count_total).toBe(23);
+  });
+
+  it('applies MCP_CLIENT_CUSTOM_FIELD_LABELS over WHMCS field names in custom_fields', async () => {
+    cfg.MCP_CLIENT_CUSTOM_FIELD_LABELS = { '7': 'Configured Label' };
+    const handlers: Record<string, (p: any) => Promise<any>> = {};
+    const server = { tool: (n: string, _d: string, _s: unknown, cb: any) => { handlers[n] = cb; } };
+
+    const read = vi.fn().mockResolvedValue({
+      id: 30,
+      firstname: 'Test',
+      lastname: 'User',
+      fullname: 'Test User',
+      email: 'client@example.test',
+      status: 'Active',
+      credit: '0',
+      currency_code: 'USD',
+      customfields: [{ id: 7, fieldname: 'WHMCS Name', value: 'cf-value' }],
+      stats: { productsnumactive: 0, productsnumtotal: 0, numactivedomains: 0, numdomains: 0 },
+    });
+    const whmcsClient: any = { read };
+    const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
+    const logger: any = { child: () => childLogger };
+    const rateLimiter: any = { tryConsume: () => true };
+
+    registerClientTools(server as any, whmcsClient, logger, rateLimiter);
+    const res = await handlers.get_client_details({ clientid: 30 });
+    const payload = JSON.parse(res.content[0].text);
+
+    expect(payload.custom_fields).toEqual([
+      { id: 7, label: 'Configured Label', name: 'Configured Label', value: 'cf-value' },
+    ]);
+    cfg.MCP_CLIENT_CUSTOM_FIELD_LABELS = {};
   });
 });
 
