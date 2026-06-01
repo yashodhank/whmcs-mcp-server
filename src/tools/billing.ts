@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
@@ -140,6 +141,43 @@ const capturePaymentSchema = z.object({
 function formatWhmcsDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+}
+
+/**
+ * Build a deterministic synthetic payment transaction ID.
+ * Stable for the same logical payment payload to avoid replay divergence.
+ */
+export function buildDeterministicPaymentTransId(input: {
+  invoiceid: number;
+  gateway: string;
+  amount: number;
+  fees: number;
+  date: string;
+}): string {
+  const material = [
+    String(input.invoiceid),
+    input.gateway,
+    input.amount.toFixed(2),
+    input.fees.toFixed(2),
+    input.date,
+  ].join('|');
+  const digest = createHash('sha256').update(material, 'utf8').digest('hex').slice(0, 16);
+  return `MCP-PAY-${input.invoiceid}-${digest}`;
+}
+
+/**
+ * Build a deterministic synthetic refund transaction ID.
+ * Anchored to the idempotency key so retries re-use the same reference.
+ */
+export function buildDeterministicRefundTransId(input: {
+  invoiceid: number;
+  idempotencyKey: string;
+}): string {
+  const digest = createHash('sha256')
+    .update(`${input.invoiceid}|${input.idempotencyKey}`, 'utf8')
+    .digest('hex')
+    .slice(0, 16);
+  return `REFUND-${input.invoiceid}-${digest}`;
 }
 
 /**
@@ -347,9 +385,20 @@ export function registerBillingTools(
         }
 
         // Determine transaction id
-        const transid = params.transid || `MCP-${params.invoiceid}-${Date.now()}`;
+        const effectiveAmount =
+          typeof params.amount === 'number' ? params.amount : parseNumber(invoice.balance);
+        const effectiveFees = typeof params.fees === 'number' ? params.fees : 0;
+        const transid =
+          params.transid ||
+          buildDeterministicPaymentTransId({
+            invoiceid: params.invoiceid,
+            gateway,
+            amount: effectiveAmount,
+            fees: effectiveFees,
+            date: params.date || 'auto',
+          });
         if (!params.transid) {
-          warnings.push('No transid provided; generated a synthetic transaction ID.');
+          warnings.push('No transid provided; generated a deterministic synthetic transaction ID.');
         }
 
         // Determine date
@@ -378,7 +427,7 @@ export function registerBillingTools(
                 new_status: 'Paid',
                 gateway,
                 transid,
-                amount_recorded: params.amount || parseNumber(invoice.balance),
+                amount_recorded: effectiveAmount,
                 payment_date: paymentDate,
                 email_sent: params.send_email,
                 warnings: warnings.length ? warnings : undefined,
@@ -520,7 +569,6 @@ export function registerBillingTools(
           };
         }
 
-        let newStatus = invoice.status;
         let note = 'Refund recorded in WHMCS. Gateway reversal (if needed) must be done manually.';
         let creditApplied = false;
 
@@ -568,28 +616,21 @@ export function registerBillingTools(
             invoiceid: params.invoiceid,
             description: params.reason ? `Refund: ${params.reason}` : 'Refund',
             amountout: params.amount,
-            transid: `REFUND-${params.invoiceid}-${Date.now()}`,
+            transid: buildDeterministicRefundTransId({
+              invoiceid: params.invoiceid,
+              idempotencyKey,
+            }),
             paymentmethod,
           };
 
           await whmcsClient.mutate('AddTransaction', transactionParams);
-
-          // Check if invoice is fully refunded
-          const newMaxRefundable = maxRefundable - params.amount;
-          if (newMaxRefundable <= 0 && invoice.status === 'Paid') {
-            await whmcsClient.mutate('UpdateInvoice', {
-              invoiceid: params.invoiceid,
-              status: 'Refunded',
-            });
-            newStatus = 'Refunded';
-          }
         }
 
         const result = {
           invoiceid: params.invoiceid,
           amount: params.amount,
           refund_type: params.refund_type,
-          new_invoice_status: newStatus,
+          new_invoice_status: invoice.status,
           credit_applied: creditApplied,
           note,
         };

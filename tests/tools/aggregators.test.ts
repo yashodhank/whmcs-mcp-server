@@ -708,17 +708,25 @@ describe('get_reconciliation_snapshot — Track 2 (transaction & reconciliation 
   });
 
   it('flags unpaid invoice that has a recent payment referencing it', async () => {
+    const nowSpy = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(new Date('2026-05-20T00:00:00.000Z').getTime());
+
     const { handlers } = harness((action: string) => {
       if (action === 'GetInvoices')
         return invoices([{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-08' }]);
       if (action === 'GetTransactions') return FIX.array; // txn 5001 → invoice 11
       return {};
     });
-    const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
-    const p = JSON.parse(res.content[0].text);
-    const flagged = p.reconciliation_ledger.matching.unpaid_with_recent_payment;
-    expect(Array.isArray(flagged)).toBe(true);
-    expect(flagged.some((f: any) => f.invoiceId === 11)).toBe(true);
+    try {
+      const res = await handlers.get_reconciliation_snapshot({ clientid: 30 });
+      const p = JSON.parse(res.content[0].text);
+      const flagged = p.reconciliation_ledger.matching.unpaid_with_recent_payment;
+      expect(Array.isArray(flagged)).toBe(true);
+      expect(flagged.some((f: any) => f.invoiceId === 11)).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('degrades cleanly when GetTransactions is NOT supported — still returns invoices', async () => {
