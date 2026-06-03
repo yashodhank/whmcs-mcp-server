@@ -54,6 +54,31 @@ export const WRITE_SCOPES = [
   // PII record create/edit, not money movement or destruction.
   'client:create',
   'client:update',
+  // ── Track C2 — coverage expansion (new governed scopes, sealed by default).
+  // Each follows the existing seam (SCOPE_ACTION + SCOPE_RISK + REQUIRED_PARAMS
+  // + strict mapper). None is on any default allowlist; the keystone (empty
+  // MCP_PROD_WRITE_AUTHORIZED) keeps every one prod-sealed until an operator
+  // opts in. Money/destructive shapes (service:upgrade, billing:quote:*) are
+  // pinned to the documented WHMCS API and should be capability-probed on a dev
+  // WHMCS before being enabled in production.
+  // Service lifecycle.
+  'service:change_package',
+  'service:upgrade',
+  // Domain config toggles.
+  'domain:idprotect:toggle',
+  'domain:lock:toggle',
+  // Client contacts (PII).
+  'client:contact:add',
+  'client:contact:update',
+  // Billing.
+  'billing:billable_item:add',
+  'billing:quote:create',
+  'billing:quote:update',
+  'billing:quote:send',
+  'billing:quote:accept',
+  // Ticket ops.
+  'ticket:note',
+  'ticket:merge',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -81,6 +106,20 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'order:accept': 'AcceptOrder',
   'client:create': 'AddClient',
   'client:update': 'UpdateClient',
+  // Track C2.
+  'service:change_package': 'ModuleChangePackage',
+  'service:upgrade': 'UpgradeProduct',
+  'domain:idprotect:toggle': 'DomainToggleIdProtect',
+  'domain:lock:toggle': 'DomainUpdateLockingStatus',
+  'client:contact:add': 'AddContact',
+  'client:contact:update': 'UpdateContact',
+  'billing:billable_item:add': 'AddBillableItem',
+  'billing:quote:create': 'CreateQuote',
+  'billing:quote:update': 'UpdateQuote',
+  'billing:quote:send': 'SendQuote',
+  'billing:quote:accept': 'AcceptQuote',
+  'ticket:note': 'AddTicketNote',
+  'ticket:merge': 'MergeTicket',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -133,6 +172,37 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // money caps. (DeleteClient remains in PROD_NEVER_EXECUTABLE; no delete scope.)
   'client:create': 'medium',
   'client:update': 'medium',
+  // ── Track C2 risk tiers ─────────────────────────────────────────────────
+  // Changing a service's module package re-provisions on the server side but
+  // moves no money and is reversible (change back) → medium.
+  'service:change_package': 'medium',
+  // Upgrading a product creates an upgrade order + charges/prorates money and
+  // provisions a new package → high (full deny-by-default gate: allowlist +
+  // human approval + caps).
+  'service:upgrade': 'high',
+  // ID-protection toggle is a reversible privacy flag, no money → low.
+  'domain:idprotect:toggle': 'low',
+  // Registrar transfer-lock toggle: unlocking enables outbound transfers
+  // (security-relevant) → medium ⇒ single approval, audit-gated.
+  'domain:lock:toggle': 'medium',
+  // Adding / editing a client contact touches PII, no money, not destructive
+  // → medium (mirrors client:create/update).
+  'client:contact:add': 'medium',
+  'client:contact:update': 'medium',
+  // Adding a billable item creates a future charge against the client (becomes
+  // money on the next invoice run) but is reversible before invoicing → medium.
+  'billing:billable_item:add': 'medium',
+  // Quote create/update build a non-binding sales document (no money moves
+  // until acceptance) → medium; sending just emails it → low; accepting
+  // converts the quote into an invoice (financial commitment) → high.
+  'billing:quote:create': 'medium',
+  'billing:quote:update': 'medium',
+  'billing:quote:send': 'low',
+  'billing:quote:accept': 'high',
+  // Internal ticket note → low. Merging tickets combines threads
+  // (administrative, semi-reversible) → medium.
+  'ticket:note': 'low',
+  'ticket:merge': 'medium',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */

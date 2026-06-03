@@ -75,7 +75,66 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   // client:update — clientid required PLUS ≥1 updatable field (custom disjunction
   // below). Listing only clientid here avoids forcing every field to be present.
   'client:update': ['clientid'],
+  // ── Track C2 ────────────────────────────────────────────────────────────
+  'service:change_package': ['serviceid'],
+  // service:upgrade — serviceid + type always; the per-type required field
+  // (newproductid / configoptions / addonid) is enforced in a custom block.
+  'service:upgrade': ['serviceid', 'type'],
+  // idprotect / lockstatus are booleans — present(false) is true, so requiring
+  // them here correctly accepts an explicit `false` (disable) value.
+  'domain:idprotect:toggle': ['domainid', 'idprotect'],
+  'domain:lock:toggle': ['domainid', 'lockstatus'],
+  // contact:add — clientid required PLUS ≥1 contact field (custom disjunction).
+  'client:contact:add': ['clientid'],
+  // contact:update — contactid required PLUS ≥1 field (custom disjunction).
+  'client:contact:update': ['contactid'],
+  'billing:billable_item:add': ['clientid', 'description', 'amount'],
+  // quote:create — subject/stage/validuntil + a non-empty items array (custom).
+  'billing:quote:create': ['subject', 'stage', 'validuntil'],
+  // quote:update — quoteid required PLUS ≥1 updatable field (custom disjunction).
+  'billing:quote:update': ['quoteid'],
+  'billing:quote:send': ['quoteid'],
+  'billing:quote:accept': ['quoteid'],
+  'ticket:note': ['ticketid', 'message'],
+  'ticket:merge': ['ticketid', 'mergeticketids'],
 };
+
+/** Contact fields the contact:add / contact:update ≥1-field rules accept. */
+const CONTACT_UPDATABLE_FIELDS: readonly string[] = [
+  'firstname',
+  'lastname',
+  'email',
+  'companyname',
+  'address1',
+  'address2',
+  'city',
+  'state',
+  'postcode',
+  'country',
+  'phonenumber',
+];
+
+/** Quote fields the quote:update ≥1-field rule accepts (besides line items). */
+const QUOTE_UPDATABLE_FIELDS: readonly string[] = [
+  'subject',
+  'stage',
+  'validuntil',
+  'currency',
+  'customernotes',
+];
+
+/** Allowed values for `service:upgrade` `type`. */
+const UPGRADE_TYPE_ENUM: readonly string[] = ['product', 'configoptions', 'addon'];
+
+/** Allowed WHMCS quote stages for `billing:quote:create` / `:update`. */
+const QUOTE_STAGE_ENUM: readonly string[] = [
+  'Draft',
+  'Delivered',
+  'On Hold',
+  'Accepted',
+  'Lost',
+  'Dead',
+];
 
 /**
  * Updatable client fields for the `client:update` ≥1-field rule. Mirrors the
@@ -685,6 +744,239 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
         code: 'invalid_email',
         severity: 'error',
         message: 'client:update `email` must be a valid email address when provided',
+      });
+    }
+  }
+
+  // ── Track C2 validators ───────────────────────────────────────────────────
+  const isPosInt = (v: unknown): boolean =>
+    typeof v === 'number' && Number.isInteger(v) && v > 0;
+
+  const requirePosInt = (key: string, code: string, label: string): void => {
+    if (!isPosInt(intent.params[key])) {
+      issues.push({ code, severity: 'error', message: `${label} must be a positive integer` });
+    }
+  };
+
+  // service:change_package — serviceid positive int (mapper emits only serviceid).
+  if (intent.scope === 'service:change_package') {
+    requirePosInt('serviceid', 'invalid_serviceid', 'service:change_package `serviceid`');
+  }
+
+  // service:upgrade — serviceid positive int; type ∈ enum; per-type required field.
+  if (intent.scope === 'service:upgrade') {
+    requirePosInt('serviceid', 'invalid_serviceid', 'service:upgrade `serviceid`');
+    const type = intent.params.type;
+    if (typeof type !== 'string' || !UPGRADE_TYPE_ENUM.includes(type)) {
+      issues.push({
+        code: 'invalid_upgrade_type',
+        severity: 'error',
+        message: `service:upgrade \`type\` must be one of: ${UPGRADE_TYPE_ENUM.join(', ')}`,
+      });
+    } else if (type === 'product') {
+      requirePosInt('newproductid', 'invalid_newproductid', 'service:upgrade `newproductid`');
+    } else if (type === 'configoptions') {
+      const co = intent.params.configoptions;
+      if (!isPlainObject(co) && !Array.isArray(co)) {
+        issues.push({
+          code: 'invalid_configoptions',
+          severity: 'error',
+          message: 'service:upgrade type=configoptions requires a `configoptions` object/array',
+        });
+      }
+    } else if (type === 'addon') {
+      requirePosInt('addonid', 'invalid_addonid', 'service:upgrade `addonid`');
+    }
+  }
+
+  // domain:idprotect:toggle / domain:lock:toggle — domainid positive int; flag boolean.
+  if (intent.scope === 'domain:idprotect:toggle') {
+    requirePosInt('domainid', 'invalid_domainid', 'domain:idprotect:toggle `domainid`');
+    if (typeof intent.params.idprotect !== 'boolean') {
+      issues.push({
+        code: 'invalid_idprotect',
+        severity: 'error',
+        message: 'domain:idprotect:toggle `idprotect` must be a boolean',
+      });
+    }
+  }
+  if (intent.scope === 'domain:lock:toggle') {
+    requirePosInt('domainid', 'invalid_domainid', 'domain:lock:toggle `domainid`');
+    if (typeof intent.params.lockstatus !== 'boolean') {
+      issues.push({
+        code: 'invalid_lockstatus',
+        severity: 'error',
+        message: 'domain:lock:toggle `lockstatus` must be a boolean',
+      });
+    }
+  }
+
+  // client:contact:add — clientid positive int + ≥1 contact field; email valid if present.
+  if (intent.scope === 'client:contact:add') {
+    requirePosInt('clientid', 'invalid_clientid', 'client:contact:add `clientid`');
+    if (!CONTACT_UPDATABLE_FIELDS.some((k) => present(intent.params[k]))) {
+      issues.push({
+        code: 'empty_contact',
+        severity: 'error',
+        message: `client:contact:add requires clientid plus at least one contact field (${CONTACT_UPDATABLE_FIELDS.join(', ')})`,
+      });
+    }
+    const email = intent.params.email;
+    if (present(email) && (typeof email !== 'string' || !EMAIL_RE.test(email))) {
+      issues.push({
+        code: 'invalid_email',
+        severity: 'error',
+        message: 'client:contact:add `email` must be a valid email address when provided',
+      });
+    }
+  }
+
+  // client:contact:update — contactid positive int + ≥1 field; email valid if present.
+  if (intent.scope === 'client:contact:update') {
+    requirePosInt('contactid', 'invalid_contactid', 'client:contact:update `contactid`');
+    if (!CONTACT_UPDATABLE_FIELDS.some((k) => present(intent.params[k]))) {
+      issues.push({
+        code: 'empty_contact_update',
+        severity: 'error',
+        message: `client:contact:update requires contactid plus at least one contact field (${CONTACT_UPDATABLE_FIELDS.join(', ')})`,
+      });
+    }
+    const email = intent.params.email;
+    if (present(email) && (typeof email !== 'string' || !EMAIL_RE.test(email))) {
+      issues.push({
+        code: 'invalid_email',
+        severity: 'error',
+        message: 'client:contact:update `email` must be a valid email address when provided',
+      });
+    }
+  }
+
+  // billing:billable_item:add — clientid positive int; description string; amount positive number.
+  if (intent.scope === 'billing:billable_item:add') {
+    requirePosInt('clientid', 'invalid_clientid', 'billing:billable_item:add `clientid`');
+    if (present(intent.params.description) && typeof intent.params.description !== 'string') {
+      issues.push({
+        code: 'invalid_description',
+        severity: 'error',
+        message: 'billing:billable_item:add `description` must be a string',
+      });
+    }
+    if (present(intent.params.amount)) {
+      const amt = intent.params.amount;
+      if (typeof amt !== 'number' || !Number.isFinite(amt) || amt <= 0) {
+        issues.push({
+          code: 'non_positive_billable_amount',
+          severity: 'error',
+          message: 'billing:billable_item:add `amount` must be a positive number',
+        });
+      }
+    }
+  }
+
+  // billing:quote:create — stage ∈ enum; non-empty items[{description,amount}];
+  // identity (userid OR email) so WHMCS can attach the quote to a customer.
+  if (intent.scope === 'billing:quote:create') {
+    const stage = intent.params.stage;
+    if (present(stage) && (typeof stage !== 'string' || !QUOTE_STAGE_ENUM.includes(stage))) {
+      issues.push({
+        code: 'invalid_quote_stage',
+        severity: 'error',
+        message: `billing:quote:create \`stage\` must be one of: ${QUOTE_STAGE_ENUM.join(', ')}`,
+      });
+    }
+    const hasUser = isPosInt(intent.params.userid);
+    const email = intent.params.email;
+    const hasEmail = present(email) && typeof email === 'string' && EMAIL_RE.test(email);
+    if (!hasUser && !hasEmail) {
+      issues.push({
+        code: 'missing_quote_identity',
+        severity: 'error',
+        message: 'billing:quote:create requires `userid` OR a valid `email` (customer identity)',
+      });
+    }
+    const items = intent.params.items;
+    if (!Array.isArray(items) || items.length === 0) {
+      issues.push({
+        code: 'invalid_items_shape',
+        severity: 'error',
+        message: 'billing:quote:create `items` must be a non-empty array',
+      });
+    } else {
+      items.forEach((raw, i) => {
+        if (!isPlainObject(raw) || !present(raw.description) || !present(raw.amount)) {
+          issues.push({
+            code: 'invalid_items_shape',
+            severity: 'error',
+            message: `items[${i}] must be an object with description+amount`,
+          });
+        }
+      });
+    }
+  }
+
+  // billing:quote:update — quoteid positive int + ≥1 updatable field (or items);
+  // stage ∈ enum when present.
+  if (intent.scope === 'billing:quote:update') {
+    requirePosInt('quoteid', 'invalid_quoteid', 'billing:quote:update `quoteid`');
+    const stage = intent.params.stage;
+    if (present(stage) && (typeof stage !== 'string' || !QUOTE_STAGE_ENUM.includes(stage))) {
+      issues.push({
+        code: 'invalid_quote_stage',
+        severity: 'error',
+        message: `billing:quote:update \`stage\` must be one of: ${QUOTE_STAGE_ENUM.join(', ')}`,
+      });
+    }
+    const hasField =
+      QUOTE_UPDATABLE_FIELDS.some((k) => present(intent.params[k])) ||
+      (Array.isArray(intent.params.items) && intent.params.items.length > 0);
+    if (!hasField) {
+      issues.push({
+        code: 'empty_quote_update',
+        severity: 'error',
+        message: `billing:quote:update requires quoteid plus at least one field (${QUOTE_UPDATABLE_FIELDS.join(', ')}) or items`,
+      });
+    }
+  }
+
+  // billing:quote:send / billing:quote:accept — quoteid positive int.
+  if (intent.scope === 'billing:quote:send') {
+    requirePosInt('quoteid', 'invalid_quoteid', 'billing:quote:send `quoteid`');
+  }
+  if (intent.scope === 'billing:quote:accept') {
+    requirePosInt('quoteid', 'invalid_quoteid', 'billing:quote:accept `quoteid`');
+  }
+
+  // ticket:note — ticketid positive int (message non-empty enforced by present() loop).
+  if (intent.scope === 'ticket:note') {
+    requirePosInt('ticketid', 'invalid_ticketid', 'ticket:note `ticketid`');
+  }
+
+  // ticket:merge — ticketid positive int; mergeticketids a non-empty array of
+  // positive ints, none equal to the primary ticketid.
+  if (intent.scope === 'ticket:merge') {
+    requirePosInt('ticketid', 'invalid_ticketid', 'ticket:merge `ticketid`');
+    const ids = intent.params.mergeticketids;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      issues.push({
+        code: 'invalid_mergeticketids',
+        severity: 'error',
+        message: 'ticket:merge `mergeticketids` must be a non-empty array of ticket ids',
+      });
+    } else {
+      ids.forEach((id, i) => {
+        if (!isPosInt(id)) {
+          issues.push({
+            code: 'invalid_mergeticketids',
+            severity: 'error',
+            message: `ticket:merge mergeticketids[${String(i)}] must be a positive integer`,
+          });
+        } else if (id === intent.params.ticketid) {
+          issues.push({
+            code: 'invalid_mergeticketids',
+            severity: 'error',
+            message: `ticket:merge mergeticketids[${String(i)}] cannot equal the primary ticketid`,
+          });
+        }
       });
     }
   }
