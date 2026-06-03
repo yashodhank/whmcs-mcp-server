@@ -2,6 +2,27 @@
 
 Newest first.
 
+## 2026-06-04 (Full read+write deep-drive, both legs)
+- Two end-to-end harnesses drive the built MCP server as a client against the
+  dev stack on BOTH legs (WHMCS 9.0 @ :8890, 8.13 @ :8813), localhost-guarded:
+  `npm run mcp:deepdrive:reads` and `npm run mcp:deepdrive:writes` (the latter
+  arms execution fully — MCP_MODE=full, all actions authorized, high caps,
+  consumer cleared + granted every scope — and runs every write scope through
+  draft→validate→approve→execute with read-back + cleanup).
+- **Reads: 44/46 on both legs** (2 gated by design; 2 dev API-role 403s —
+  `GetPayMethods`/`GetWHMCSDetails`, env permission gap, identical both legs).
+- **Writes: 0 FAIL on both legs.** 9.0 → 16 EXECUTED / 10 GATE-OK / 6
+  DESIGN-DENY; 8.13 → 17 / 9 / 6. EXECUTED = gate authorized + WHMCS wrote
+  (read-back ok). GATE-OK = governed path authorized, dev WHMCS rejected
+  downstream (`Module Not Found` / registrar / SMTP / AddClient email-storage
+  bug) — env, not code. DESIGN-DENY = safety stops firing: amount-less high-risk
+  cap-denied (capture/register/renew/upgrade/quote:accept) + permanent-block
+  (terminate).
+- Findings: the write-path PAN scanner correctly rejected a draft with a
+  13-digit timestamp in the email (card-length range); `domain:transfer`/
+  `:release` are not draftable (block-list-only strings, intended). Evidence in
+  `docs/write-capability-probe-runbook.md` deep-drive appendix.
+
 ## 2026-06-04 (Track C2 probe — cross-version, WHMCS 8.13 + 9.0)
 - Ran the reachability probe against **both** dev legs (8.13 @ :8813 and 9.0 @
   :8890, one replicated credential). **Identical: 12/13 reachable on both**; the

@@ -276,3 +276,60 @@ reversible scope `client:contact:add`:
 
 This confirms the governed mapper output is not just reachable but actually
 executes and reads back correctly on both WHMCS versions, with no residue.
+
+---
+
+## Appendix — 2026-06-04 full read+write deep-drive (both legs)
+
+Beyond the reachability probe, two end-to-end harnesses drive the BUILT MCP
+server as a client against the local dev stack, on BOTH legs (WHMCS 9.0 @ :8890,
+WHMCS 8.13 @ :8813). Dev-only (localhost-guarded).
+
+- `npm run mcp:deepdrive:reads` — calls every read/aggregator/capability tool.
+- `npm run mcp:deepdrive:writes` — arms write execution fully (MCP_MODE=full,
+  all actions runtime-authorized, high caps, a consumer cleared for execution +
+  granted every write scope) and runs EVERY write scope through
+  draft→validate→approve→execute with read-back + cleanup.
+
+### Reads — 44/46 on BOTH legs
+
+2 GATED by design (`get_reconciliation_snapshot`, `list_users`/`GetUsers`).
+2 dev API-role gaps (`get_pay_methods`/`GetPayMethods`,
+`get_whmcs_details`/`GetWHMCSDetails` → HTTP 403; grant those actions to the
+dev API role to clear). All single-entity, list, reference reads + all 13
+aggregators returned non-error structured content on both versions.
+
+### Writes — 0 FAIL on BOTH legs
+
+| Leg | EXECUTED | GATE-OK | DESIGN-DENY | FAIL |
+|---|---|---|---|---|
+| WHMCS 9.0 (:8890) | 16 | 10 | 6 | 0 |
+| WHMCS 8.13 (:8813) | 17 | 9 | 6 | 0 |
+
+- **EXECUTED** — gate authorized AND WHMCS performed the write (read-back
+  confirmed): client_note, client:update, ticket create/reply*/note/status,
+  contact add/update, billable_item*, invoice:create, domain idprotect/lock*/
+  nameservers, credit:add/payment:add/credit:apply, quote create/update/send.
+- **GATE-OK** — governed path authorized; WHMCS rejected downstream due to the
+  DEV environment, not our code: `Module Not Found` (no real provisioning
+  server) for service:suspend/unsuspend/change_package; registrar/SMTP/data
+  errors for some domain/refund/order/price_restore ops; `AddClient` blocked by
+  the dev welcome-email attachment-storage bug (client:create). (Which scopes
+  land EXECUTED vs GATE-OK differs by one between 8.13/9.0 — a WHMCS version
+  behavior difference, not a defect.)
+- **DESIGN-DENY (safety stops firing correctly)** — high-risk WITHOUT a bounding
+  amount cap-denied: `billing:payment:capture`, `domain:register`,
+  `domain:renew`, `service:upgrade`, `billing:quote:accept`
+  (`amount_cap_exceeded`); and `service:terminate`
+  (`action_permanently_blocked`).
+
+Notes:
+- `domain:transfer` / `domain:release` are NOT in `WRITE_SCOPES` — they exist
+  only as defensive strings in `PROD_NEVER_EXECUTABLE_SCOPES`, so they are not
+  draftable (`z.enum(WRITE_SCOPES)` rejects them). Intended.
+- The write-path **PAN scanner** correctly rejected a draft whose synthetic
+  email carried a 13-digit timestamp (credit-card length range) — the guard
+  works; test data was shortened.
+- Residue on dev: each writes run adds a small account credit to client 1 and a
+  cancelled test invoice (`DeleteInvoice` is not a WHMCS API action, so test
+  invoices are Cancelled, not deleted). Harmless on the scrubbed dev copy.

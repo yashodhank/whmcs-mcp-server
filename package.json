@@ -40,7 +40,9 @@
     "whmcs:test:down": "docker compose -f docker-compose.whmcs-test.yml down -v",
     "whmcs:test:replicate-cred": "bash deploy/whmcs-test/replicate-cred.sh",
     "mcp:test:production-program": "node scripts/mcp-production-test-program.mjs",
-    "mcp:write-probe": "tsx scripts/mcp-write-capability-probe.mjs"
+    "mcp:write-probe": "tsx scripts/mcp-write-capability-probe.mjs",
+    "mcp:deepdrive:reads": "node scripts/mcp-deepdrive-reads.mjs",
+    "mcp:deepdrive:writes": "tsx scripts/mcp-deepdrive-writes.mjs"
   },
   "keywords": [
     "mcp",
