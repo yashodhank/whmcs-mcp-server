@@ -251,6 +251,18 @@ const configSchema = z
     // (LRU-evicted) + idle TTL after which an unused session is swept/closed.
     MCP_HTTP_MAX_SESSIONS: z.coerce.number().int().min(1).max(100000).default(256),
     MCP_HTTP_SESSION_IDLE_MS: z.coerce.number().int().min(1000).default(300000),
+    // ── OAuth 2.1 resource-server (HTTP only; default OFF ⇒ registry bearer) ──
+    // When enabled, HTTP bearer tokens are validated as JWTs (jose) against the
+    // configured issuer(s) with audience == MCP_OAUTH_RESOURCE (RFC 8707), and a
+    // PRM document is served at /.well-known/oauth-protected-resource (RFC 9728).
+    MCP_OAUTH_ENABLED: z.preprocess((val) => val === 'true' || val === '1', z.boolean().default(false)),
+    MCP_OAUTH_RESOURCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    MCP_OAUTH_AUDIENCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    MCP_OAUTH_ISSUERS: z.preprocess((val) => {
+      const raw = preprocessCommaSeparatedString(val);
+      if (raw === '') return [];
+      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }, z.array(z.string()).default([])),
   })
   .superRefine((val, ctx) => {
     // Phase G+ fail-fast misconfiguration guards.

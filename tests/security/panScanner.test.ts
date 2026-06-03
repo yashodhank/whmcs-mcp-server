@@ -122,6 +122,40 @@ describe('PAN Scanner', () => {
       const hits = scanForPAN('1234567890123456');
       expect(hits).toHaveLength(0);
     });
+
+    it('should still detect dashed/spaced 16-digit PANs after regex tightening', () => {
+      expect(scanForPAN('4111-1111-1111-1111')).toContain('4111111111111111');
+      expect(scanForPAN('4111 1111 1111 1111')).toContain('4111111111111111');
+    });
+
+    // ---------------------------------------------------------------
+    // Bounded scan (DoS amplification guard) — fail-safe, never throws
+    // ---------------------------------------------------------------
+    it('should not throw and should terminate on a huge separator-heavy string', () => {
+      // Adversarial input: lots of digits and separators, far over the cap.
+      const adversarial = '1 2 3 4 5 -'.repeat(200_000); // ~2.2M chars
+      let hits: string[] = [];
+      expect(() => {
+        hits = scanForPAN(adversarial);
+      }).not.toThrow();
+      // No valid Luhn PAN here, so nothing detected — and it must finish.
+      expect(hits).toHaveLength(0);
+    });
+
+    it('should not throw on extremely deep nesting (fail-safe stop)', () => {
+      // Build nesting deeper than MAX_DEPTH; a PAN beyond the depth bound is
+      // simply not scanned (fail-safe) rather than causing a throw.
+      let nested: unknown = '4111111111111111';
+      for (let i = 0; i < 50; i++) {
+        nested = { next: nested };
+      }
+      expect(() => scanForPAN(nested)).not.toThrow();
+    });
+
+    it('should still detect a PAN within the depth bound', () => {
+      const data = { a: { b: { c: { d: '4111111111111111' } } } };
+      expect(scanForPAN(data)).toContain('4111111111111111');
+    });
   });
 
   // -----------------------------------------------------------------

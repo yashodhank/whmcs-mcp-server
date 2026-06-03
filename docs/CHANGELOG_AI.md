@@ -2,6 +2,27 @@
 
 Newest first.
 
+## 2026-06-03 (OAuth request-path wiring + HTTP→tool identity binding)
+- **OAuth 2.1 resource-server WIRED** into the HTTP transport (opt-in
+  `MCP_OAUTH_ENABLED`): PRM route (`/.well-known/oauth-protected-resource`,
+  unauth), JWT verification at the auth boundary (jose; aud/iss/exp/alg), 401 +
+  `WWW-Authenticate: Bearer resource_metadata="…"`, claims→ConsumerProfile bridge,
+  and a coarse boundary **scope gate** (read vs write-tier; in-house authorizer
+  still does fine-grained). Config: MCP_OAUTH_{ENABLED,RESOURCE,AUDIENCE,ISSUERS}.
+- **HIGH fix — HTTP→tool identity binding (H2).** The HTTP layer now OVERWRITES
+  the tools/call `auth_token` with a trusted `${TRANSPORT_BOUND_PREFIX}<id>`
+  marker for the TRANSPORT-authenticated consumer; `resolveConsumer` honors it
+  ONLY when binding is enabled (HTTP process, via `enableTransportConsumerBinding`)
+  — stdio ignores it. So tool governance is driven by the authenticated bearer,
+  not a client-supplied `auth_token`; a client can't smuggle a different identity.
+  Works for both registry-bearer and OAuth modes. Tests: transportBinding (4),
+  oauth (5), transport (16).
+- **Review cleanup (parallel agents):** strict allowlists on the passthrough
+  write mappers (ticket create/reply/status, invoice payment/create — no more
+  arbitrary field forwarding); `redactSensitive` recurses into arrays;
+  `scanForPAN` bounded (64KB/depth-8, fail-safe) + tightened PAN_REGEX.
+- Full suite **1147 pass, 3×/3 green**. tsc/eslint/build clean.
+
 ## 2026-06-03 (8-agent review fixes + OAuth modules)
 - **CRITICAL fix — payment-instrument leak.** `project()` walks only top-level
   keys, so nested `payMethods[].card.*` secret labels were DEAD → raw card/bank/

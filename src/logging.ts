@@ -70,19 +70,29 @@ const SENSITIVE_FIELDS = [
 /**
  * Redact sensitive fields from an object
  */
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    // Recurse into array ELEMENTS so secrets nested inside arrays-of-objects
+    // are redacted too.
+    return value.map((element) => redactValue(element));
+  }
+  if (value && typeof value === 'object') {
+    return redactSensitive(value as Record<string, unknown>);
+  }
+  return value;
+}
+
 function redactSensitive(data: Record<string, unknown>): Record<string, unknown> {
   const redacted: Record<string, unknown> = {};
-  
+
   for (const [key, value] of Object.entries(data)) {
     if (SENSITIVE_FIELDS.some((field) => key.toLowerCase().includes(field.toLowerCase()))) {
       redacted[key] = '[REDACTED]';
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      redacted[key] = redactSensitive(value as Record<string, unknown>);
     } else {
-      redacted[key] = value;
+      redacted[key] = redactValue(value);
     }
   }
-  
+
   return redacted;
 }
 

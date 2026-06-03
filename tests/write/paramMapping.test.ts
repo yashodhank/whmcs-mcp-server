@@ -179,6 +179,145 @@ describe('paramMapping — per-scope (8)', () => {
   });
 });
 
+describe('paramMapping — strict allowlists drop injected keys', () => {
+  it('ticket:create allows legit fields, drops admin-only/injected keys', () => {
+    const out = mapTicketCreateParams({
+      deptid: 3,
+      subject: 's',
+      message: 'm',
+      clientid: 7,
+      name: 'N',
+      email: 'a@b.co',
+      priority: 'High',
+      serviceid: 12,
+      // injected / admin-only — must be dropped
+      status: 'Closed',
+      adminid: 1,
+      date: '2026-01-01',
+      markdown: true,
+      evil: true,
+    });
+    expect(out).toEqual({
+      deptid: 3,
+      subject: 's',
+      message: 'm',
+      clientid: 7,
+      name: 'N',
+      email: 'a@b.co',
+      priority: 'High',
+      serviceid: 12,
+    });
+    for (const k of ['status', 'adminid', 'date', 'markdown', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
+  });
+
+  it('ticket:reply allows ticketid/message/clientid/name/email, drops the rest', () => {
+    const out = mapTicketReplyParams({
+      ticketid: 1,
+      message: 'hi',
+      clientid: 9,
+      name: 'N',
+      email: 'a@b.co',
+      status: 'Closed',
+      adminid: 1,
+      markdown: true,
+      evil: true,
+    });
+    expect(out).toEqual({
+      ticketid: 1,
+      message: 'hi',
+      clientid: 9,
+      name: 'N',
+      email: 'a@b.co',
+    });
+    for (const k of ['status', 'adminid', 'markdown', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
+  });
+
+  it('ticket:status allows only ticketid/status, drops everything else', () => {
+    const out = mapTicketStatusParams({
+      ticketid: 1,
+      status: 'Closed',
+      adminid: 1,
+      flag: 2,
+      evil: true,
+    });
+    expect(out).toEqual({ ticketid: 1, status: 'Closed' });
+    for (const k of ['adminid', 'flag', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
+  });
+
+  it('billing:invoice:create allows allowlisted top-level fields, drops unknown keys', () => {
+    const out = mapInvoiceCreateParams({
+      userid: 5,
+      status: 'Draft',
+      date: '2026-01-01',
+      duedate: '2026-01-08',
+      paymentmethod: 'stripe',
+      taxrate: 18,
+      taxrate2: 0,
+      notes: 'n',
+      items: [{ description: 'A', amount: 10 }],
+      // injected — must be dropped
+      sendinvoice: 1,
+      autoapplycredit: 1,
+      evil: true,
+    });
+    expect(out.userid).toBe(5);
+    expect(out.status).toBe('Draft');
+    expect(out.date).toBe('2026-01-01');
+    expect(out.duedate).toBe('2026-01-08');
+    expect(out.paymentmethod).toBe('stripe');
+    expect(out.taxrate).toBe(18);
+    expect(out.taxrate2).toBe(0);
+    expect(out.notes).toBe('n');
+    expect(out.itemdescription1).toBe('A');
+    expect(out.itemamount1).toBe(10);
+    for (const k of ['items', 'sendinvoice', 'autoapplycredit', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
+  });
+
+  it('billing:payment:add allows invoiceid/amount/gateway/transid/date, drops the rest', () => {
+    const out = mapInvoicePaymentParams(
+      {
+        invoiceid: 9,
+        amount: 50,
+        gateway: 'stripe',
+        transid: 'EXPLICIT-1',
+        date: '2026-01-01',
+        // injected — must be dropped
+        status: 'Closed',
+        adminid: 1,
+        amountin: 999,
+        evil: true,
+      },
+      { idempotency_key: 'K' }
+    );
+    expect(out).toEqual({
+      invoiceid: 9,
+      amount: 50,
+      gateway: 'stripe',
+      transid: 'EXPLICIT-1',
+      date: '2026-01-01',
+    });
+    for (const k of ['status', 'adminid', 'amountin', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
+  });
+
+  it('billing:payment:add omits gateway when blank but still synthesizes transid', () => {
+    const out = mapInvoicePaymentParams({ invoiceid: 9, amount: 50 }, { idempotency_key: 'K' });
+    expect(out).not.toHaveProperty('gateway');
+    expect(typeof out.transid).toBe('string');
+    expect(out.invoiceid).toBe(9);
+    expect(out.amount).toBe(50);
+  });
+});
+
 describe('intentToWhmcsParams — dispatcher', () => {
   it('routes client_note:write through mapClientNoteParams', () => {
     const out = intentToWhmcsParams('client_note:write', { clientid: 1, note: 'x' });
