@@ -1139,3 +1139,56 @@ describe('classifyAggregateKey (Track B taxonomy)', () => {
     expect(classifyAggregateKey('address')).toBe('pii.address');
   });
 });
+
+describe('get_domain_portfolio_snapshot', () => {
+  const pricing = {
+    result: 'success',
+    currency: { id: '1', code: 'USD' },
+    pricing: {
+      '.com': { renew: { '1': '11.95' }, register: { '1': '9.95' }, transfer: { '1': '9.95' } },
+      '.co.uk': { renew: { '1': '8.00' }, register: { '1': '7.00' }, transfer: { '1': '0' } },
+    },
+  };
+  const domains = {
+    domains: {
+      domain: [
+        { id: 1, domainname: 'a.com', status: 'Active', registrar: 'enom', expirydate: '2099-01-01', idprotection: '1', registrarlock: 'on' },
+        { id: 2, domainname: 'b.co.uk', status: 'Active', registrar: 'enom', expirydate: '2000-01-01', donotrenew: '1' },
+        { id: 3, domainname: 'c.xyz', status: 'Pending', expirydate: '2099-06-01' },
+      ],
+    },
+  };
+
+  it('matches longest-suffix renewal cost, computes days, summarizes', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetTLDPricing') return pricing;
+      if (action === 'GetClientsDomains') return domains;
+      return {};
+    });
+    const p = JSON.parse((await handlers.get_domain_portfolio_snapshot({ clientid: 30 })).content[0].text);
+    expect(p.currency).toBe('USD');
+    expect(p.summary.total).toBe(3);
+    // b.co.uk expired (2000) ⇒ counts as expiring (<=30, >= -3650? no, way past) — exclude very old via floor.
+    const byName = Object.fromEntries(p.domains.map((d: any) => [d.domain, d]));
+    expect(byName['a.com'].estimated_renewal_cost).toBe(11.95);
+    expect(byName['a.com'].id_protection).toBe(true);
+    expect(byName['a.com'].registrar_lock).toBe(true);
+    expect(byName['b.co.uk'].estimated_renewal_cost).toBe(8); // longest-suffix .co.uk, not .uk
+    expect(byName['b.co.uk'].do_not_renew).toBe(true);
+    expect(byName['c.xyz'].estimated_renewal_cost).toBeNull(); // no .xyz price
+    expect(p.summary.priced_domains).toBe(2);
+    expect(p.summary.estimated_total_renewal_cost).toBeCloseTo(19.95);
+  });
+
+  it('pricing failure is best-effort: domains still returned, costs null, partial_errors recorded', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetTLDPricing') throw new Error('pricing-down');
+      if (action === 'GetClientsDomains') return domains;
+      return {};
+    });
+    const p = JSON.parse((await handlers.get_domain_portfolio_snapshot({ clientid: 30 })).content[0].text);
+    expect(p.summary.total).toBe(3);
+    expect(p.domains.every((d: any) => d.estimated_renewal_cost === null)).toBe(true);
+    expect(p.partial_errors.some((e: any) => e.section === 'tld_pricing' && /pricing-down/.test(e.error))).toBe(true);
+  });
+});

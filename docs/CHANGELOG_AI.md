@@ -2,6 +2,15 @@
 
 Newest first.
 
+## 2026-06-03 (Phase 2 B1)
+- **get_domain_portfolio_snapshot** (aggregators.ts) — composes GetClientsDomains
+  + GetTLDPricing → per-domain status/registrar/expiry/days-to-expiry/lock/
+  id-protection + estimated 1-yr renewal cost (longest-suffix TLD match). Summary
+  (total, expiring≤30d, total renewal cost, priced count). Pricing best-effort
+  (fault-isolated → partial_errors). Shares AGGREGATOR_OUTPUT_SCHEMA (`truncated`
+  is an object). Tests: longest-suffix match (.co.uk vs .uk), unpriced TLD,
+  pricing-failure degradation. Full suite 862 pass.
+
 ## 2026-06-03 (Phase 1 reads + cache + review fixes)
 - **A1 get_server_health** ← GetServers (+GetHealthStatus allowlisted, unused).
   Canonical `server` (hostname/IP→system.diagnostic, counts→public.safe).
