@@ -16,6 +16,30 @@ import { normalizeToArray, whmcsToBool } from '../whmcs/normalizers.js';
 const TOOL_VERSION = 'v1';
 
 /**
+ * MCP tool annotation hints (spec 2025-11-25). UNTRUSTED UX hints only;
+ * governance/capability registry remains the authority. openWorldHint true —
+ * orders touch the external WHMCS/provisioning system.
+ */
+/** Read-only (list_products). */
+const READ_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+/**
+ * Additive order acceptance (accept_order): non-destructive. Idempotent — the
+ * tool dedupes via an idempotency key and re-accepting an order is a no-op.
+ */
+const ACCEPT_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+/**
  * Product structure from GetProducts
  *
  * Note: `pricing` is a passthrough of whatever the raw WHMCS GetProducts API
@@ -191,10 +215,13 @@ export function registerOrderTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'list_products',
-      `List available WHMCS products with optional filtering. Version: ${TOOL_VERSION}`,
-      { ...listProductsSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `List available WHMCS products with optional filtering. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...listProductsSchema.shape, ...AUTH_SHAPE },
+        annotations: READ_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -296,10 +323,13 @@ export function registerOrderTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'accept_order',
-      `Accept a pending WHMCS order. WARNING: If autosetup is true, WHMCS will attempt to contact the provisioning server and may fail if it is offline. Version: ${TOOL_VERSION}`,
-      { ...acceptOrderSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Accept a pending WHMCS order. WARNING: If autosetup is true, WHMCS will attempt to contact the provisioning server and may fail if it is offline. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...acceptOrderSchema.shape, ...AUTH_SHAPE },
+        annotations: ACCEPT_ANNOTATIONS,
+      },
       handler
     );
   }

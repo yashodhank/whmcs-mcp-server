@@ -337,7 +337,7 @@ describe('Client read tools — governed path', () => {
 
   function harness(read: any) {
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { tool: (n: string, _d: string, _s: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
     const whmcsClient: any = { read, isReadOnly: () => true };
     const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn() };
     childLogger.child = () => childLogger as unknown;

@@ -2,6 +2,15 @@
 
 Newest first.
 
+## 2026-06-03 (annotation hints — clients/domains/orders)
+- Migrated `server.tool()` → `server.registerTool(...)` in clients/domains/orders
+  and set all 4 annotation hints per tool (readOnly/destructive/idempotent/
+  openWorld). transfer_domain → destructiveHint:true. No new outputSchema (avoids
+  the compliance-test structuredContent requirement). Behavior unchanged.
+- Note: `entityOwnership.ts` evaluated for adoption — DECLINED as redundant;
+  `get_invoice`/`get_ticket_thread`/invoice+ticket resources already enforce
+  client-mode ownership via the wired `ensureClientOwnership`.
+
 ## 2026-06-03 (progress notifications + Track C money scopes — parallel)
 - **MCP progress notifications** on heavy aggregators (get_account_360,
   get_reconciliation_snapshot/export, get_provisioning_snapshot): per-section

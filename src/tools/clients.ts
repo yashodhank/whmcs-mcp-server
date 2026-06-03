@@ -32,6 +32,39 @@ import crypto from 'node:crypto';
 const TOOL_VERSION = 'v1';
 
 /**
+ * MCP tool annotation hints (spec 2025-11-25). These are UNTRUSTED UX hints,
+ * not server-side enforcement (governance/capability registry remains the
+ * authority). openWorldHint is true for every tool here because WHMCS is an
+ * external system.
+ */
+/** Read-only tools: no mutation, idempotent. Mirrors READ_ONLY_ANNOTATIONS. */
+const READ_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+/** Additive create (create_client): non-destructive, NOT idempotent. */
+const CREATE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+} as const;
+
+/**
+ * In-place field update (update_client): non-destructive (no deletion), and
+ * idempotent — re-applying the same field values yields the same end state.
+ */
+const UPDATE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+/**
  * Client summary from GetClients
  */
 interface WhmcsClientSummary {
@@ -495,10 +528,13 @@ export function registerClientTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'create_client',
-      `Create a new WHMCS client or reuse existing one by email. Version: ${TOOL_VERSION}`,
-      { ...createClientSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Create a new WHMCS client or reuse existing one by email. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...createClientSchema.shape, ...AUTH_SHAPE },
+        annotations: CREATE_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -610,10 +646,13 @@ export function registerClientTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'search_clients',
-      `Search for WHMCS clients by name, email, or company. Returns minimal summary. Version: ${TOOL_VERSION}`,
-      { ...searchClientsSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Search for WHMCS clients by name, email, or company. Returns minimal summary. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...searchClientsSchema.shape, ...AUTH_SHAPE },
+        annotations: READ_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -746,10 +785,13 @@ export function registerClientTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'get_client_details',
-      `Get full WHMCS customer/client details for one or more clients, including contact data, status, credit balance, product/domain counts, payment gateway, and custom fields. Use clientid for one client, clientid as an array, or clientids for multiple clients. Version: ${TOOL_VERSION}`,
-      { ...getClientDetailsSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Get full WHMCS customer/client details for one or more clients, including contact data, status, credit balance, product/domain counts, payment gateway, and custom fields. Use clientid for one client, clientid as an array, or clientids for multiple clients. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...getClientDetailsSchema.shape, ...AUTH_SHAPE },
+        annotations: READ_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -914,10 +956,13 @@ export function registerClientTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'update_client',
-      `Update an existing client's details. Only provided fields will be updated. Version: ${TOOL_VERSION}`,
-      { ...updateClientSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Update an existing client's details. Only provided fields will be updated. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...updateClientSchema.shape, ...AUTH_SHAPE },
+        annotations: UPDATE_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -1113,10 +1158,13 @@ export function registerClientTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'get_service_details',
-      `Get detailed information about a client's service/product. Version: ${TOOL_VERSION}`,
-      { ...getServiceDetailsSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Get detailed information about a client's service/product. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...getServiceDetailsSchema.shape, ...AUTH_SHAPE },
+        annotations: READ_ANNOTATIONS,
+      },
       handler
     );
   }
