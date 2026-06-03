@@ -307,6 +307,30 @@ export function mapDomainNameserversParams(
   return out;
 }
 
+/**
+ * `billing:payment:capture` `{invoiceid}` → WHMCS `CapturePayment` `{invoiceid}`.
+ * STRICT 1-key output. CVV is NEVER accepted or emitted by this governed path
+ * (the legacy capture_payment tool forwarded an optional CVV; the governed
+ * scope deliberately omits it — no card data flows through the write-flow).
+ * Any extra input key is dropped (defense in depth).
+ */
+export function mapPaymentCaptureParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return { invoiceid: params.invoiceid };
+}
+
+/**
+ * `billing:credit:apply` `{invoiceid, amount}` → WHMCS `ApplyCredit`
+ * `{invoiceid, amount}`. STRICT 2-key output; extras dropped.
+ */
+export function mapCreditApplyParams(params: Record<string, unknown>): Record<string, unknown> {
+  return {
+    invoiceid: params.invoiceid,
+    amount: params.amount,
+  };
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -353,6 +377,10 @@ export function intentToWhmcsParams(
       return mapServiceTerminateParams(params);
     case 'domain:nameservers:update':
       return mapDomainNameserversParams(params);
+    case 'billing:payment:capture':
+      return mapPaymentCaptureParams(params);
+    case 'billing:credit:apply':
+      return mapCreditApplyParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls

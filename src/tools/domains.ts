@@ -15,6 +15,41 @@ import { ensureToolAuth, clientModeDenied, isClientMode, AUTH_SHAPE } from '../s
 const TOOL_VERSION = 'v1';
 
 /**
+ * MCP tool annotation hints (spec 2025-11-25). UNTRUSTED UX hints only — the
+ * capability registry / governance layer remains the authority. openWorldHint
+ * is true everywhere: domain ops reach external registrars/registries.
+ */
+/** Read-only (check_domain_availability, sync_domain — never mutates). */
+const READ_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
+/**
+ * Additive registrar write that is NOT idempotent (register_domain,
+ * renew_domain — each renew extends the term). Non-destructive.
+ */
+const NON_IDEMPOTENT_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+} as const;
+
+/**
+ * Irreversible registrar write (transfer_domain): moves a domain between
+ * registrars — destructive and not safely repeatable.
+ */
+const DESTRUCTIVE_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: true,
+} as const;
+
+/**
  * Check domain availability input schema
  */
 const checkDomainSchema = z.object({
@@ -220,10 +255,13 @@ export function registerDomainTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'check_domain_availability',
-      `Check if a domain is available for registration. Version: ${TOOL_VERSION}`,
-      { ...checkDomainSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Check if a domain is available for registration. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...checkDomainSchema.shape, ...AUTH_SHAPE },
+        annotations: READ_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -389,10 +427,13 @@ export function registerDomainTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'register_domain',
-      `Register a domain with the registrar. Requires domain to be in Pending status. Version: ${TOOL_VERSION}`,
-      { ...registerDomainSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Register a domain with the registrar. Requires domain to be in Pending status. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...registerDomainSchema.shape, ...AUTH_SHAPE },
+        annotations: NON_IDEMPOTENT_WRITE_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -517,10 +558,13 @@ export function registerDomainTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'renew_domain',
-      `Renew a domain with the registrar. The domain must be active and eligible for renewal. Version: ${TOOL_VERSION}`,
-      { ...renewDomainSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Renew a domain with the registrar. The domain must be active and eligible for renewal. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...renewDomainSchema.shape, ...AUTH_SHAPE },
+        annotations: NON_IDEMPOTENT_WRITE_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -646,10 +690,13 @@ export function registerDomainTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'transfer_domain',
-      `Initiate a domain transfer from another registrar. Requires valid EPP code for most TLDs. Version: ${TOOL_VERSION}`,
-      { ...transferDomainSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Initiate a domain transfer from another registrar. Requires valid EPP code for most TLDs. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...transferDomainSchema.shape, ...AUTH_SHAPE },
+        annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+      },
       handler
     );
   }
@@ -727,10 +774,13 @@ export function registerDomainTools(
       }
     }) as unknown as ToolCallback<z.ZodRawShape>;
 
-    server.tool(
+    server.registerTool(
       'sync_domain',
-      `Sync domain status and expiry date with the registrar. NOTE: WHMCS performs domain sync via cron; there is no external API endpoint. Version: ${TOOL_VERSION}`,
-      { ...syncDomainSchema.shape, ...AUTH_SHAPE },
+      {
+        description: `Sync domain status and expiry date with the registrar. NOTE: WHMCS performs domain sync via cron; there is no external API endpoint. Version: ${TOOL_VERSION}`,
+        inputSchema: { ...syncDomainSchema.shape, ...AUTH_SHAPE },
+        annotations: READ_ANNOTATIONS,
+      },
       handler
     );
   }

@@ -453,6 +453,110 @@ interface PartialError {
 }
 
 /**
+ * The slice of the SDK `RequestHandlerExtra` (`ToolCallback` 2nd arg) this
+ * module needs for MCP progress notifications (spec 2025-11-25). Kept as a
+ * narrow structural type so we depend only on the two fields we use and stay
+ * forward-compatible with the SDK's wider shape:
+ *  - `_meta.progressToken` — the opaque token the client supplies when it
+ *    wants out-of-band progress (request `_meta`); absent ⇒ no progress.
+ *  - `sendNotification` — emits `notifications/progress` related to this call.
+ */
+interface ProgressExtra {
+  _meta?: { progressToken?: string | number };
+  sendNotification?: (notification: {
+    method: 'notifications/progress';
+    params: {
+      progressToken: string | number;
+      progress: number;
+      total?: number;
+      message?: string;
+    };
+  }) => Promise<unknown>;
+}
+
+/**
+ * Live, section-by-section progress emitter for the slow fan-out aggregators.
+ *
+ * FEATURE-DETECT / NO-OP: progress is emitted ONLY when the client supplied a
+ * `progressToken` in the request `_meta` AND the transport exposes
+ * `sendNotification`. Absent either, every method is a silent no-op, so the
+ * default (no-token) path is completely unchanged and aggregator results are
+ * byte-identical whether or not progress is emitted.
+ *
+ * NEVER THROWS: emission is fire-and-forget and fully wrapped in try/catch
+ * (sync throw) plus a rejection handler (async throw) so a misbehaving
+ * transport can never turn an aggregator into a failure.
+ *
+ * NO PII / SECRETS: messages are section names + counts only.
+ */
+class AggregatorProgress {
+  private readonly token: string | number | undefined;
+  private readonly send: ProgressExtra['sendNotification'] | undefined;
+  private done = 0;
+
+  constructor(
+    private readonly total: number,
+    extra?: ProgressExtra
+  ) {
+    const token = extra?._meta?.progressToken;
+    // Feature-detect: only arm when BOTH a token and a sender are present.
+    if (
+      (typeof token === 'string' || typeof token === 'number') &&
+      typeof extra?.sendNotification === 'function'
+    ) {
+      this.token = token;
+      this.send = extra.sendNotification;
+    }
+  }
+
+  /** True when the client armed progress (token + sender present). */
+  private get active(): boolean {
+    return this.send !== undefined && this.token !== undefined;
+  }
+
+  /**
+   * Mark `section` complete and emit cumulative progress
+   * ("section X/total"). No-op when inactive; never throws.
+   */
+  section(section: string): void {
+    if (!this.active) return;
+    this.done = Math.min(this.done + 1, this.total);
+    this.emit(`${section} ${String(this.done)}/${String(this.total)}`);
+  }
+
+  /**
+   * Force a terminal `progress === total` ping. Use after all sections so the
+   * final notification always reports completion. No-op when inactive.
+   */
+  finish(): void {
+    if (!this.active) return;
+    this.done = this.total;
+    this.emit(`complete ${String(this.total)}/${String(this.total)}`);
+  }
+
+  private emit(message: string): void {
+    if (this.send === undefined || this.token === undefined) return;
+    try {
+      void Promise.resolve(
+        this.send({
+          method: 'notifications/progress',
+          params: {
+            progressToken: this.token,
+            progress: this.done,
+            total: this.total,
+            message,
+          },
+        })
+      ).catch(() => {
+        // Swallow async transport errors — progress is best-effort only.
+      });
+    } catch {
+      // Swallow sync throws — progress must never break an aggregator.
+    }
+  }
+}
+
+/**
  * Run a sub-read with fault isolation. On failure, records a
  * `{ section, error }` entry and returns the supplied fallback.
  */
@@ -616,7 +720,14 @@ function register(
   extra: z.ZodRawShape,
   logger: Logger,
   rl: RateLimiter,
-  run: (params: Record<string, unknown>) => Promise<unknown>
+  // The 2nd arg is the SDK `RequestHandlerExtra` (narrowed to `ProgressExtra`),
+  // forwarded so a `run` callback can emit MCP progress notifications. It is
+  // OPTIONAL: existing aggregators that ignore it are unaffected (backward
+  // compatible — they simply never read the 2nd arg).
+  run: (
+    params: Record<string, unknown>,
+    extra?: ProgressExtra
+  ) => Promise<unknown>
 ): void {
   if (!isToolAllowed(name)) return;
   const schema = z.object({
@@ -632,7 +743,10 @@ function register(
   // lacks the SDK's `[x: string]: unknown` index signature, so the inferred
   // callback return type is not structurally assignable to `ToolCallback`.
   // This is a type-only boundary cast; runtime behavior is unchanged.
-  const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (
+    params: Record<string, unknown>,
+    extra?: ProgressExtra
+  ) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
@@ -658,7 +772,7 @@ function register(
       }
       log.logToolCall(name, params, false);
       if (!rl.tryConsume()) throw new RateLimitError();
-      const payload = await run(params);
+      const payload = await run(params, extra);
       log.logToolResult(name, true, Date.now() - t0);
       return applyGovernanceOrLegacy({
         enabled: governanceEnabled(),
@@ -722,15 +836,19 @@ export function registerAggregatorTools(
     { recent: z.number().int().min(1).max(20).default(5) },
     logger,
     rl,
-    async (params) => {
+    async (params, extra) => {
       const errs: PartialError[] = [];
       const cid = requireClientId(params);
       const n = num(params, 'recent') ?? 5;
+      // 6 fan-out sections: client, services, domains, invoices, orders,
+      // tickets. Progress is a no-op unless the client supplied a token.
+      const progress = new AggregatorProgress(6, extra);
       const cd = asRecord(
         await safeSection('client', errs, {}, () =>
           whmcs.read('GetClientsDetails', { clientid: cid, stats: true })
         )
       );
+      progress.section('client');
       const st = asRecord(cd.stats);
       const services = await safeSection('services', errs, [], async () =>
         norm<WhmcsRow>(
@@ -738,12 +856,14 @@ export function registerAggregatorTools(
           'product'
         ).map(mapServiceRow)
       );
+      progress.section('services');
       const domains = await safeSection('domains', errs, [], async () =>
         norm<WhmcsRow>(
           (await whmcs.read<Record<string, unknown>>('GetClientsDomains', { clientid: cid, limitnum: n })).domains,
           'domain'
         ).map(mapDomainRow)
       );
+      progress.section('domains');
       const invoices = await safeSection('invoices', errs, [], async () =>
         norm<WhmcsRow>(
           (
@@ -757,6 +877,7 @@ export function registerAggregatorTools(
           'invoice'
         ).map(mapInvoiceSummaryRow)
       );
+      progress.section('invoices');
       const orders = await safeSection('orders', errs, [], async () =>
         norm<WhmcsRow>(
           (await whmcs.read<Record<string, unknown>>('GetOrders', { userid: cid, limitnum: 25 })).orders,
@@ -766,6 +887,7 @@ export function registerAggregatorTools(
           .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
           .slice(0, n)
       );
+      progress.section('orders');
       const tickets = await safeSection('tickets', errs, [], async () =>
         norm<WhmcsRow>(
           (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
@@ -775,6 +897,8 @@ export function registerAggregatorTools(
           .sort((a, b) => ticketSortKey(b).localeCompare(ticketSortKey(a)))
           .slice(0, n)
       );
+      progress.section('tickets');
+      progress.finish();
       return {
         client: {
           clientid: num(cd, 'id'),
@@ -1271,9 +1395,15 @@ export function registerAggregatorTools(
     {},
     logger,
     rl,
-    async (params) => {
+    async (params, extra) => {
       const cid = requireClientId(params);
       const errs: PartialError[] = [];
+      // Sections: invoices always; transactions only when GetTransactions is
+      // supported (composed path). Size the total accordingly up-front so the
+      // final progress always equals total.
+      const txnSupported =
+        getCapability('GetTransactions').status === 'supported';
+      const progress = new AggregatorProgress(txnSupported ? 2 : 1, extra);
       const invoices = await safeSection('invoices', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
           userid: cid,
@@ -1283,6 +1413,7 @@ export function registerAggregatorTools(
         });
         return norm<WhmcsRow>(r.invoices, 'invoice').map(mapReconInvoiceRow);
       });
+      progress.section('invoices');
 
       const base: Record<string, unknown> = {
         clientid: cid,
@@ -1302,6 +1433,7 @@ export function registerAggregatorTools(
       // snapshot still returns invoices.
       const cap = getCapability('GetTransactions');
       if (cap.status !== 'supported') {
+        progress.finish();
         return { ...base, transactions: capSection('GetTransactions') };
       }
 
@@ -1332,6 +1464,8 @@ export function registerAggregatorTools(
           bounded: canon.length >= RECON_TX_FETCH_LIMIT,
         };
       });
+      progress.section('transactions');
+      progress.finish();
       const reconTxns = txnResult.rows;
       const txnPageBounded = txnResult.bounded;
 
@@ -1378,9 +1512,11 @@ export function registerAggregatorTools(
     {},
     logger,
     rl,
-    async (params) => {
+    async (params, extra) => {
       const cid = requireClientId(params);
       const errs: PartialError[] = [];
+      // 2 fan-out sections: services, orders.
+      const progress = new AggregatorProgress(2, extra);
       const services = await safeSection('services', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
           clientid: cid,
@@ -1388,6 +1524,7 @@ export function registerAggregatorTools(
         });
         return norm<WhmcsRow>(r.products, 'product').map(mapProvisioningServiceRow);
       });
+      progress.section('services');
       const orders = await safeSection('orders', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetOrders', {
           userid: cid,
@@ -1395,6 +1532,8 @@ export function registerAggregatorTools(
         });
         return norm<WhmcsRow>(r.orders, 'order').map(mapOrderRow);
       });
+      progress.section('orders');
+      progress.finish();
       return {
         clientid: cid,
         services,
@@ -1640,9 +1779,16 @@ export function registerAggregatorTools(
     {},
     logger,
     rl,
-    async (params) => {
+    async (params, extra) => {
       const cid = requireClientId(params);
       const errs: PartialError[] = [];
+
+      // Sections: invoices always; transactions only when supported.
+      const cap = getCapability('GetTransactions');
+      const progress = new AggregatorProgress(
+        cap.status === 'supported' ? 2 : 1,
+        extra
+      );
 
       const invoices = await safeSection('invoices', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
@@ -1653,8 +1799,8 @@ export function registerAggregatorTools(
         });
         return norm<WhmcsRow>(r.invoices, 'invoice').map(mapReconInvoiceRow);
       });
+      progress.section('invoices');
 
-      const cap = getCapability('GetTransactions');
       const base: Record<string, unknown> = {
         clientid: cid,
         source_invoice_ids: invoices.map((i) => i.invoiceid),
@@ -1665,6 +1811,7 @@ export function registerAggregatorTools(
       // Without GetTransactions we cannot pair payments — degrade clearly:
       // emit invoice-only entries (unmatched) and a capability marker.
       if (cap.status !== 'supported') {
+        progress.finish();
         const entries = invoices.map((inv) => ({
           invoice_id: inv.invoiceid,
           invoice_total: inv.total,
@@ -1697,6 +1844,8 @@ export function registerAggregatorTools(
           return mapToCanonicalTransactions(r).map((c) => c.data);
         }
       );
+      progress.section('transactions');
+      progress.finish();
 
       // Index invoices by id; build the normalized ledger.
       const invById = new Map<number, (typeof invoices)[number]>();

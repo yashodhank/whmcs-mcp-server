@@ -2,6 +2,27 @@
 
 Newest first.
 
+## 2026-06-03 (annotation hints — clients/domains/orders)
+- Migrated `server.tool()` → `server.registerTool(...)` in clients/domains/orders
+  and set all 4 annotation hints per tool (readOnly/destructive/idempotent/
+  openWorld). transfer_domain → destructiveHint:true. No new outputSchema (avoids
+  the compliance-test structuredContent requirement). Behavior unchanged.
+- Note: `entityOwnership.ts` evaluated for adoption — DECLINED as redundant;
+  `get_invoice`/`get_ticket_thread`/invoice+ticket resources already enforce
+  client-mode ownership via the wired `ensureClientOwnership`.
+
+## 2026-06-03 (progress notifications + Track C money scopes — parallel)
+- **MCP progress notifications** on heavy aggregators (get_account_360,
+  get_reconciliation_snapshot/export, get_provisioning_snapshot): per-section
+  `notifications/progress` via `extra.sendNotification` + `_meta.progressToken`.
+  No-op without a token (results byte-identical); never throws; counts/section
+  names only. register() extended to pass `(params, extra)` backward-compatibly.
+- **Track C money scopes** (completes the governed billing surface):
+  `billing:payment:capture`→CapturePayment, `billing:credit:apply`→ApplyCredit,
+  both **high-risk** (full gate). Strict mappers (no CVV ever). Legacy
+  `capture_payment`/`apply_credit` retired by default (legacyWriteToolsEnabled).
+- 2 parallel agents (disjoint files). Full suite **1007 pass**. tsc/eslint/build clean.
+
 ## 2026-06-03 (MCP resource templates + completions + logging — parallel)
 - **Resource templates** (`ResourceTemplate`): `whmcs://client/{clientid}/{summary,
   services,domains}`, `whmcs://invoice/{invoiceid}/history`,

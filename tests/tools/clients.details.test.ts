@@ -47,7 +47,7 @@ import { __resetRegistryCacheForTests } from '../../src/governance/pipeline.js';
 describe('get_client_details (#10 stats counts)', () => {
   it('passes stats:true and maps product/domain counts from result.stats', async () => {
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { tool: (n: string, _d: string, _s: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
 
     const read = vi.fn().mockResolvedValue({
       id: 30,
@@ -87,7 +87,7 @@ describe('get_client_details (#10 stats counts)', () => {
   it('applies MCP_CLIENT_CUSTOM_FIELD_LABELS over WHMCS field names in custom_fields', async () => {
     cfg.MCP_CLIENT_CUSTOM_FIELD_LABELS = { '7': 'Configured Label' };
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { tool: (n: string, _d: string, _s: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
 
     const read = vi.fn().mockResolvedValue({
       id: 30,
@@ -122,7 +122,7 @@ describe('get_client_details (governed path)', () => {
 
   function harness() {
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { tool: (n: string, _d: string, _s: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
     const read = vi.fn().mockResolvedValue({
       id: 30,
       firstname: 'Test',

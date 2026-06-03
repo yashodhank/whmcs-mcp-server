@@ -818,7 +818,7 @@ export function registerBillingTools(
   // ============================================
   // Tool: capture_payment
   // ============================================
-  if (isToolAllowed('capture_payment')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('capture_payment')) {
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
     // open `[x: string]: unknown` index signature; our shared `ensure*`/result
     // helpers return the local closed `McpToolResponse`, which is structurally
@@ -1280,7 +1280,7 @@ export function registerBillingTools(
   // ============================================
   // Tool: apply_credit
   // ============================================
-  if (isToolAllowed('apply_credit')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('apply_credit')) {
     const applyCreditSchema = z.object({
       invoiceid: z.number().int().positive('Invoice ID must be positive'),
       amount: z

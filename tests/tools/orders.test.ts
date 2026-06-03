@@ -299,7 +299,7 @@ describe('list_products → output mapping with slug+pricing', () => {
   function harness(extra: Record<string, unknown> = {}) {
     const handlers: Record<string, Handler> = {};
     const server = {
-      tool: (n: string, _d: string, _s: unknown, cb: Handler) => {
+      registerTool: (n: string, _cfg: unknown, cb: Handler) => {
         handlers[n] = cb;
       },
     };
@@ -407,7 +407,7 @@ describe('list_products → output mapping with slug+pricing', () => {
   it('include_hidden=false still drops hidden rows in the new shape', async () => {
     const handlers: Record<string, Handler> = {};
     const server = {
-      tool: (n: string, _d: string, _s: unknown, cb: Handler) => {
+      registerTool: (n: string, _cfg: unknown, cb: Handler) => {
         handlers[n] = cb;
       },
     };

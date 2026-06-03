@@ -57,6 +57,11 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'service:unsuspend': ['serviceid'],
   'service:terminate': ['serviceid'],
   'domain:nameservers:update': ['domainid', 'nameservers'],
+  // Track C — legacy money tools migrated to governed scopes.
+  // billing:payment:capture — captures against an invoice's stored token.
+  'billing:payment:capture': ['invoiceid'],
+  // billing:credit:apply — applies account credit against a specific invoice.
+  'billing:credit:apply': ['invoiceid', 'amount'],
 };
 
 /**
@@ -493,6 +498,41 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
           });
         }
       });
+    }
+  }
+
+  // Track C — billing:payment:capture: invoiceid must be a positive integer.
+  // (No CVV is ever accepted or validated here; the mapper never emits it.)
+  if (intent.scope === 'billing:payment:capture') {
+    const inv = intent.params.invoiceid;
+    if (typeof inv !== 'number' || !Number.isInteger(inv) || inv <= 0) {
+      issues.push({
+        code: 'invalid_invoiceid',
+        severity: 'error',
+        message: 'billing:payment:capture `invoiceid` must be a positive integer',
+      });
+    }
+  }
+
+  // Track C — billing:credit:apply: invoiceid positive int + amount positive number.
+  if (intent.scope === 'billing:credit:apply') {
+    const inv = intent.params.invoiceid;
+    if (typeof inv !== 'number' || !Number.isInteger(inv) || inv <= 0) {
+      issues.push({
+        code: 'invalid_invoiceid',
+        severity: 'error',
+        message: 'billing:credit:apply `invoiceid` must be a positive integer',
+      });
+    }
+    if (present(intent.params.amount)) {
+      const amt = intent.params.amount;
+      if (typeof amt !== 'number' || !Number.isFinite(amt) || amt <= 0) {
+        issues.push({
+          code: 'non_positive_credit_apply_amount',
+          severity: 'error',
+          message: 'billing:credit:apply `amount` must be a positive number',
+        });
+      }
     }
   }
 
