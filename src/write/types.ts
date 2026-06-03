@@ -41,6 +41,14 @@ export const WRITE_SCOPES = [
   // the direct-mutate path into the governed tiered model. Both high-risk.
   'billing:payment:capture',
   'billing:credit:apply',
+  // Track C — legacy domain/order direct-mutate tools (register_domain /
+  // renew_domain / accept_order) migrated into the governed tiered model.
+  // register/renew are high-risk (irreversible-ish registrar spend); accept is
+  // medium (provisions, but reversible/administrative). NOTE: domain transfer
+  // stays blocked (DomainTransfer ∈ PROD_NEVER_EXECUTABLE) — no scope added.
+  'domain:register',
+  'domain:renew',
+  'order:accept',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -63,6 +71,9 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'domain:nameservers:update': 'DomainUpdateNameservers',
   'billing:payment:capture': 'CapturePayment',
   'billing:credit:apply': 'ApplyCredit',
+  'domain:register': 'DomainRegister',
+  'domain:renew': 'DomainRenew',
+  'order:accept': 'AcceptOrder',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -100,6 +111,16 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // Applying account credit against an invoice moves money against billing
   // records → high.
   'billing:credit:apply': 'high',
+  // Registering a domain spends money at the registrar and is irreversible-ish
+  // (a registration cannot be cleanly undone) → high (full deny-by-default gate:
+  // allowlist + human approval + caps).
+  'domain:register': 'high',
+  // Renewing a domain spends money at the registrar and extends the term → high.
+  'domain:renew': 'high',
+  // Accepting an order provisions services but is reversible/administrative
+  // (an order can be re-set to pending / a service cancelled) → medium ⇒ single
+  // approval, audit-gated, no money caps.
+  'order:accept': 'medium',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */

@@ -9,7 +9,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { isToolAllowed } from '../config.js';
+import { isToolAllowed, legacyWriteToolsEnabled } from '../config.js';
 import { ensureToolAuth, clientModeDenied, isClientMode, AUTH_SHAPE } from '../security.js';
 
 const TOOL_VERSION = 'v1';
@@ -269,7 +269,10 @@ export function registerDomainTools(
   // ============================================
   // Tool: register_domain
   // ============================================
-  if (isToolAllowed('register_domain')) {
+  // Legacy direct-mutate tool — superseded by the governed `domain:register`
+  // write scope. Retired from the default surface; gate behind
+  // legacyWriteToolsEnabled() (MCP_ENABLE_LEGACY_WRITE_TOOLS=true to re-expose).
+  if (legacyWriteToolsEnabled() && isToolAllowed('register_domain')) {
     const registerDomainSchema = z.object({
       domainid: z.number().int().positive('Domain ID must be positive').optional(),
       domain: z.string().optional(),
@@ -441,7 +444,9 @@ export function registerDomainTools(
   // ============================================
   // Tool: renew_domain
   // ============================================
-  if (isToolAllowed('renew_domain')) {
+  // Legacy direct-mutate tool — superseded by the governed `domain:renew` write
+  // scope. Retired from the default surface; gate behind legacyWriteToolsEnabled().
+  if (legacyWriteToolsEnabled() && isToolAllowed('renew_domain')) {
     const renewDomainSchema = z.object({
       domainid: z.number().int().positive('Domain ID must be positive').optional(),
       domain: z.string().optional(),
