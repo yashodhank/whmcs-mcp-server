@@ -78,6 +78,13 @@ export const WRITE_SCOPES = [
   'billing:quote:accept',
   // Ticket ops.
   'ticket:note',
+  // CAVEAT (capability-probe 2026-06-04, dev WHMCS 9): the `MergeTicket` API
+  // action returned "Invalid Permissions: API action 'mergeticket' is not
+  // allowed" — it is NOT in the default WHMCS API permission set. The scope's
+  // mapper/validation are correct, but it can only EXECUTE on an install whose
+  // API role explicitly permits `mergeticket`. Stays defined + deny-by-default;
+  // an operator must confirm API permission before enabling it. See
+  // docs/write-capability-probe-runbook.md.
   'ticket:merge',
 ] as const;
 

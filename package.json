@@ -39,7 +39,8 @@
     "whmcs:test:bootstrap": "bash deploy/whmcs-test/bootstrap-from-source-snapshot.sh",
     "whmcs:test:down": "docker compose -f docker-compose.whmcs-test.yml down -v",
     "whmcs:test:replicate-cred": "bash deploy/whmcs-test/replicate-cred.sh",
-    "mcp:test:production-program": "node scripts/mcp-production-test-program.mjs"
+    "mcp:test:production-program": "node scripts/mcp-production-test-program.mjs",
+    "mcp:write-probe": "tsx scripts/mcp-write-capability-probe.mjs"
   },
   "keywords": [
     "mcp",

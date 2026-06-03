@@ -2,6 +2,28 @@
 
 Newest first.
 
+## 2026-06-04 (Track C2 capability probe on dev WHMCS)
+- **Capability-probed all 13 Track C2 write scopes** against the local dev
+  WHMCS 9.0.1 (`localhost:8890`, scrubbed copy) before any production enablement.
+  New guarded probe `scripts/mcp-write-capability-probe.mjs` (`npm run
+  mcp:write-probe`): refuses any non-`localhost` target / `MCP_ENV=production`,
+  calls each C2 action with a non-existent id so WHMCS rejects at entity lookup
+  — **zero mutation** — and classifies reachability.
+- **Result: 12/13 reachable**, including the high-risk money actions
+  `UpgradeProduct` and `AcceptQuote` — each accepted the governed mapper's exact
+  param shape. Two findings code review alone missed:
+  - `CreateQuote` is NOT server-side entity-validated (created a quote for a
+    bogus userid). The probe now skips its live call; the one orphan quote from
+    the exploratory run was deleted via `DeleteQuote`. A real quote:create probe
+    needs a seeded throwaway client.
+  - `MergeTicket` is API-permission-gated (`"API action 'mergeticket' is not
+    allowed"`) — not in the default WHMCS API permission set. `ticket:merge`
+    stays defined + deny-by-default with a caveat in `types.ts`; an operator must
+    confirm the install's API role permits it before enabling.
+- Docs: `docs/write-capability-probe-runbook.md` (operator procedure + 2026-06-04
+  evidence appendix) and `docs/consumer-registry.c2-example.json` (dev consumer
+  granting a representative C2 scope subset, env-restricted to local/staging).
+
 ## 2026-06-04 (vitest CVE patch + Track C2 governed write scopes)
 - **Security — vitest CVE patched.** Bumped `vitest` + `@vitest/coverage-v8`
   `^4.0.15 → ^4.1.8` (GHSA-5xrq-8626-4rwp: Vitest UI server arbitrary file
