@@ -1081,6 +1081,91 @@ export function registerAggregatorTools(
     }
   );
 
+  register(
+    server,
+    'get_accounts_receivable_aging',
+    'Read-only A/R aging for a client: unpaid + overdue invoices bucketed by days-past-due (current / 1-30 / 31-60 / 61-90 / 90+), with per-bucket count + outstanding amount and a total. Sub-reads fault-isolated.',
+    { clientid: z.number().int().positive().optional() },
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = requireClientId(params);
+      const today = new Date().toISOString().slice(0, 10);
+      const daysPastDue = (due?: string): number | null => {
+        if (!due || !/^\d{4}-\d{2}-\d{2}/.test(due)) return null;
+        const ms = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due.slice(0, 10)}T00:00:00Z`);
+        return Number.isFinite(ms) ? Math.round(ms / 86400000) : null;
+      };
+      const outstanding = (inv: WhmcsRow): number => {
+        const bal = num(inv, 'balance');
+        if (bal !== undefined && Number.isFinite(bal)) return bal;
+        const total = num(inv, 'total') ?? 0;
+        const paid = num(inv, 'amountpaid') ?? 0;
+        return total - paid;
+      };
+
+      const fetchByStatus = async (status: string): Promise<WhmcsRow[]> =>
+        norm<WhmcsRow>(
+          (
+            await whmcs.read<Record<string, unknown>>('GetInvoices', {
+              userid: cid,
+              status,
+              limitnum: RENEWAL_FETCH_LIMIT,
+            })
+          ).invoices,
+          'invoice'
+        );
+
+      const invoices = await safeSection<WhmcsRow[]>('invoices', errs, [], async () => {
+        const [unpaid, overdue] = await Promise.all([
+          fetchByStatus('Unpaid'),
+          fetchByStatus('Overdue'),
+        ]);
+        // De-dup by invoice id (an overdue invoice may appear in both lists).
+        const byId = new Map<string, WhmcsRow>();
+        for (const inv of [...unpaid, ...overdue]) {
+          byId.set(String(num(inv, 'id') ?? str(inv, 'id') ?? Math.random()), inv);
+        }
+        return [...byId.values()];
+      });
+
+      const buckets = {
+        current: { count: 0, amount: 0 },
+        d1_30: { count: 0, amount: 0 },
+        d31_60: { count: 0, amount: 0 },
+        d61_90: { count: 0, amount: 0 },
+        d90_plus: { count: 0, amount: 0 },
+      };
+      let currency: string | null = null;
+      for (const inv of invoices) {
+        currency ??= str(inv, 'currencycode') ?? str(inv, 'currency') ?? null;
+        const amt = outstanding(inv);
+        const dpd = daysPastDue(str(inv, 'duedate'));
+        const b =
+          dpd === null || dpd <= 0
+            ? buckets.current
+            : dpd <= 30
+              ? buckets.d1_30
+              : dpd <= 60
+                ? buckets.d31_60
+                : dpd <= 90
+                  ? buckets.d61_90
+                  : buckets.d90_plus;
+        b.count += 1;
+        b.amount += amt;
+      }
+      const total = Object.values(buckets).reduce((a, b) => a + b.amount, 0);
+      return {
+        clientid: cid,
+        currency,
+        buckets,
+        summary: { open_invoices: invoices.length, total_outstanding: total },
+        partial_errors: errs,
+      };
+    }
+  );
+
   // ── Phase D aggregators (compose governed reads; degrade on unavailable
   //    capability; source IDs included; partial/incomplete clearly marked) ──
 

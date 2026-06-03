@@ -65,6 +65,12 @@ const UNVERIFIED_READS: readonly (readonly [action: string, capability: string])
   // these to `supported`.
   ['GetServers', 'get_server_health'],
   ['GetTLDPricing', 'get_tld_pricing'],
+  // Track A (batch 2)
+  ['GetContacts', 'get_client_contacts'],
+  ['GetPayMethods', 'get_pay_methods'],
+  ['GetCredits', 'get_credits'],
+  ['GetTicketCounts', 'get_ticket_counts'],
+  ['GetSupportStatuses', 'list_support_statuses'],
 ];
 
 function buildRegistry(): Record<string, CapabilityStatus> {

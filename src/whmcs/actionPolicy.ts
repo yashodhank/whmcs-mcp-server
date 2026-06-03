@@ -25,6 +25,9 @@ const READ_ALLOWLIST = new Set<string>([
   // read tools (get_server_health, get_tld_pricing) can call them. Capability
   // status is `unverified` (not yet prod-probed) — see capabilities.ts.
   'GetServers','GetHealthStatus','GetTLDPricing','GetRegistrars',
+  // Track A (batch 2) — client contacts, billing pay-methods/credits, ticket
+  // operational metadata. Governed read tools; capability `unverified`.
+  'GetContacts','GetPayMethods','GetCredits','GetTicketCounts','GetSupportStatuses',
 ]);
 
 const WRITE_DENY_PREFIX = /^(Add|Update|Delete|Create|Module|Domain(Register|Renew|Transfer)|Send|Set)/i;

@@ -2,6 +2,23 @@
 
 Newest first.
 
+## 2026-06-03 (Phase 1/2 batch — parallel)
+- **A3 get_client_contacts** (GetContacts; canonical/contact.ts — PII classed).
+- **A5 get_pay_methods + get_credits** (GetPayMethods/GetCredits;
+  canonical/payMethod.ts — **card/bank/token → secret.credential, dropped**;
+  masked last4 only if WHMCS-provided).
+- **A6 get_ticket_counts + list_support_statuses** (GetTicketCounts/
+  GetSupportStatuses; canonical/ticketMeta.ts — operational, no PII).
+- **B4 get_accounts_receivable_aging** (aggregators.ts) — unpaid+overdue
+  invoices bucketed current/1-30/31-60/61-90/90+ with per-bucket count+amount,
+  dedup overlap, total. Fault-isolated.
+- 5 actions allowlisted, capability `unverified`. Authored by 3 parallel agents
+  (disjoint files); central wiring (actionPolicy/capabilities/index) integrated
+  by main thread. Full suite 901 pass.
+- **MCP spec/SDK adoption review** added to DECISIONS.md (Elicitation, Prompts,
+  pagination cursors, completions, progress, logging, _meta, Streamable
+  HTTP+OAuth). Not yet implemented — backlog.
+
 ## 2026-06-03 (Phase 2 B1)
 - **get_domain_portfolio_snapshot** (aggregators.ts) — composes GetClientsDomains
   + GetTLDPricing → per-domain status/registrar/expiry/days-to-expiry/lock/

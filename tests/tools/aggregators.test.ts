@@ -1192,3 +1192,52 @@ describe('get_domain_portfolio_snapshot', () => {
     expect(p.partial_errors.some((e: any) => e.section === 'tld_pricing' && /pricing-down/.test(e.error))).toBe(true);
   });
 });
+
+describe('get_accounts_receivable_aging', () => {
+  it('buckets by days-past-due, dedups overlap, totals outstanding', async () => {
+    const todayMinus = (d: number) =>
+      new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+    const { handlers } = harness((action, params) => {
+      if (action !== 'GetInvoices') return {};
+      if (params.status === 'Unpaid')
+        return {
+          invoices: {
+            invoice: [
+              { id: 1, status: 'Unpaid', duedate: todayMinus(-5), total: '100.00', currencycode: 'USD' }, // not due → current
+              { id: 2, status: 'Unpaid', duedate: todayMinus(10), total: '50.00' }, // 1-30
+              { id: 3, status: 'Unpaid', duedate: todayMinus(75), balance: '200.00' }, // 61-90, balance preferred
+            ],
+          },
+        };
+      if (params.status === 'Overdue')
+        return {
+          invoices: {
+            invoice: [
+              { id: 3, status: 'Overdue', duedate: todayMinus(75), balance: '200.00' }, // dup of #3
+              { id: 4, status: 'Overdue', duedate: todayMinus(200), total: '300.00' }, // 90+
+            ],
+          },
+        };
+      return {};
+    });
+    const p = JSON.parse((await handlers.get_accounts_receivable_aging({ clientid: 30 })).content[0].text);
+    expect(p.currency).toBe('USD');
+    expect(p.summary.open_invoices).toBe(4); // #3 deduped
+    expect(p.buckets.current).toEqual({ count: 1, amount: 100 });
+    expect(p.buckets.d1_30).toEqual({ count: 1, amount: 50 });
+    expect(p.buckets.d61_90).toEqual({ count: 1, amount: 200 });
+    expect(p.buckets.d90_plus).toEqual({ count: 1, amount: 300 });
+    expect(p.summary.total_outstanding).toBe(650);
+  });
+
+  it('a GetInvoices failure is fault-isolated (empty buckets, partial_errors)', async () => {
+    const { handlers } = harness((action) => {
+      if (action === 'GetInvoices') throw new Error('inv-down');
+      return {};
+    });
+    const p = JSON.parse((await handlers.get_accounts_receivable_aging({ clientid: 30 })).content[0].text);
+    expect(p.summary.open_invoices).toBe(0);
+    expect(p.summary.total_outstanding).toBe(0);
+    expect(p.partial_errors.some((e: any) => e.section === 'invoices')).toBe(true);
+  });
+});
