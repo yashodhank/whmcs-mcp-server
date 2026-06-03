@@ -52,6 +52,11 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'service:price_restore': ['targets'],
   // service:domain_rename — single-call edit of a service's hostname/domain.
   'service:domain_rename': ['serviceid', 'domain'],
+  // Track C — service lifecycle + domain nameservers (governed migration).
+  'service:suspend': ['serviceid'],
+  'service:unsuspend': ['serviceid'],
+  'service:terminate': ['serviceid'],
+  'domain:nameservers:update': ['domainid', 'nameservers'],
 };
 
 /**
@@ -440,6 +445,54 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
           });
         }
       }
+    }
+  }
+
+  // Track C — service lifecycle: serviceid must be a positive integer.
+  if (
+    intent.scope === 'service:suspend' ||
+    intent.scope === 'service:unsuspend' ||
+    intent.scope === 'service:terminate'
+  ) {
+    const sid = intent.params.serviceid;
+    if (typeof sid !== 'number' || !Number.isInteger(sid) || sid <= 0) {
+      issues.push({
+        code: 'invalid_serviceid',
+        severity: 'error',
+        message: `${intent.scope} \`serviceid\` must be a positive integer`,
+      });
+    }
+  }
+
+  // Track C — domain:nameservers:update: domainid positive int; nameservers a
+  // 2..5 array of valid hostnames (DomainUpdateNameservers needs ≥2 NS).
+  if (intent.scope === 'domain:nameservers:update') {
+    const did = intent.params.domainid;
+    if (typeof did !== 'number' || !Number.isInteger(did) || did <= 0) {
+      issues.push({
+        code: 'invalid_domainid',
+        severity: 'error',
+        message: 'domain:nameservers:update `domainid` must be a positive integer',
+      });
+    }
+    const ns = intent.params.nameservers;
+    if (!Array.isArray(ns) || ns.length < 2 || ns.length > 5) {
+      issues.push({
+        code: 'invalid_nameservers',
+        severity: 'error',
+        message: 'domain:nameservers:update `nameservers` must be an array of 2–5 hostnames',
+      });
+    } else {
+      ns.forEach((n, i) => {
+        const h = typeof n === 'string' ? n.trim().toLowerCase() : '';
+        if (h.length === 0 || h.length > 253 || !DOMAIN_RE.test(h)) {
+          issues.push({
+            code: 'invalid_nameservers',
+            severity: 'error',
+            message: `nameservers[${String(i)}] is not a valid hostname`,
+          });
+        }
+      });
     }
   }
 

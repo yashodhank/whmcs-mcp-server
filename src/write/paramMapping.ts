@@ -263,6 +263,50 @@ export function mapServiceDomainRenameParams(
   };
 }
 
+/**
+ * `service:suspend` `{serviceid, [suspendreason]}` → WHMCS `ModuleSuspend`.
+ * STRICT: only serviceid (+ suspendreason when a non-empty string). ModuleSuspend
+ * also accepts no other meaningful fields; dropping extras prevents leakage.
+ */
+export function mapServiceSuspendParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { serviceid: params.serviceid };
+  if (typeof params.suspendreason === 'string' && params.suspendreason.trim() !== '') {
+    out.suspendreason = params.suspendreason;
+  }
+  return out;
+}
+
+/** `service:unsuspend` `{serviceid}` → WHMCS `ModuleUnsuspend`. STRICT 1-key. */
+export function mapServiceUnsuspendParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return { serviceid: params.serviceid };
+}
+
+/** `service:terminate` `{serviceid}` → WHMCS `ModuleTerminate`. STRICT 1-key. */
+export function mapServiceTerminateParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return { serviceid: params.serviceid };
+}
+
+/**
+ * `domain:nameservers:update` `{domainid, nameservers:[...]}` → WHMCS
+ * `DomainUpdateNameservers` `{domainid, ns1..nsN}`. STRICT: emits ONLY domainid
+ * + the positional ns keys (normalized lowercase/trim); any extra input key is
+ * dropped. Validation guarantees 2–5 valid hostnames.
+ */
+export function mapDomainNameserversParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { domainid: params.domainid };
+  const ns = Array.isArray(params.nameservers) ? params.nameservers : [];
+  ns.slice(0, 5).forEach((n, i) => {
+    out[`ns${String(i + 1)}`] = typeof n === 'string' ? n.trim().toLowerCase() : n;
+  });
+  return out;
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -301,6 +345,14 @@ export function intentToWhmcsParams(
       return mapRefundRecordParams(params, ctx);
     case 'service:domain_rename':
       return mapServiceDomainRenameParams(params);
+    case 'service:suspend':
+      return mapServiceSuspendParams(params);
+    case 'service:unsuspend':
+      return mapServiceUnsuspendParams(params);
+    case 'service:terminate':
+      return mapServiceTerminateParams(params);
+    case 'domain:nameservers:update':
+      return mapDomainNameserversParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls
