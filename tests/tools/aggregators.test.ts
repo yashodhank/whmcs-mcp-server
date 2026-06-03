@@ -36,6 +36,162 @@ function harness(readImpl: (action: string, params: any) => any) {
   return { handlers, configs, whmcs };
 }
 
+describe('MCP progress notifications (spec 2025-11-25)', () => {
+  // A minimal `RequestHandlerExtra`-shaped object: carries the request
+  // `_meta.progressToken` and a `sendNotification` spy. When no token is
+  // supplied, progress must be a complete no-op.
+  function progressExtra(token?: string | number) {
+    const notes: any[] = [];
+    const sendNotification = vi.fn(async (n: any) => {
+      notes.push(n);
+    });
+    const extra: any = { sendNotification };
+    if (token !== undefined) extra._meta = { progressToken: token };
+    return { extra, notes, sendNotification };
+  }
+
+  function account360Reads(action: string) {
+    if (action === 'GetClientsDetails')
+      return { id: 30, firstname: 'T', lastname: 'U', email: 'e@x.test', status: 'Active', credit: '0', currency_code: 'INR', stats: { productsnumactive: 0, productsnumtotal: 0, numactivedomains: 0, numdomains: 0, numunpaidinvoices: 0, numoverdueinvoices: 0, numactivetickets: 0 } };
+    if (action === 'GetClientsProducts') return { products: { product: [] } };
+    if (action === 'GetClientsDomains') return { domains: { domain: [] } };
+    if (action === 'GetInvoices') return { invoices: { invoice: [] } };
+    if (action === 'GetOrders') return { orders: { order: [] } };
+    if (action === 'GetTickets') return { tickets: { ticket: [] } };
+    return {};
+  }
+
+  it('get_account_360 emits one progress note per section (6), final progress == total', async () => {
+    const { handlers } = harness(account360Reads);
+    const { extra, notes } = progressExtra('tok-1');
+    await handlers.get_account_360({ clientid: 30 }, extra);
+
+    // 6 fan-out sections + a terminal finish() ping.
+    expect(notes.length).toBe(7);
+    for (const n of notes) {
+      expect(n.method).toBe('notifications/progress');
+      expect(n.params.progressToken).toBe('tok-1');
+      expect(n.params.total).toBe(6);
+    }
+    // Monotonic, ending exactly at total.
+    expect(notes.map((n) => n.params.progress)).toEqual([1, 2, 3, 4, 5, 6, 6]);
+    // Messages are section names + counts only (no PII / secrets).
+    expect(notes.map((n) => n.params.message)).toEqual([
+      'client 1/6', 'services 2/6', 'domains 3/6', 'invoices 4/6',
+      'orders 5/6', 'tickets 6/6', 'complete 6/6',
+    ]);
+    const blob = JSON.stringify(notes);
+    expect(blob).not.toMatch(/e@x\.test|firstname|lastname|tok-1.*secret/i);
+  });
+
+  it('no progressToken ⇒ no notifications and a byte-identical result', async () => {
+    const withTok = harness(account360Reads);
+    const e1 = progressExtra('tok-1');
+    const r1 = await withTok.handlers.get_account_360({ clientid: 30 }, e1.extra);
+
+    const without = harness(account360Reads);
+    const e2 = progressExtra(); // no token
+    const r2 = await without.handlers.get_account_360({ clientid: 30 }, e2.extra);
+
+    // No-op when no token.
+    expect(e2.sendNotification).not.toHaveBeenCalled();
+    // Result identical whether or not progress was emitted.
+    expect(r2.content[0].text).toBe(r1.content[0].text);
+
+    // And identical to calling with NO extra at all (existing call sites).
+    const noExtra = harness(account360Reads);
+    const r3 = await noExtra.handlers.get_account_360({ clientid: 30 });
+    expect(r3.content[0].text).toBe(r1.content[0].text);
+  });
+
+  it('a throwing sendNotification never breaks the aggregator', async () => {
+    const { handlers } = harness(account360Reads);
+    const extra: any = {
+      _meta: { progressToken: 'tok-1' },
+      sendNotification: () => { throw new Error('transport exploded'); },
+    };
+    const res = await handlers.get_account_360({ clientid: 30 }, extra);
+    const p = JSON.parse(res.content[0].text);
+    expect(p.client.clientid).toBe(30);
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('a rejecting sendNotification never breaks the aggregator', async () => {
+    const { handlers } = harness(account360Reads);
+    const extra: any = {
+      _meta: { progressToken: 'tok-1' },
+      sendNotification: () => Promise.reject(new Error('async transport fail')),
+    };
+    const res = await handlers.get_account_360({ clientid: 30 }, extra);
+    const p = JSON.parse(res.content[0].text);
+    expect(p.client.clientid).toBe(30);
+  });
+
+  it('get_reconciliation_snapshot emits invoices + transactions (supported ⇒ total 2)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
+      return {}; // GetTransactions supported (Phase H), empty page
+    });
+    const { extra, notes } = progressExtra(42); // numeric token also valid
+    await handlers.get_reconciliation_snapshot({ clientid: 30 }, extra);
+    expect(notes.every((n) => n.params.total === 2)).toBe(true);
+    expect(notes.every((n) => n.params.progressToken === 42)).toBe(true);
+    expect(notes.map((n) => n.params.message)).toEqual([
+      'invoices 1/2', 'transactions 2/2', 'complete 2/2',
+    ]);
+    expect(notes[notes.length - 1].params.progress).toBe(2);
+  });
+
+  it('get_reconciliation_snapshot: total is 1 (no transactions section) when GetTransactions unsupported', async () => {
+    cap.__resetCapabilityCacheForTests();
+    try {
+      await cap.probeCapability('GetTransactions', {
+        read: () => Promise.reject(new Error('action could not be found')),
+        isAllowlisted: () => true,
+      });
+      const { handlers } = harness((action: string) => {
+        if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }] } };
+        return {};
+      });
+      const { extra, notes } = progressExtra('tok-x');
+      await handlers.get_reconciliation_snapshot({ clientid: 30 }, extra);
+      expect(notes.every((n) => n.params.total === 1)).toBe(true);
+      expect(notes.map((n) => n.params.message)).toEqual([
+        'invoices 1/1', 'complete 1/1',
+      ]);
+    } finally {
+      cap.__resetCapabilityCacheForTests();
+    }
+  });
+
+  it('get_reconciliation_export emits invoices + transactions (supported ⇒ total 2)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Paid', total: '50.00', balance: '0.00', date: '2026-05-09' }] } };
+      return {};
+    });
+    const { extra, notes } = progressExtra('tok-e');
+    await handlers.get_reconciliation_export({ clientid: 30 }, extra);
+    expect(notes.map((n) => n.params.message)).toEqual([
+      'invoices 1/2', 'transactions 2/2', 'complete 2/2',
+    ]);
+    expect(notes[notes.length - 1].params.progress).toBe(2);
+  });
+
+  it('get_provisioning_snapshot emits services + orders (total 2)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetClientsProducts') return { products: { product: [{ id: 545, name: 'Hosting', status: 'Active' }] } };
+      if (action === 'GetOrders') return { orders: { order: [{ id: 7, status: 'Active', date: '2026-05-01' }] } };
+      return {};
+    });
+    const { extra, notes } = progressExtra('tok-p');
+    await handlers.get_provisioning_snapshot({ clientid: 30 }, extra);
+    expect(notes.map((n) => n.params.message)).toEqual([
+      'services 1/2', 'orders 2/2', 'complete 2/2',
+    ]);
+    expect(notes[notes.length - 1].params.progress).toBe(2);
+  });
+});
+
 describe('get_account_360', () => {
   it('assembles client + counts + recent slices; tickets carry C2 best-effort', async () => {
     const { handlers } = harness((action) => {

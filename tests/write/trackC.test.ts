@@ -35,6 +35,18 @@ describe('Track C frozen-seam additions', () => {
     expect(PROD_NEVER_EXECUTABLE.has('ModuleTerminate')).toBe(true);
     expect(PROD_NEVER_EXECUTABLE_SCOPES.has('service:terminate')).toBe(true);
   });
+
+  it('registers the two governed money scopes (capture/apply) as high-risk', () => {
+    const expectMoney: Record<string, [string, string]> = {
+      'billing:payment:capture': ['CapturePayment', 'high'],
+      'billing:credit:apply': ['ApplyCredit', 'high'],
+    };
+    for (const [scope, [action, risk]] of Object.entries(expectMoney)) {
+      expect(WRITE_SCOPES as readonly string[]).toContain(scope);
+      expect(SCOPE_ACTION[scope as keyof typeof SCOPE_ACTION]).toBe(action);
+      expect(SCOPE_RISK[scope as keyof typeof SCOPE_RISK]).toBe(risk);
+    }
+  });
 });
 
 describe('Track C strict mappers', () => {
@@ -67,6 +79,23 @@ describe('Track C strict mappers', () => {
         recurringamount: 999,
       })
     ).toEqual({ domainid: 7, ns1: 'ns1.example.com', ns2: 'ns2.example.com' });
+  });
+
+  it('billing:payment:capture emits ONLY invoiceid, NEVER cvv, drops extras', () => {
+    const out = intentToWhmcsParams('billing:payment:capture', {
+      invoiceid: 42,
+      cvv: '123',
+      amount: 99,
+      gateway: 'stripe',
+    });
+    expect(out).toEqual({ invoiceid: 42 });
+    expect(out).not.toHaveProperty('cvv');
+  });
+
+  it('billing:credit:apply emits ONLY {invoiceid, amount}, drops extras', () => {
+    expect(
+      intentToWhmcsParams('billing:credit:apply', { invoiceid: 42, amount: 25, evil: 'x' })
+    ).toEqual({ invoiceid: 42, amount: 25 });
   });
 });
 
@@ -132,6 +161,31 @@ describe('Track C validation', () => {
         intent('domain:nameservers:update', { domainid: 0, nameservers: ['ns1.x.com', 'ns2.x.com'] }),
         {}
       ).ok
+    ).toBe(false);
+  });
+
+  it('billing:payment:capture requires a positive-integer invoiceid', () => {
+    expect(validateIntent(intent('billing:payment:capture', { invoiceid: 1 }), {}).ok).toBe(true);
+    for (const inv of [0, -1, 1.5, '1', undefined]) {
+      const r = validateIntent(intent('billing:payment:capture', { invoiceid: inv }), {});
+      expect(r.ok).toBe(false);
+    }
+  });
+
+  it('billing:credit:apply requires invoiceid + positive amount', () => {
+    expect(
+      validateIntent(intent('billing:credit:apply', { invoiceid: 1, amount: 10 }), {}).ok
+    ).toBe(true);
+    // missing amount
+    expect(validateIntent(intent('billing:credit:apply', { invoiceid: 1 }), {}).ok).toBe(false);
+    // non-positive amount
+    for (const amt of [0, -5]) {
+      const r = validateIntent(intent('billing:credit:apply', { invoiceid: 1, amount: amt }), {});
+      expect(r.ok).toBe(false);
+    }
+    // bad invoiceid
+    expect(
+      validateIntent(intent('billing:credit:apply', { invoiceid: 0, amount: 10 }), {}).ok
     ).toBe(false);
   });
 });

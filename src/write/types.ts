@@ -37,6 +37,10 @@ export const WRITE_SCOPES = [
   'service:unsuspend',
   'service:terminate',
   'domain:nameservers:update',
+  // Track C — legacy money tools (capture_payment / apply_credit) migrated off
+  // the direct-mutate path into the governed tiered model. Both high-risk.
+  'billing:payment:capture',
+  'billing:credit:apply',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -57,6 +61,8 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'service:unsuspend': 'ModuleUnsuspend',
   'service:terminate': 'ModuleTerminate',
   'domain:nameservers:update': 'DomainUpdateNameservers',
+  'billing:payment:capture': 'CapturePayment',
+  'billing:credit:apply': 'ApplyCredit',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -87,6 +93,13 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   'service:terminate': 'high',
   // Nameserver change is reversible config → medium.
   'domain:nameservers:update': 'medium',
+  // Capturing a payment against an invoice charges the stored gateway token —
+  // moves money → high (full deny-by-default gate: allowlist + human approval +
+  // caps).
+  'billing:payment:capture': 'high',
+  // Applying account credit against an invoice moves money against billing
+  // records → high.
+  'billing:credit:apply': 'high',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */
