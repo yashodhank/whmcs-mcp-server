@@ -9,7 +9,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { config, isToolAllowed } from '../config.js';
+import { config, isToolAllowed, legacyWriteToolsEnabled } from '../config.js';
 import {
   ensureToolAuth,
   clientModeDenied,
@@ -412,7 +412,10 @@ export function registerClientTools(
   // ============================================
   // Tool: create_client
   // ============================================
-  if (isToolAllowed('create_client')) {
+  // Legacy direct-mutate tool — RETIRED from the default surface (Track C).
+  // The governed `client:create` write scope (src/write/*) is the supported
+  // path; this tool only registers when MCP_ENABLE_LEGACY_WRITE_TOOLS=true.
+  if (legacyWriteToolsEnabled() && isToolAllowed('create_client')) {
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
     // open `[x: string]: unknown` index signature; our shared `ensure*`/result
     // helpers return the local closed `McpToolResponse`, which is structurally
@@ -799,7 +802,10 @@ export function registerClientTools(
   // ============================================
   // Tool: update_client
   // ============================================
-  if (isToolAllowed('update_client')) {
+  // Legacy direct-mutate tool — RETIRED from the default surface (Track C).
+  // The governed `client:update` write scope (src/write/*) is the supported
+  // path; this tool only registers when MCP_ENABLE_LEGACY_WRITE_TOOLS=true.
+  if (legacyWriteToolsEnabled() && isToolAllowed('update_client')) {
     const updateClientSchema = z.object({
       clientid: z.number().int().positive('Client ID must be positive'),
       firstname: z.string().optional(),

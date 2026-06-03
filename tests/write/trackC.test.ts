@@ -66,6 +66,23 @@ describe('Track C frozen-seam additions', () => {
     expect(PROD_NEVER_EXECUTABLE.has('DomainTransfer')).toBe(true);
     expect(PROD_NEVER_EXECUTABLE_SCOPES.has('domain:transfer')).toBe(true);
   });
+
+  it('registers the governed client scopes (create/update) as medium-risk', () => {
+    const expectClient: Record<string, [string, string]> = {
+      'client:create': ['AddClient', 'medium'],
+      'client:update': ['UpdateClient', 'medium'],
+    };
+    for (const [scope, [action, risk]] of Object.entries(expectClient)) {
+      expect(WRITE_SCOPES as readonly string[]).toContain(scope);
+      expect(SCOPE_ACTION[scope as keyof typeof SCOPE_ACTION]).toBe(action);
+      expect(SCOPE_RISK[scope as keyof typeof SCOPE_RISK]).toBe(risk);
+    }
+  });
+
+  it('no client delete scope, and DeleteClient stays permanently blocked', () => {
+    expect(WRITE_SCOPES as readonly string[]).not.toContain('client:delete');
+    expect(PROD_NEVER_EXECUTABLE.has('DeleteClient')).toBe(true);
+  });
 });
 
 describe('Track C strict mappers', () => {
@@ -148,6 +165,77 @@ describe('Track C strict mappers', () => {
     });
     expect(out).toEqual({ orderid: 42 });
     expect(out).not.toHaveProperty('fraudbypass');
+  });
+
+  it('client:create passes ONLY allowlisted AddClient fields, drops extras', () => {
+    const out = intentToWhmcsParams('client:create', {
+      firstname: 'Jane',
+      lastname: 'Roe',
+      email: 'jane@example.test',
+      companyname: 'Acme',
+      address1: '1 St',
+      country: 'US',
+      phonenumber: '+1.5125550100',
+      currency: 1,
+      clientgroup: 2,
+      notes: 'vip',
+      customfields: 'base64',
+      // extras that must be dropped:
+      owner_user_id: 9,
+      status: 'Active',
+      password: 'raw-should-drop',
+      credit: 100,
+    });
+    expect(out).toEqual({
+      firstname: 'Jane',
+      lastname: 'Roe',
+      email: 'jane@example.test',
+      companyname: 'Acme',
+      address1: '1 St',
+      country: 'US',
+      phonenumber: '+1.5125550100',
+      currency: 1,
+      clientgroup: 2,
+      notes: 'vip',
+      customfields: 'base64',
+    });
+    // NEVER generates a password, and the non-allowlisted `password` is dropped.
+    expect(out).not.toHaveProperty('password');
+    expect(out).not.toHaveProperty('password2');
+    expect(out).not.toHaveProperty('owner_user_id');
+    expect(out).not.toHaveProperty('status');
+  });
+
+  it('client:create forwards password2 ONLY when caller supplies it', () => {
+    const without = intentToWhmcsParams('client:create', {
+      firstname: 'A',
+      lastname: 'B',
+      email: 'a@b.test',
+    });
+    expect(without).not.toHaveProperty('password2');
+
+    const withPw = intentToWhmcsParams('client:create', {
+      firstname: 'A',
+      lastname: 'B',
+      email: 'a@b.test',
+      password2: 'CallerSupplied1!',
+    });
+    expect(withPw.password2).toBe('CallerSupplied1!');
+  });
+
+  it('client:update emits clientid + present allowlisted fields, drops extras', () => {
+    const out = intentToWhmcsParams('client:update', {
+      clientid: 7,
+      firstname: 'Jane',
+      email: 'jane@new.test',
+      // extras dropped:
+      status: 'Closed',
+      credit: 50,
+      password: 'x',
+    });
+    expect(out).toEqual({ clientid: 7, firstname: 'Jane', email: 'jane@new.test' });
+    expect(out).not.toHaveProperty('status');
+    expect(out).not.toHaveProperty('password');
   });
 });
 
@@ -285,5 +373,49 @@ describe('Track C validation', () => {
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.code === 'invalid_orderid')).toBe(true);
     }
+  });
+
+  it('client:create requires firstname/lastname/email with valid email shape', () => {
+    expect(
+      validateIntent(
+        intent('client:create', { firstname: 'Jane', lastname: 'Roe', email: 'jane@example.test' }),
+        {}
+      ).ok
+    ).toBe(true);
+    // missing required fields
+    expect(validateIntent(intent('client:create', { firstname: 'Jane' }), {}).ok).toBe(false);
+    expect(
+      validateIntent(intent('client:create', { firstname: '', lastname: 'Roe', email: 'a@b.test' }), {})
+        .ok
+    ).toBe(false);
+    // bad email shape
+    const bad = validateIntent(
+      intent('client:create', { firstname: 'Jane', lastname: 'Roe', email: 'not-an-email' }),
+      {}
+    );
+    expect(bad.ok).toBe(false);
+    expect(bad.issues.some((i) => i.code === 'invalid_email')).toBe(true);
+  });
+
+  it('client:update requires clientid plus ≥1 updatable field; rejects empty updates', () => {
+    expect(
+      validateIntent(intent('client:update', { clientid: 7, firstname: 'Jane' }), {}).ok
+    ).toBe(true);
+    // clientid only — no updatable field ⇒ empty_update
+    const empty = validateIntent(intent('client:update', { clientid: 7 }), {});
+    expect(empty.ok).toBe(false);
+    expect(empty.issues.some((i) => i.code === 'empty_update')).toBe(true);
+    // bad clientid
+    for (const cid of [0, -1, 1.5, '1', undefined]) {
+      const r = validateIntent(intent('client:update', { clientid: cid, firstname: 'X' }), {});
+      expect(r.ok).toBe(false);
+    }
+    // bad email when provided
+    const badEmail = validateIntent(
+      intent('client:update', { clientid: 7, email: 'nope' }),
+      {}
+    );
+    expect(badEmail.ok).toBe(false);
+    expect(badEmail.issues.some((i) => i.code === 'invalid_email')).toBe(true);
   });
 });

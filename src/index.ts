@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { config } from './config.js';
 import { Logger } from './logging.js';
+import { startHttpServer } from './http/httpServer.js';
 import { initMcpLogging } from './mcpLogging.js';
 import { RateLimiter } from './rateLimiter.js';
 import { WhmcsClient } from './whmcs/WhmcsClient.js';
@@ -39,32 +40,19 @@ import { registerPlaybookResource } from './playbook/whmcsOpsPlaybook.js';
 import { registerCompat9xResource } from './resources/compat9x.js';
 
 /**
- * Main server initialization
+ * Build a fully-configured McpServer (capabilities + all tools/resources/
+ * prompts registered). Extracted as a factory so BOTH the stdio path and the
+ * Streamable HTTP transport (which builds one server instance per session) get
+ * a byte-identical server surface from the same code. Pure construction — it
+ * does not connect any transport.
  */
-async function main(): Promise<void> {
-  // Initialize logger (writes to stderr only)
-  const logger = Logger.create();
-  
-  logger.info('Starting WHMCS MCP Server', {
-    mode: config.MCP_MODE,
-    debug: config.MCP_DEBUG,
-    rateLimit: config.MCP_RATE_LIMIT,
-    maxPageSize: config.MCP_MAX_PAGE_SIZE,
-    accessMode: config.MCP_ACCESS_MODE,
-    allowedClientIds: config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS : 'not set',
-    authEnabled: !!config.MCP_AUTH_TOKEN,
-    toolAllowlist: config.MCP_TOOL_ALLOWLIST.length > 0 
-      ? config.MCP_TOOL_ALLOWLIST 
-      : 'all tools enabled',
-  });
-  
-  // Initialize rate limiter
-  const rateLimiter = new RateLimiter(logger);
-  rateLimiterInstance = rateLimiter; // Store for graceful shutdown
-  
-  // Initialize WHMCS client
-  const whmcsClient = new WhmcsClient(config, logger);
-  
+export function buildServer(deps: {
+  whmcsClient: WhmcsClient;
+  logger: Logger;
+  rateLimiter: RateLimiter;
+}): McpServer {
+  const { whmcsClient, logger, rateLimiter } = deps;
+
   // Create MCP server.
   // Declare the `logging` capability (spec 2025-11-25 logging utility). This is
   // what makes the SDK auto-install its `logging/setLevel` request handler and
@@ -116,12 +104,56 @@ async function main(): Promise<void> {
   // Register MCP prompts (reusable WHMCS ops playbooks)
   logger.info('Registering MCP prompts...');
   registerWhmcsPrompts(server);
-  
-  // Connect with stdio transport
+
+  return server;
+}
+
+/**
+ * Main server initialization
+ */
+async function main(): Promise<void> {
+  // Initialize logger (writes to stderr only)
+  const logger = Logger.create();
+
+  logger.info('Starting WHMCS MCP Server', {
+    mode: config.MCP_MODE,
+    debug: config.MCP_DEBUG,
+    rateLimit: config.MCP_RATE_LIMIT,
+    maxPageSize: config.MCP_MAX_PAGE_SIZE,
+    accessMode: config.MCP_ACCESS_MODE,
+    allowedClientIds: config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS : 'not set',
+    authEnabled: !!config.MCP_AUTH_TOKEN,
+    transport: config.MCP_TRANSPORT,
+    toolAllowlist: config.MCP_TOOL_ALLOWLIST.length > 0
+      ? config.MCP_TOOL_ALLOWLIST
+      : 'all tools enabled',
+  });
+
+  // Initialize rate limiter
+  const rateLimiter = new RateLimiter(logger);
+  rateLimiterInstance = rateLimiter; // Store for graceful shutdown
+
+  // Initialize WHMCS client
+  const whmcsClient = new WhmcsClient(config, logger);
+
+  // ── Transport selection (MCP Adoption #10) ───────────────────────────────
+  // Default `stdio` is byte-identical to the pre-HTTP server. `http` opts into
+  // the Streamable HTTP transport with bearer auth bridged to the consumer
+  // registry. The HTTP server builds one McpServer per session via buildServer.
+  if (config.MCP_TRANSPORT === 'http') {
+    httpServerHandle = await startHttpServer({
+      logger,
+      buildServer: () => buildServer({ whmcsClient, logger, rateLimiter }),
+    });
+    return;
+  }
+
+  // Default: stdio. Build the single server and connect StdioServerTransport.
+  const server = buildServer({ whmcsClient, logger, rateLimiter });
   const transport = new StdioServerTransport();
-  
+
   logger.info('MCP Server ready, connecting via stdio...');
-  
+
   try {
     await server.connect(transport);
   } catch (error) {
@@ -146,11 +178,17 @@ process.on('unhandledRejection', (reason: unknown) => {
 
 // Graceful shutdown handlers
 let rateLimiterInstance: RateLimiter | null = null;
+let httpServerHandle: { close: () => Promise<void> } | null = null;
 
 function gracefulShutdown(signal: string): void {
   process.stderr.write(`\n🛑 Received ${signal}, shutting down gracefully...\n`);
   if (rateLimiterInstance) {
     rateLimiterInstance.cleanup();
+  }
+  if (httpServerHandle) {
+    // Best-effort: close listeners + active transports, then exit.
+    void httpServerHandle.close().finally(() => { process.exit(0); });
+    return;
   }
   process.exit(0);
 }
