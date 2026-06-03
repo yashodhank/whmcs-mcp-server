@@ -245,3 +245,34 @@ confirming that permission on the target install (re-run this probe there).
 
 Re-running the probe is side-effect-free (zero mutations); re-verify on the
 production-equivalent install's API role before promoting any scope.
+
+### 2026-06-04 — cross-version run (WHMCS 8.13 @ :8813 AND 9.0 @ :8890)
+
+One replicated API credential authenticates on both legs (see
+`deploy/whmcs-test/replicate-cred.sh`). The reachability probe was run against
+**both** versions:
+
+| | WHMCS 8.13 (:8813) | WHMCS 9.0 (:8890) |
+|---|---|---|
+| Reachable | 12/13 | 12/13 |
+| `ticket:merge` (MergeTicket) | REVIEW — `"API action 'mergeticket' is not allowed"` | REVIEW — same |
+
+**Identical on both versions.** The `MergeTicket` permission gate is therefore
+NOT version-specific — it is the default WHMCS API permission set on both 8.13
+and 9.0. All 12 other C2 actions (incl. high-risk `UpgradeProduct` /
+`AcceptQuote`) are reachable and accept the governed mapper's param shape on
+both.
+
+**Full execute + read-back proof (reversible scope).** Beyond reachability, a
+complete governed write was exercised live on both legs using the safest
+reversible scope `client:contact:add`:
+
+| Step | WHMCS 8.13 | WHMCS 9.0 |
+|---|---|---|
+| `AddContact` (mapper shape, clientid=1) | success, contactid 116 | success, contactid 116 |
+| read-back `GetContacts` | found (CapProbe Cleanup) | found (CapProbe Cleanup) |
+| `DeleteContact` (cleanup) | success | success |
+| residue after cleanup | 0 | 0 |
+
+This confirms the governed mapper output is not just reachable but actually
+executes and reads back correctly on both WHMCS versions, with no residue.

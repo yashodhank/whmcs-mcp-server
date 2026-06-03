@@ -2,6 +2,18 @@
 
 Newest first.
 
+## 2026-06-04 (Track C2 probe — cross-version, WHMCS 8.13 + 9.0)
+- Ran the reachability probe against **both** dev legs (8.13 @ :8813 and 9.0 @
+  :8890, one replicated credential). **Identical: 12/13 reachable on both**; the
+  `MergeTicket` permission gate is NOT version-specific (default API permission
+  set on both versions).
+- **Full execute + read-back proof** on both legs via the reversible
+  `client:contact:add` scope: `AddContact` (mapper shape) → read-back
+  `GetContacts` (found) → `DeleteContact` (cleanup) → **0 residue** on both.
+  Confirms the governed mapper output executes and verifies correctly on 8.13
+  and 9.0, not just that the action is reachable. Evidence appended to
+  `docs/write-capability-probe-runbook.md`.
+
 ## 2026-06-04 (Track C2 capability probe on dev WHMCS)
 - **Capability-probed all 13 Track C2 write scopes** against the local dev
   WHMCS 9.0.1 (`localhost:8890`, scrubbed copy) before any production enablement.
