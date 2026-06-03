@@ -9,7 +9,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { isToolAllowed } from '../config.js';
+import { isToolAllowed, legacyWriteToolsEnabled } from '../config.js';
 import {
   ensureToolAuth,
   isClientMode,
@@ -83,7 +83,7 @@ export function registerSupportTools(
   // ============================================
   // Tool: create_ticket
   // ============================================
-  if (isToolAllowed('create_ticket')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('create_ticket')) {
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
     // open `[x: string]: unknown` index signature; our shared `ensure*`/result
     // helpers return the local closed `McpToolResponse`, which is structurally
@@ -229,7 +229,7 @@ export function registerSupportTools(
   // ============================================
   // Tool: reply_ticket
   // ============================================
-  if (isToolAllowed('reply_ticket')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('reply_ticket')) {
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
     // open `[x: string]: unknown` index signature; our shared `ensure*`/result
     // helpers return the local closed `McpToolResponse`, which is structurally

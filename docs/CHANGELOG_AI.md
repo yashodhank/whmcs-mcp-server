@@ -2,6 +2,26 @@
 
 Newest first.
 
+## 2026-06-03 (legacy-tool retirement + composites + pagination — parallel)
+- **Legacy duplicate write tools RETIRED by default.** `create_ticket`,
+  `reply_ticket`, `create_invoice`, `mark_invoice_paid`, `add_credit`,
+  `record_refund` (duplicate governed scopes, bypass tiered governance) gated
+  behind `legacyWriteToolsEnabled()` (config.ts; reads
+  `MCP_ENABLE_LEGACY_WRITE_TOOLS`, default OFF). Off the default surface; the
+  governed write-flow is the path; recoverable via env for migration windows.
+  `capture_payment`/`apply_credit` kept (no governed scope yet — follow-up).
+- **Composites B2/B3/B5** (aggregators.ts): `get_service_lifecycle`
+  (GetClientsProducts+GetOrders+GetAutomationLog), `get_revenue_report`
+  (GetInvoices Paid + GetTransactions, cash vs accrual), `get_reconciliation_export`
+  (normalized invoice↔transaction ledger for bank/26AS). Capability-gated +
+  fault-isolated.
+- **Pagination cursors** on all 7 `list_*` tools (listTools + reportingListTools):
+  opaque base64 `nextCursor` replaces silent `limitnum` truncation; bad cursor →
+  page 0; backward compatible; outputSchema extended.
+- Compliance test: added legacyWriteToolsEnabled mock + serviceid arg for
+  get_service_lifecycle. Full suite **959 pass**. Authored by 2 parallel agents
+  (composites, pagination) + main thread (retirement). tsc/eslint/build clean.
+
 ## 2026-06-03 (Track C write-migration + more reads + MCP Prompts)
 - **Track C — legacy service writes migrated into the tiered governed model.**
   New scopes: `service:suspend` (med, ModuleSuspend), `service:unsuspend` (med,

@@ -328,3 +328,16 @@ export function isToolAllowed(toolName: string): boolean {
   }
   return config.MCP_TOOL_ALLOWLIST.includes(toolName);
 }
+
+/**
+ * Track C — legacy DIRECT-MUTATE write tools (create_ticket, reply_ticket,
+ * create_invoice, mark_invoice_paid, add_credit, record_refund) DUPLICATE
+ * governed write scopes but bypass the tiered governance model. RETIRED from the
+ * default tool surface; the governed write-flow is the path. Read from
+ * `process.env` at registration time so it's controllable per process and in
+ * tests. Set `MCP_ENABLE_LEGACY_WRITE_TOOLS=true` to temporarily re-expose them.
+ */
+export function legacyWriteToolsEnabled(): boolean {
+  const v = process.env.MCP_ENABLE_LEGACY_WRITE_TOOLS;
+  return v === 'true' || v === '1';
+}

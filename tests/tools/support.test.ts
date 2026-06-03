@@ -19,6 +19,7 @@ vi.mock('../src/config.js', () => ({
     MCP_TOOL_ALLOWLIST: [],
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 
 describe('Support Tools', () => {
@@ -215,6 +216,7 @@ vi.mock('../../src/config.js', () => ({
     MCP_TOOL_ALLOWLIST: [],
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 vi.mock('../../src/security.js', () => ({
   AUTH_SHAPE: {},

@@ -1140,6 +1140,228 @@ describe('classifyAggregateKey (Track B taxonomy)', () => {
   });
 });
 
+describe('get_service_lifecycle', () => {
+  it('assembles the service record + matched provisioning orders + capability-gated automation', async () => {
+    const { handlers } = harness((action: string, params: any) => {
+      if (action === 'GetClientsProducts')
+        return { products: { product: [
+          { id: 545, name: 'Web Hosting', domain: 'example.org', status: 'Active', nextduedate: '2027-04-14', recurringamount: '12.00' },
+          { id: 9, name: 'Other', domain: 'x', status: 'Active', nextduedate: '2030-01-01' },
+        ] } };
+      if (action === 'GetOrders') {
+        expect(params.userid).toBe(30);
+        return { orders: { order: [
+          { id: 7, date: '2026-05-18', status: 'Active', amount: '0.00', serviceid: 545 },
+          { id: 8, date: '2026-05-19', status: 'Active', amount: '0.00', serviceid: 999 },
+        ] } };
+      }
+      return {};
+    });
+    const res = await handlers.get_service_lifecycle({ clientid: 30, serviceid: 545 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.service).toMatchObject({ id: 545, name: 'Web Hosting', domain: 'example.org', status: 'Active', nextduedate: '2027-04-14', recurringamount: '12.00' });
+    // Only the order referencing serviceid 545 is matched.
+    expect(p.orders.map((o: any) => o.orderid)).toEqual([7]);
+    // Automation is a structured capability section (supported post-promotion).
+    expect(p.automation).toMatchObject({ action: 'GetAutomationLog', status: 'supported' });
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('matches provisioning orders via nested line-item relid when no top-level serviceid', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetClientsProducts')
+        return { products: { product: [{ id: 545, name: 'Hosting', domain: 'd.test', status: 'Active', nextduedate: '2027-01-01', recurringamount: '5.00' }] } };
+      if (action === 'GetOrders')
+        return { orders: { order: [
+          { id: 7, date: '2026-05-18', status: 'Active', amount: '0.00', lineitems: { lineitem: [{ relid: 545, type: 'hosting' }] } },
+          { id: 8, date: '2026-05-18', status: 'Active', amount: '0.00', lineitems: { lineitem: [{ relid: 1, type: 'hosting' }] } },
+        ] } };
+      return {};
+    });
+    const res = await handlers.get_service_lifecycle({ clientid: 30, serviceid: 545 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.orders.map((o: any) => o.orderid)).toEqual([7]);
+  });
+
+  it('null service when not found + a failing sub-read becomes partial_errors (not thrown)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetClientsProducts') return { products: { product: [{ id: 1, name: 'Other', status: 'Active' }] } };
+      if (action === 'GetOrders') throw new Error('boom-orders');
+      return {};
+    });
+    const res = await handlers.get_service_lifecycle({ clientid: 30, serviceid: 545 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.service).toBeNull();
+    expect(p.orders).toEqual([]);
+    expect(p.partial_errors.some((e: any) => e.section === 'orders' && /boom-orders/.test(e.error))).toBe(true);
+  });
+});
+
+describe('get_revenue_report', () => {
+  it('sums paid invoices in the window + transactions roll-up (in/out), with accrual-vs-cash note', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-06-01T00:00:00.000Z').getTime());
+    try {
+      const { handlers } = harness((action: string, params: any) => {
+        if (action === 'GetInvoices') {
+          expect(params.status).toBe('Paid');
+          return { invoices: { invoice: [
+            { id: 11, status: 'Paid', total: '100.00', date: '2026-05-20', datepaid: '2026-05-21', currencycode: 'INR' },
+            { id: 12, status: 'Paid', total: '50.00', date: '2026-05-25', currencycode: 'INR' },
+            { id: 13, status: 'Paid', total: '999.00', date: '2024-01-01', currencycode: 'INR' }, // outside 90d window
+          ] } };
+        }
+        if (action === 'GetTransactions') {
+          expect(params.clientid).toBe(30);
+          return { transactions: { transaction: [
+            { id: 5001, userid: 30, invoiceid: 11, transid: 'A', date: '2026-05-21 09:00:00', gateway: 'stripe', currency: 'INR', amountin: '100.00', amountout: '0.00' },
+            { id: 5002, userid: 30, invoiceid: 12, transid: 'B', date: '2026-05-25 09:00:00', gateway: 'paypal', currency: 'INR', amountin: '0.00', amountout: '20.00' },
+            { id: 5003, userid: 30, invoiceid: 13, transid: 'C', date: '2024-01-01 09:00:00', gateway: 'stripe', currency: 'INR', amountin: '999.00', amountout: '0.00' }, // outside window
+          ] } };
+        }
+        return {};
+      });
+      const res = await handlers.get_revenue_report({ clientid: 30, days: 90 });
+      const p = JSON.parse(res.content[0].text);
+      expect(p.window_days).toBe(90);
+      expect(p.currency).toBe('INR');
+      expect(p.paid).toEqual({ count: 2, total: 150 });
+      expect(p.transactions).toMatchObject({ action: 'GetTransactions', status: 'supported', composed: true, count: 2, total_in: 100, total_out: 20 });
+      expect(p.accrual_vs_cash).toMatch(/accrual/i);
+      expect(p.partial_errors).toEqual([]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('degrades cleanly when GetTransactions is unsupported — paid still computed', async () => {
+    cap.__resetCapabilityCacheForTests();
+    try {
+      await cap.probeCapability('GetTransactions', {
+        read: () => Promise.reject(new Error('action could not be found')),
+        isAllowlisted: () => true,
+      });
+      expect(cap.getCapability('GetTransactions').status).toBe('unsupported');
+      const { handlers, whmcs } = harness((action: string) => {
+        if (action === 'GetInvoices') return { invoices: { invoice: [{ id: 11, status: 'Paid', total: '10.00', date: '2099-01-01', currencycode: 'INR' }] } };
+        if (action === 'GetTransactions') throw new Error('MUST NOT be called when unsupported');
+        return {};
+      });
+      const res = await handlers.get_revenue_report({ clientid: 30, days: 3650 });
+      const p = JSON.parse(res.content[0].text);
+      expect(p.paid).toEqual({ count: 1, total: 10 });
+      expect(p.transactions.capability_unavailable).toBe(true);
+      expect(p.transactions.status).toBe('unsupported');
+      expect(whmcs.read).not.toHaveBeenCalledWith('GetTransactions', expect.anything());
+    } finally {
+      cap.__resetCapabilityCacheForTests();
+    }
+  });
+
+  it('a failing GetInvoices is fault-isolated (zeroed paid, partial_errors)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') throw new Error('inv-down');
+      return {};
+    });
+    const res = await handlers.get_revenue_report({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.paid).toEqual({ count: 0, total: 0 });
+    expect(p.partial_errors.some((e: any) => e.section === 'invoices' && /inv-down/.test(e.error))).toBe(true);
+  });
+});
+
+describe('get_reconciliation_export', () => {
+  function invoicesC(list: any[]) {
+    return { invoices: { invoice: list } };
+  }
+
+  it('emits a normalized matched ledger + unmatched counts when GetTransactions supported', async () => {
+    const { handlers } = harness((action: string, params: any) => {
+      if (action === 'GetInvoices')
+        return invoicesC([
+          { id: 11, status: 'Paid', total: '50.00', balance: '0.00', date: '2026-05-09' },
+          { id: 12, status: 'Paid', total: '20.00', balance: '0.00', date: '2026-05-11' },
+          { id: 13, status: 'Unpaid', total: '5.00', balance: '5.00', date: '2026-05-12' }, // no txn → unmatched invoice
+        ]);
+      if (action === 'GetTransactions') {
+        expect(params.clientid).toBe(30);
+        return { transactions: { transaction: [
+          { id: 5001, userid: 30, invoiceid: 11, transid: 'PAYID-AAA', date: '2026-05-10 09:00:00', gateway: 'stripe', currency: 'INR', amountin: '50.00', amountout: '0.00' },
+          { id: 5002, userid: 30, invoiceid: 12, transid: 'PAYID-BBB', date: '2026-05-11 09:00:00', gateway: 'paypal', currency: 'INR', amountin: '20.00', amountout: '0.00' },
+          { id: 5003, userid: 30, invoiceid: 99, transid: 'PAYID-CCC', date: '2026-05-15 09:00:00', gateway: 'banktransfer', currency: 'INR', amountin: '75.00', amountout: '0.00' }, // no invoice → unmatched txn
+        ] } };
+      }
+      return {};
+    });
+    const res = await handlers.get_reconciliation_export({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.transactions).toMatchObject({ action: 'GetTransactions', status: 'supported', composed: true, count: 3 });
+    expect(p.source_invoice_ids).toEqual([11, 12, 13]);
+    expect(p.source_transaction_ids).toEqual([5001, 5002, 5003]);
+
+    const entries = p.reconciliation_ledger.entries;
+    const matched = entries.filter((e: any) => e.matched);
+    expect(matched.map((e: any) => `${e.transaction_id}:${e.invoice_id}`).sort()).toEqual([
+      'PAYID-AAA:11', 'PAYID-BBB:12',
+    ]);
+    const m11 = entries.find((e: any) => e.invoice_id === 11 && e.matched);
+    expect(m11).toMatchObject({ invoice_total: '50.00', invoice_status: 'Paid', gateway: 'stripe', amount_in: 50, amount_out: 0 });
+    // Unmatched txn 5003 (invoice 99 absent) ⇒ entry with null invoice fields.
+    const tx99 = entries.find((e: any) => e.transaction_id === 'PAYID-CCC');
+    expect(tx99).toMatchObject({ matched: false, invoice_total: null, invoice_status: null, invoice_id: 99 });
+    // Unmatched invoice 13 (no txn) ⇒ entry with null transaction fields.
+    const inv13 = entries.find((e: any) => e.invoice_id === 13 && !e.transaction_id);
+    expect(inv13).toMatchObject({ matched: false, transaction_id: null, gateway: null, amount_in: null });
+
+    expect(p.unmatched_invoices).toBe(1); // invoice 13
+    expect(p.unmatched_transactions).toBe(1); // txn 5003
+    expect(p.partial_errors).toEqual([]);
+  });
+
+  it('clearly marks capability unavailable when GetTransactions unsupported — invoice-only entries', async () => {
+    cap.__resetCapabilityCacheForTests();
+    try {
+      await cap.probeCapability('GetTransactions', {
+        read: () => Promise.reject(new Error('action could not be found')),
+        isAllowlisted: () => true,
+      });
+      expect(cap.getCapability('GetTransactions').status).toBe('unsupported');
+      const { handlers, whmcs } = harness((action: string) => {
+        if (action === 'GetInvoices') return invoicesC([{ id: 11, status: 'Unpaid', total: '50.00', balance: '50.00', date: '2026-05-01' }]);
+        if (action === 'GetTransactions') throw new Error('MUST NOT be called when unsupported');
+        return {};
+      });
+      const res = await handlers.get_reconciliation_export({ clientid: 30 });
+      const p = JSON.parse(res.content[0].text);
+      expect(p.transactions.capability_unavailable).toBe(true);
+      expect(p.transactions.status).toBe('unsupported');
+      expect(p.source_invoice_ids).toEqual([11]);
+      // Invoice-only entry, unmatched (no payment pairing possible).
+      expect(p.reconciliation_ledger.entries).toEqual([
+        { invoice_id: 11, invoice_total: '50.00', invoice_status: 'Unpaid', transaction_id: null, gateway: null, amount_in: null, amount_out: null, date: '2026-05-01', matched: false },
+      ]);
+      expect(p.unmatched_invoices).toBe(1);
+      expect(p.unmatched_transactions).toBe(0);
+      expect(whmcs.read).not.toHaveBeenCalledWith('GetTransactions', expect.anything());
+    } finally {
+      cap.__resetCapabilityCacheForTests();
+    }
+  });
+
+  it('a GetTransactions failure is fault-isolated to partial_errors (export survives)', async () => {
+    const { handlers } = harness((action: string) => {
+      if (action === 'GetInvoices') return invoicesC([{ id: 11, status: 'Paid', total: '50.00', balance: '0.00', date: '2026-05-01' }]);
+      if (action === 'GetTransactions') throw new Error('boom-transactions');
+      return {};
+    });
+    const res = await handlers.get_reconciliation_export({ clientid: 30 });
+    const p = JSON.parse(res.content[0].text);
+    expect(p.partial_errors.some((e: any) => e.section === 'transactions' && /boom-transactions/.test(e.error))).toBe(true);
+    // No txns ⇒ invoice 11 surfaces as an unmatched ledger entry.
+    expect(p.unmatched_invoices).toBe(1);
+    expect(p.reconciliation_ledger.entries[0]).toMatchObject({ invoice_id: 11, matched: false, transaction_id: null });
+  });
+});
+
 describe('get_domain_portfolio_snapshot', () => {
   const pricing = {
     result: 'success',

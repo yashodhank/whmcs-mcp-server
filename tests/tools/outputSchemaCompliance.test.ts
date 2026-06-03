@@ -17,6 +17,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../src/config.js', () => ({
   config: { MCP_MAX_PAGE_SIZE: 100, MCP_GOVERNANCE_ENABLED: false, MCP_ENV: 'production', MCP_ALLOW_ANON_LLM: false },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => false,
 }));
 vi.mock('../../src/security.js', () => ({
   AUTH_SHAPE: {},
@@ -71,6 +72,7 @@ function argsFor(name: string): Record<string, unknown> {
   if (name === 'get_client_details') return { clientid: 30 };
   if (name === 'get_capability_matrix') return {};
   if (name === 'get_stats') return {};
+  if (name === 'get_service_lifecycle') return { clientid: 30, serviceid: 1 };
   return { clientid: 30, limit: 25, offset: 0 };
 }
 
