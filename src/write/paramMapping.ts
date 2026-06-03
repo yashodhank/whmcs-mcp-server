@@ -374,6 +374,68 @@ export function mapOrderAcceptParams(params: Record<string, unknown>): Record<st
   return { orderid: params.orderid };
 }
 
+/**
+ * Shared allowlist of WHMCS AddClient / UpdateClient fields the governed client
+ * scopes are permitted to forward. ANYTHING not in this set is dropped (defense
+ * in depth, mirrors the other strict mappers). NOTE: `password2` is forwarded
+ * ONLY when the caller explicitly supplies it — the mapper is pure/deterministic
+ * and NEVER generates a password (no Math.random / crypto here). If absent, the
+ * key is omitted and WHMCS will require the caller to have supplied one for
+ * AddClient. High-impact fields (owner, status, group overrides beyond the listed
+ * `clientgroup`, etc.) are intentionally NOT in the allowlist.
+ */
+const CLIENT_FIELD_ALLOWLIST: readonly string[] = [
+  'firstname',
+  'lastname',
+  'email',
+  'companyname',
+  'address1',
+  'address2',
+  'city',
+  'state',
+  'postcode',
+  'country',
+  'phonenumber',
+  'password2',
+  'currency',
+  'clientgroup',
+  'notes',
+  'customfields',
+];
+
+/** Copy only allowlisted, present (non-undefined) client fields into `out`. */
+function pickClientFields(
+  params: Record<string, unknown>,
+  out: Record<string, unknown>
+): Record<string, unknown> {
+  for (const key of CLIENT_FIELD_ALLOWLIST) {
+    if (params[key] !== undefined) out[key] = params[key];
+  }
+  return out;
+}
+
+/**
+ * `client:create` `{firstname, lastname, email, ...optional}` → WHMCS `AddClient`.
+ * STRICT: only the AddClient fields in CLIENT_FIELD_ALLOWLIST pass through; any
+ * other input key (owner overrides, status, raw `password`, etc.) is dropped.
+ * Pure: the mapper NEVER generates a password — `password2` is forwarded only
+ * if the caller supplied it, otherwise omitted (the caller must provide it or
+ * WHMCS will reject the create).
+ */
+export function mapClientCreateParams(params: Record<string, unknown>): Record<string, unknown> {
+  return pickClientFields(params, {});
+}
+
+/**
+ * `client:update` `{clientid, ...≥1 allowlisted field}` → WHMCS `UpdateClient`.
+ * STRICT: emits clientid plus only the present allowlisted fields; extras
+ * dropped. The validator guarantees clientid + at least one updatable field, so
+ * the mapper never produces a clientid-only (no-op) payload.
+ */
+export function mapClientUpdateParams(params: Record<string, unknown>): Record<string, unknown> {
+  return pickClientFields(params, { clientid: params.clientid });
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -430,6 +492,10 @@ export function intentToWhmcsParams(
       return mapDomainRenewParams(params);
     case 'order:accept':
       return mapOrderAcceptParams(params);
+    case 'client:create':
+      return mapClientCreateParams(params);
+    case 'client:update':
+      return mapClientUpdateParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls

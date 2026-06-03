@@ -19,6 +19,7 @@ vi.mock('../src/config.js', () => ({
     MCP_TOOL_ALLOWLIST: [],
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 
 // Separate mutable config mock for the governed-path suite (uses the
@@ -43,6 +44,7 @@ vi.mock('../../src/config.js', () => ({
     return govCfg;
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 vi.mock('../../src/security.js', () => ({
   AUTH_SHAPE: {},

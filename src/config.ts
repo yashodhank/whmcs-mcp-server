@@ -214,6 +214,39 @@ const configSchema = z
     // explicitly configured.
     MCP_PROD_HIGH_RISK_PER_ACTION_CAP: z.coerce.number().min(0).default(0),
     MCP_PROD_HIGH_RISK_DAILY_CAP: z.coerce.number().min(0).default(0),
+
+    // ── MCP Adoption #10 — Streamable HTTP transport (OPT-IN) ───────────────
+    // Transport selection. Default `stdio` ⇒ behaviour is byte-identical to the
+    // pre-HTTP server (StdioServerTransport). `http` starts a node:http server
+    // running the SDK StreamableHTTPServerTransport, with bearer-token auth
+    // bridged to the EXISTING consumer registry (same tokens as stdio). Full
+    // OAuth2.1/PRM is a documented follow-up (see docs/MCP_ADOPTION.md #9).
+    MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
+    // Bind address + port for the HTTP transport. Localhost by default so the
+    // server is not exposed off-box unless explicitly reconfigured.
+    MCP_HTTP_HOST: z.preprocess(
+      (val) => (typeof val === 'string' && val.trim() !== '' ? val.trim() : '127.0.0.1'),
+      z.string().default('127.0.0.1')
+    ),
+    MCP_HTTP_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    // Single MCP endpoint path (POST/GET/DELETE). Default `/mcp`.
+    MCP_HTTP_PATH: z.preprocess(
+      (val) => (typeof val === 'string' && val.trim() !== '' ? val.trim() : '/mcp'),
+      z.string().default('/mcp')
+    ),
+    // DNS-rebinding guard (spec guidance). A comma list of permitted Origin
+    // header values. Default EMPTY ⇒ no cross-origin requests are allowed: a
+    // request whose Origin header is present must match an entry here, else 403.
+    // (Requests with no Origin header — typical for native/CLI MCP clients —
+    // are unaffected by this check.)
+    MCP_HTTP_ALLOWED_ORIGINS: z.preprocess((val) => {
+      const raw = preprocessCommaSeparatedString(val);
+      if (raw === '') return [];
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }, z.array(z.string()).default([])),
   })
   .superRefine((val, ctx) => {
     // Phase G+ fail-fast misconfiguration guards.
