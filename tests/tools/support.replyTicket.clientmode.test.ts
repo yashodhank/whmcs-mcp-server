@@ -24,6 +24,7 @@ vi.mock('../../src/config.js', () => ({
     MCP_LARGE_REFUND_THRESHOLD: 1000,
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 
 vi.mock('../../src/security.js', () => ({

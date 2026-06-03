@@ -71,6 +71,46 @@ export const READ_ONLY_ANNOTATIONS = {
 } as const;
 
 /**
+ * Opaque forward-only pagination cursor.
+ *
+ * A cursor is an OPAQUE base64 token that encodes only the next WHMCS
+ * `limitstart` offset to read from, i.e. `base64(JSON({ offset })`. Callers
+ * MUST treat it as opaque — its internal shape is an implementation detail and
+ * may change. Pure/deterministic: no Date, no randomness, so encode/decode are
+ * referentially transparent and unit-testable.
+ *
+ * Encoding: `encodeCursor(offset)` → base64 of `{"offset":<n>}`.
+ * Decoding: `decodeCursor(token)` → the offset, defensively. A malformed,
+ * truncated, non-base64, non-JSON, or out-of-range token decodes to offset 0
+ * (first page) rather than throwing — a bad cursor never crashes a read.
+ */
+export function encodeCursor(offset: number): string {
+  const safe = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
+  return Buffer.from(JSON.stringify({ offset: safe }), 'utf8').toString(
+    'base64'
+  );
+}
+
+/**
+ * Defensive decode of an opaque pagination cursor to a non-negative integer
+ * offset. ANY decoding problem (not base64, not JSON, missing/!finite/negative
+ * `offset`) yields 0 — never throws. `undefined`/empty also yields 0.
+ */
+export function decodeCursor(token: string | undefined): number {
+  if (typeof token !== 'string' || token.length === 0) return 0;
+  try {
+    const json = Buffer.from(token, 'base64').toString('utf8');
+    const parsed: unknown = JSON.parse(json);
+    if (parsed === null || typeof parsed !== 'object') return 0;
+    const off = (parsed as Record<string, unknown>).offset;
+    if (typeof off !== 'number' || !Number.isFinite(off) || off < 0) return 0;
+    return Math.floor(off);
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Stable, additive output schema for every shared list-tool envelope.
  *
  * Describes BOTH runtime shapes without changing them:
@@ -93,6 +133,11 @@ export const LIST_TOOL_OUTPUT_SHAPE = {
   limit: z.number(),
   consumer: z.string().optional(),
   contract: z.string().optional(),
+  // Opaque forward cursor for the NEXT page. Present only when the current
+  // page came back full (more rows likely exist); absent/undefined on the
+  // last page. Declared optional so structuredContent still validates whether
+  // or not the tool emits it (outputSchema-compliance invariant).
+  nextCursor: z.string().optional(),
 } as const;
 
 /**
@@ -286,6 +331,12 @@ export function registerListTool<T>(
     clientid: z.number().int().positive(),
     limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(10),
     offset: z.number().int().min(0).default(0),
+    cursor: z
+      .string()
+      .optional()
+      .describe(
+        'Opaque pagination cursor from a prior response\'s nextCursor; pages forward through ALL rows. When set it overrides offset.'
+      ),
     contract: z
       .string()
       .optional()
@@ -331,7 +382,16 @@ export function registerListTool<T>(
           c.normalizerPath.replace(/ies$/, 'y').replace(/s$/, '');
 
         const limitNum = num(params, 'limit') ?? 10;
-        const offsetNum = num(params, 'offset') ?? 0;
+        // An opaque `cursor`, when supplied, supersedes `offset`: it encodes
+        // the next WHMCS limitstart to read. A garbage cursor decodes to 0
+        // (first page) — never throws. With no cursor, `offset` is used exactly
+        // as before (backward compatible).
+        const rawCursor =
+          typeof params.cursor === 'string' ? params.cursor : undefined;
+        const offsetNum =
+          rawCursor !== undefined
+            ? decodeCursor(rawCursor)
+            : num(params, 'offset') ?? 0;
         const clientIdNum = num(params, 'clientid');
 
         const rawStatus = params.status;
@@ -396,6 +456,12 @@ export function registerListTool<T>(
             returned_count: returnedCount,
             scan_complete: scanComplete,
           };
+          // Forward cursor over the FILTERED set: emit only when a full page
+          // was returned (more matches likely follow). The next offset is the
+          // current filtered offset + the rows actually returned.
+          if (returnedCount === limitNum && returnedCount > 0) {
+            envelope.nextCursor = encodeCursor(offsetNum + returnedCount);
+          }
           if (scan.capped) {
             envelope.warning =
               `Status filter scan hit a safety bound (scanned ${String(
@@ -419,13 +485,24 @@ export function registerListTool<T>(
             apiParams
           );
           rows = extractRows(resp, c.normalizerPath, singular);
+          const totalResults = num(resp, 'totalresults');
           envelope = {
-            total: num(resp, 'totalresults') ?? rows.length,
+            total: totalResults ?? rows.length,
             count: num(resp, 'numreturned') ?? rows.length,
             offset: num(resp, 'startnumber') ?? offsetNum,
             limit: limitNum,
             ...(c.extraPayload ?? {}),
           };
+          // Forward cursor: this REPLACES the old silent truncation. A full
+          // page (rows == requested limit) signals more rows likely remain, so
+          // emit a cursor to the next limitstart. If WHMCS reported a total and
+          // we've already reached it, suppress the cursor (true last page).
+          const fullPage = rows.length === limitNum && rows.length > 0;
+          const reachedTotal =
+            totalResults !== undefined && offsetNum + rows.length >= totalResults;
+          if (fullPage && !reachedTotal) {
+            envelope.nextCursor = encodeCursor(offsetNum + rows.length);
+          }
         }
 
         let items = rows.map(c.mapItem);
