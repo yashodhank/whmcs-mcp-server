@@ -2,6 +2,22 @@
 
 Newest first.
 
+## 2026-06-03 (PCI PAN guard + MCP Elicitation + adoption report)
+- **PCI-DSS PAN input guard ADOPTED + WIRED.** Committed `src/security/panScanner.ts`
+  (was dormant/untracked) and call `assertNoPAN(params)` in the write-flow
+  `register()` wrapper — any tool input containing a Luhn-valid 13–19 digit card
+  number is rejected with a structured error BEFORE drafting/executing; the PAN
+  value is never echoed. (entityOwnership.ts left untracked — separate concern.)
+- **MCP Elicitation** (spec 2025-11-25) inline confirm for MEDIUM one-call
+  writes: when the client advertises `elicitation`, the `write` tool requests an
+  explicit confirm before executing (best-UX approval in one round-trip); decline/
+  cancel/error → fail-closed (rejected, no mutation); clients WITHOUT elicitation
+  are unchanged (medium still auto-executes). `confirmViaElicitation` helper +
+  `server.server.elicitInput` / `getClientCapabilities` feature-detect.
+- **docs/MCP_ADOPTION.md** — full report on github.com/modelcontextprotocol and
+  how it improves this project (verified spec 2025-11-25, SDK 1.29).
+- Full suite **963 pass**. tsc/eslint/build clean.
+
 ## 2026-06-03 (legacy-tool retirement + composites + pagination — parallel)
 - **Legacy duplicate write tools RETIRED by default.** `create_ticket`,
   `reply_ticket`, `create_invoice`, `mark_invoice_paid`, `add_credit`,

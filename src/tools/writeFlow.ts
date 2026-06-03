@@ -24,6 +24,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
+import { assertNoPAN, PANDetectedError } from '../security/panScanner.js';
 import { config, isToolAllowed } from '../config.js';
 import { AUTH_SHAPE } from '../security.js';
 import {
@@ -459,6 +460,19 @@ function register(
     try {
       log.logToolCall(name, {}, false);
       if (!rl.tryConsume()) throw new RateLimitError();
+      // PCI-DSS input guard: reject raw card numbers (PAN) before any write
+      // intent is drafted/validated/executed. The PAN value is NEVER echoed.
+      try {
+        assertNoPAN(params);
+      } catch (e) {
+        if (e instanceof PANDetectedError) {
+          log.logToolResult(name, false, Date.now() - t0, 'PAN detected in input (rejected)');
+          return err(
+            'input rejected: a credit card number (PAN) was detected; never send raw card data through this tool'
+          );
+        }
+        throw e;
+      }
       const r = await run(params);
       log.logToolResult(name, true, Date.now() - t0);
       return r;
@@ -772,6 +786,57 @@ export async function executePriceRestoreBatch(
  * after the authorizer allows AND a durable audit line is written; the
  * WhmcsClient read_only MODE_RESTRICTED check is an independent backstop.
  */
+/**
+ * Optional inline confirmation via MCP Elicitation (spec 2025-11-25). Returns:
+ *  - 'unsupported' — client did not advertise `elicitation` (caller proceeds as
+ *    before; NO behavior change for clients without elicitation)
+ *  - 'confirmed'   — user accepted with confirm:true
+ *  - 'declined'    — decline/cancel/non-confirm OR any elicitation error
+ *    (FAIL-CLOSED: an errored confirm never silently executes a mutation)
+ *
+ * Never throws. Defensive about McpServer internals so a bare `{ registerTool }`
+ * test stub resolves to 'unsupported'.
+ */
+async function confirmViaElicitation(
+  server: McpServer,
+  intent: WriteIntent
+): Promise<'confirmed' | 'declined' | 'unsupported'> {
+  const core = (
+    server as unknown as {
+      server?: {
+        getClientCapabilities?: () => { elicitation?: unknown } | undefined;
+        elicitInput?: (p: unknown) => Promise<{ action?: string; content?: Record<string, unknown> }>;
+      };
+    }
+  ).server;
+  if (
+    !core ||
+    typeof core.getClientCapabilities !== 'function' ||
+    typeof core.elicitInput !== 'function'
+  ) {
+    return 'unsupported';
+  }
+  const caps = core.getClientCapabilities();
+  if (caps?.elicitation === undefined) {
+    return 'unsupported';
+  }
+  try {
+    const res = await core.elicitInput({
+      message: `Confirm write: ${intent.scope} — ${intent.projected_effect}`,
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          confirm: { type: 'boolean', title: 'Confirm', description: 'Execute this change now?' },
+        },
+        required: ['confirm'],
+      },
+    });
+    return res.action === 'accept' && res.content?.confirm === true ? 'confirmed' : 'declined';
+  } catch {
+    return 'declined';
+  }
+}
+
 export function registerWriteFlowTools(
   server: McpServer,
   whmcs: WhmcsClient,
@@ -1227,6 +1292,30 @@ export function registerWriteFlowTools(
             execution: { attempted: false, note },
           })
         );
+      }
+      // MEDIUM one-call writes: if the client supports MCP Elicitation, ask for
+      // an explicit inline confirm BEFORE executing (best-UX approval in a single
+      // round-trip). Client without elicitation ⇒ unchanged (medium auto-runs).
+      // LOW stays frictionless. A decline/cancel/elicitation-error blocks
+      // (fail-closed) — no mutation.
+      if (intent.risk === 'medium') {
+        const confirm = await confirmViaElicitation(server, intent);
+        if (confirm === 'declined') {
+          // Pre-approval decline: transition validated → rejected (legal), no
+          // mutation. (execution_blocked is only reachable from `approved`.)
+          const rejected = store.transition(intent.intent_id, 'rejected');
+          audit.append(auditEvent('intent.rejected', rejected, 'elicitation declined'));
+          return out(
+            toToolResult(rejected, 'validate', {
+              validation,
+              execution: {
+                attempted: false,
+                note: 'declined at inline confirmation (elicitation); not executed',
+              },
+            })
+          );
+        }
+        // 'confirmed' or 'unsupported' → proceed.
       }
       // LOW/MEDIUM + execution_allowed: auto-approve (no human approver required
       // for these tiers) then execute in the SAME call. executeRun re-runs the

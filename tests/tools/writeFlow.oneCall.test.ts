@@ -149,4 +149,23 @@ describe('write (one-call, tiered)', () => {
     expect(mutate).not.toHaveBeenCalled();
     expect(rec(body.intent).state).toBe('validated');
   });
+
+  it('PCI-DSS: a credit card number (PAN) in input is rejected — no draft, no mutate, value not echoed', async () => {
+    const mutate = vi.fn();
+    const h = setup(vi.fn(), mutate);
+    const res = await h.write({
+      scope: 'client_note:write',
+      // 4111111111111111 is a Luhn-valid test PAN.
+      params: { clientid: 1, note: 'customer card 4111 1111 1111 1111 on file' },
+      naturalKey: 'note-pan',
+      projected_effect: 'add note',
+      ...tok,
+    });
+    const body = J(res);
+    expect(body.isError).toBe(true);
+    expect(String(body.error)).toMatch(/PAN|card number/i);
+    // The detected number must NEVER be echoed back.
+    expect(JSON.stringify(body)).not.toContain('4111');
+    expect(mutate).not.toHaveBeenCalled();
+  });
 });
