@@ -32,6 +32,7 @@ import {
   type CanonicalCreditNote,
 } from '../canonical/creditNote.js';
 import { asRecord, isRecord, num, str } from '../canonical/_shared.js';
+import { mapToCanonicalTldPricing } from '../canonical/tldPricing.js';
 
 /** Loose WHMCS API row / container object. */
 type WhmcsRow = Record<string, unknown>;
@@ -974,6 +975,107 @@ export function registerAggregatorTools(
         horizon,
         upcoming,
         truncated,
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_domain_portfolio_snapshot',
+    'Read-only domain portfolio for a client: each domain with status, registrar, expiry, days-to-expiry, lock/id-protection, and an estimated 1-year renewal cost matched from GetTLDPricing. Sub-reads fault-isolated; pricing is best-effort (omitted on failure).',
+    { clientid: z.number().int().positive().optional() },
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = requireClientId(params);
+
+      // Best-effort TLD price map: longest-suffix → first-year renew price.
+      interface PriceMap {
+        map: Map<string, number>;
+        currency: string | null;
+      }
+      const pricing = await safeSection<PriceMap | null>('tld_pricing', errs, null, async () => {
+        const raw = await whmcs.read<Record<string, unknown>>('GetTLDPricing', {});
+        const canon = mapToCanonicalTldPricing(raw);
+        const map = new Map<string, number>();
+        for (const p of canon.data.prices) {
+          if (p.renew.length > 0) {
+            const renew1 = p.renew.find((r) => r.period === 1) ?? p.renew[0];
+            map.set(p.tld.toLowerCase(), renew1.price);
+          }
+        }
+        return { map, currency: canon.data.currencyCode };
+      });
+      // Longest matching TLD suffix (so example.co.uk prefers .co.uk over .uk).
+      const tldKeys = pricing
+        ? [...pricing.map.keys()].sort((a, b) => b.length - a.length)
+        : [];
+      const renewalCostFor = (domainName: string): number | null => {
+        if (!pricing) return null;
+        const lower = domainName.toLowerCase();
+        for (const k of tldKeys) {
+          if (lower.endsWith(k)) return pricing.map.get(k) ?? null;
+        }
+        return null;
+      };
+      const truthy = (v: unknown): boolean =>
+        v === true || v === 1 || v === '1' || v === 'on' || v === 'enabled';
+      const today = new Date().toISOString().slice(0, 10);
+      const daysTo = (d?: string): number | null => {
+        if (!d || !/^\d{4}-\d{2}-\d{2}/.test(d)) return null;
+        const ms = Date.parse(`${d.slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`);
+        return Number.isFinite(ms) ? Math.round(ms / 86400000) : null;
+      };
+
+      let domainsTruncated = false;
+      const domains = await safeSection('domains', errs, [], async () => {
+        const raw = norm<WhmcsRow>(
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsDomains', {
+              clientid: cid,
+              limitnum: RENEWAL_FETCH_LIMIT,
+            })
+          ).domains,
+          'domain'
+        );
+        domainsTruncated = raw.length >= RENEWAL_FETCH_LIMIT;
+        return raw.map((d) => {
+          const name = str(d, 'domainname') ?? '';
+          const expiry = str(d, 'expirydate') ?? str(d, 'nextduedate');
+          return {
+            id: num(d, 'id'),
+            domain: name,
+            status: str(d, 'status'),
+            registrar: str(d, 'registrar'),
+            expiry_date: expiry,
+            days_to_expiry: daysTo(expiry),
+            id_protection: truthy(d.idprotection),
+            do_not_renew: truthy(d.donotrenew),
+            registrar_lock: truthy(d.registrarlock ?? d.registrarlockstatus),
+            estimated_renewal_cost: renewalCostFor(name),
+          };
+        });
+      });
+
+      const soon = domains.filter(
+        (d) => d.days_to_expiry !== null && d.days_to_expiry <= 30 && d.days_to_expiry >= -3650
+      ).length;
+      const knownCosts = domains
+        .map((d) => d.estimated_renewal_cost)
+        .filter((c): c is number => typeof c === 'number');
+      return {
+        clientid: cid,
+        currency: pricing ? pricing.currency : null,
+        summary: {
+          total: domains.length,
+          expiring_within_30d: soon,
+          estimated_total_renewal_cost: knownCosts.reduce((a, b) => a + b, 0),
+          priced_domains: knownCosts.length,
+        },
+        domains: domains.sort((a, b) => (a.expiry_date ?? '').localeCompare(b.expiry_date ?? '')),
+        truncated: { domains: domainsTruncated },
         partial_errors: errs,
       };
     }
