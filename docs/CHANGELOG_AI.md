@@ -2,6 +2,39 @@
 
 Newest first.
 
+## 2026-06-04 (vitest CVE patch + Track C2 governed write scopes)
+- **Security — vitest CVE patched.** Bumped `vitest` + `@vitest/coverage-v8`
+  `^4.0.15 → ^4.1.8` (GHSA-5xrq-8626-4rwp: Vitest UI server arbitrary file
+  read/execute, critical). `npm audit` now reports **0 vulnerabilities**. Dev
+  dependency only; full suite re-verified green on the new runner.
+- **Track C2 — 13 new governed write scopes** (all sealed deny-by-default; the
+  keystone empty `MCP_PROD_WRITE_AUTHORIZED` keeps every one prod-sealed until an
+  operator opts in, and each is deny-by-default per-consumer until granted in the
+  registry). Follow the frozen seam (SCOPE_ACTION + SCOPE_RISK + REQUIRED_PARAMS
+  + strict mapper; `z.enum(WRITE_SCOPES)` auto-exposes them through draft→execute;
+  `scopes.ts` derives the coarse OAuth scope from the risk tier automatically):
+  - service: `service:change_package` (ModuleChangePackage, med),
+    `service:upgrade` (UpgradeProduct, **high** — per-type required field:
+    product⇒newproductid / configoptions⇒configoptions / addon⇒addonid).
+  - domain: `domain:idprotect:toggle` (DomainToggleIdProtect, low),
+    `domain:lock:toggle` (DomainUpdateLockingStatus, med) — boolean flags
+    validated as booleans so an explicit `false` (disable) is accepted.
+  - client: `client:contact:add` (AddContact, med), `client:contact:update`
+    (UpdateContact, med) — strict contact-field allowlist drops permission /
+    sub-account / password keys.
+  - billing: `billing:billable_item:add` (AddBillableItem, med),
+    `billing:quote:{create,update,send,accept}` (CreateQuote/UpdateQuote/
+    SendQuote/AcceptQuote; create/update med, send low, **accept high** — quote
+    line items flattened to `lineitem{description,amount,taxed}{N}`).
+  - ticket: `ticket:note` (AddTicketNote, low), `ticket:merge` (MergeTicket, med
+    — mergeticketids → comma-joined string, each id ≠ primary).
+  - Money/destructive shapes (service:upgrade, billing:quote:*) are pinned to the
+    documented WHMCS API; capability-probe on a dev WHMCS before enabling in prod.
+  - Tests: 75 new mapper/validation cases across `tests/write/trackC2.*.test.ts`
+    (service / domain / clientBilling / quote / ticket). Every strict mapper test
+    asserts planted extra keys are dropped.
+- Full suite **1241 pass** / 14 skipped. tsc / eslint / build clean.
+
 ## 2026-06-03 (OAuth request-path wiring + HTTP→tool identity binding)
 - **OAuth 2.1 resource-server WIRED** into the HTTP transport (opt-in
   `MCP_OAUTH_ENABLED`): PRM route (`/.well-known/oauth-protected-resource`,

@@ -517,6 +517,257 @@ export function mapClientUpdateParams(params: Record<string, unknown>): Record<s
   return pickClientFields(params, { clientid: params.clientid });
 }
 
+/* ─────────────────────────  Track C2 mappers  ───────────────────────────── */
+
+/**
+ * `service:change_package` `{serviceid}` → WHMCS `ModuleChangePackage`
+ * `{serviceid}`. STRICT 1-key output. ModuleChangePackage re-runs the module's
+ * ChangePackage against the service's CURRENT product/config — it takes no
+ * package-selection fields, so the mapper emits only serviceid and drops any
+ * extra caller key (defense in depth).
+ */
+export function mapServiceChangePackageParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return { serviceid: params.serviceid };
+}
+
+/**
+ * STRICT allowlist of WHMCS `UpgradeProduct` fields `service:upgrade` may
+ * forward. High-impact field (any cost override) is NOT in the set. `calconly`
+ * is intentionally excluded: this is a real upgrade scope, not a quote — a
+ * preview is the read-side concern, not a governed mutation.
+ */
+const UPGRADE_FIELD_ALLOWLIST: readonly string[] = [
+  'serviceid',
+  'type',
+  'newproductid',
+  'newproductbillingcycle',
+  'configoptions',
+  'addonid',
+  'promocode',
+  'paymentmethod',
+];
+
+/**
+ * `service:upgrade` → WHMCS `UpgradeProduct`. STRICT: only the allowlisted
+ * upgrade fields pass through; any other caller key is dropped. The validator
+ * guarantees serviceid + a recognized `type` and the per-type required field
+ * (product ⇒ newproductid, configoptions ⇒ configoptions, addon ⇒ addonid).
+ */
+export function mapServiceUpgradeParams(params: Record<string, unknown>): Record<string, unknown> {
+  return pickFields(params, UPGRADE_FIELD_ALLOWLIST);
+}
+
+/**
+ * `domain:idprotect:toggle` `{domainid, idprotect}` → WHMCS
+ * `DomainToggleIdProtect` `{domainid, idprotect}`. STRICT: emits domainid + a
+ * normalized boolean idprotect; extras dropped.
+ */
+export function mapDomainIdProtectParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    domainid: params.domainid,
+    idprotect: params.idprotect === true,
+  };
+}
+
+/**
+ * `domain:lock:toggle` `{domainid, lockstatus}` → WHMCS
+ * `DomainUpdateLockingStatus` `{domainid, lockstatus}`. STRICT: emits domainid +
+ * a normalized boolean lockstatus (true ⇒ locked); extras dropped.
+ */
+export function mapDomainLockParams(params: Record<string, unknown>): Record<string, unknown> {
+  return {
+    domainid: params.domainid,
+    lockstatus: params.lockstatus === true,
+  };
+}
+
+/**
+ * STRICT allowlist of WHMCS contact (`AddContact`/`UpdateContact`) fields the
+ * governed client:contact:* scopes may forward. High-impact / permission fields
+ * (the per-area `...email`/`...message` permission booleans, `generalemails`,
+ * `subaccount`, password) are intentionally NOT included — adding a contact
+ * must not silently grant a sub-account login or notification permissions.
+ */
+const CONTACT_FIELD_ALLOWLIST: readonly string[] = [
+  'firstname',
+  'lastname',
+  'email',
+  'companyname',
+  'address1',
+  'address2',
+  'city',
+  'state',
+  'postcode',
+  'country',
+  'phonenumber',
+];
+
+/**
+ * `client:contact:add` `{clientid, ...contact fields}` → WHMCS `AddContact`.
+ * STRICT: clientid + only the allowlisted contact fields; permission/subaccount
+ * keys dropped.
+ */
+export function mapContactAddParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { clientid: params.clientid };
+  for (const key of CONTACT_FIELD_ALLOWLIST) {
+    if (params[key] !== undefined) out[key] = params[key];
+  }
+  return out;
+}
+
+/**
+ * `client:contact:update` `{contactid, ...≥1 contact field}` → WHMCS
+ * `UpdateContact`. STRICT: contactid + only the present allowlisted fields.
+ */
+export function mapContactUpdateParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { contactid: params.contactid };
+  for (const key of CONTACT_FIELD_ALLOWLIST) {
+    if (params[key] !== undefined) out[key] = params[key];
+  }
+  return out;
+}
+
+/** STRICT allowlist of WHMCS `AddBillableItem` fields. */
+const BILLABLE_ITEM_FIELD_ALLOWLIST: readonly string[] = [
+  'clientid',
+  'description',
+  'amount',
+  'recur',
+  'recurcycle',
+  'recurfor',
+  'invoiceaction',
+  'duedate',
+];
+
+/**
+ * `billing:billable_item:add` `{clientid, description, amount, ...}` → WHMCS
+ * `AddBillableItem`. STRICT: only the allowlisted fields pass through; extras
+ * dropped. `invoiceaction` (when supplied) controls whether/when WHMCS raises an
+ * invoice — the mapper forwards the caller's choice but never injects one.
+ */
+export function mapBillableItemParams(params: Record<string, unknown>): Record<string, unknown> {
+  return pickFields(params, BILLABLE_ITEM_FIELD_ALLOWLIST);
+}
+
+/**
+ * STRICT allowlist of top-level WHMCS `CreateQuote` fields (beyond the flattened
+ * line-item keys this mapper builds from `items`). `proposal`/raw HTML and any
+ * other unknown key are dropped.
+ */
+const QUOTE_CREATE_FIELD_ALLOWLIST: readonly string[] = [
+  'subject',
+  'stage',
+  'validuntil',
+  'userid',
+  'firstname',
+  'lastname',
+  'companyname',
+  'email',
+  'currency',
+  'datecreated',
+  'customernotes',
+];
+
+/**
+ * `billing:quote:create` `{subject, stage, validuntil, items:[{description,
+ * amount, taxed}], ...}` → WHMCS `CreateQuote`. Flattens `items` into
+ * `lineitemdescription{N}` / `lineitemamount{N}` / `lineitemtaxed{N}` (1-based)
+ * — the WHMCS CreateQuote line-item shape — and copies only allowlisted
+ * top-level fields. The original `items` key is consumed, never copied.
+ */
+export function mapQuoteCreateParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = pickFields(params, QUOTE_CREATE_FIELD_ALLOWLIST);
+  const items = Array.isArray(params.items) ? params.items : [];
+  items.forEach((item, i) => {
+    const idx = i + 1;
+    const it = asRecord(item);
+    out[`lineitemdescription${idx}`] = it.description;
+    out[`lineitemamount${idx}`] = it.amount;
+    if (it.taxed !== undefined) out[`lineitemtaxed${idx}`] = it.taxed ? 1 : 0;
+  });
+  return out;
+}
+
+/**
+ * STRICT allowlist of WHMCS `UpdateQuote` top-level fields. `quoteid` is always
+ * emitted; line items, when supplied, are flattened like CreateQuote.
+ */
+const QUOTE_UPDATE_FIELD_ALLOWLIST: readonly string[] = [
+  'quoteid',
+  'subject',
+  'stage',
+  'validuntil',
+  'currency',
+  'customernotes',
+];
+
+/**
+ * `billing:quote:update` `{quoteid, ...≥1 field}` → WHMCS `UpdateQuote`. STRICT:
+ * quoteid + allowlisted fields; optional `items` flattened to the
+ * lineitem{field}{N} shape. Extras dropped.
+ */
+export function mapQuoteUpdateParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = pickFields(params, QUOTE_UPDATE_FIELD_ALLOWLIST);
+  if (Array.isArray(params.items)) {
+    params.items.forEach((item, i) => {
+      const idx = i + 1;
+      const it = asRecord(item);
+      out[`lineitemdescription${idx}`] = it.description;
+      out[`lineitemamount${idx}`] = it.amount;
+      if (it.taxed !== undefined) out[`lineitemtaxed${idx}`] = it.taxed ? 1 : 0;
+    });
+  }
+  return out;
+}
+
+/**
+ * `billing:quote:send` `{quoteid}` → WHMCS `SendQuote` `{quoteid}`. STRICT
+ * 1-key output; extras dropped.
+ */
+export function mapQuoteSendParams(params: Record<string, unknown>): Record<string, unknown> {
+  return { quoteid: params.quoteid };
+}
+
+/**
+ * `billing:quote:accept` `{quoteid}` → WHMCS `AcceptQuote` `{quoteid}`. STRICT
+ * 1-key output; extras dropped. Accepting converts the quote to an invoice — a
+ * financial commitment — so no other field (e.g. an injected paymentmethod) is
+ * ever forwarded.
+ */
+export function mapQuoteAcceptParams(params: Record<string, unknown>): Record<string, unknown> {
+  return { quoteid: params.quoteid };
+}
+
+/** STRICT allowlist of WHMCS `AddTicketNote` fields for `ticket:note`. */
+const TICKET_NOTE_FIELD_ALLOWLIST: readonly string[] = ['ticketid', 'message'];
+
+/**
+ * `ticket:note` `{ticketid, message}` → WHMCS `AddTicketNote`. STRICT: emits
+ * only ticketid + message (the internal note body); markdown/adminid/etc.
+ * dropped.
+ */
+export function mapTicketNoteParams(params: Record<string, unknown>): Record<string, unknown> {
+  return pickFields(params, TICKET_NOTE_FIELD_ALLOWLIST);
+}
+
+/**
+ * `ticket:merge` `{ticketid, mergeticketids:[...]}` → WHMCS `MergeTicket`
+ * `{ticketid, mergeticketids}`. STRICT: emits the primary ticketid + a
+ * comma-joined list of the tickets to merge into it; extras dropped. The
+ * validator guarantees a non-empty array of positive-integer ids.
+ */
+export function mapTicketMergeParams(params: Record<string, unknown>): Record<string, unknown> {
+  const ids = Array.isArray(params.mergeticketids) ? params.mergeticketids : [];
+  return {
+    ticketid: params.ticketid,
+    mergeticketids: ids.join(','),
+  };
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -577,6 +828,32 @@ export function intentToWhmcsParams(
       return mapClientCreateParams(params);
     case 'client:update':
       return mapClientUpdateParams(params);
+    case 'service:change_package':
+      return mapServiceChangePackageParams(params);
+    case 'service:upgrade':
+      return mapServiceUpgradeParams(params);
+    case 'domain:idprotect:toggle':
+      return mapDomainIdProtectParams(params);
+    case 'domain:lock:toggle':
+      return mapDomainLockParams(params);
+    case 'client:contact:add':
+      return mapContactAddParams(params);
+    case 'client:contact:update':
+      return mapContactUpdateParams(params);
+    case 'billing:billable_item:add':
+      return mapBillableItemParams(params);
+    case 'billing:quote:create':
+      return mapQuoteCreateParams(params);
+    case 'billing:quote:update':
+      return mapQuoteUpdateParams(params);
+    case 'billing:quote:send':
+      return mapQuoteSendParams(params);
+    case 'billing:quote:accept':
+      return mapQuoteAcceptParams(params);
+    case 'ticket:note':
+      return mapTicketNoteParams(params);
+    case 'ticket:merge':
+      return mapTicketMergeParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls
