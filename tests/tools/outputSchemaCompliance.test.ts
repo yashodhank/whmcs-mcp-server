@@ -35,7 +35,6 @@ import { registerSupportTools } from '../../src/tools/support.js';
 import { registerBillingTools } from '../../src/tools/billing.js';
 import { registerDomainTools } from '../../src/tools/domains.js';
 import { registerOrderTools } from '../../src/tools/orders.js';
-import { registerServiceTools } from '../../src/tools/services.js';
 
 function harness() {
   const handlers: Record<string, any> = {};
@@ -96,7 +95,6 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
     registerBillingTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
-    registerServiceTools(h.server as any, h.whmcs, h.logger, h.rl);
 
     const names = Object.keys(h.handlers).filter(
       (n) => h.configs[n]?.outputSchema
@@ -188,7 +186,7 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
     for (const reg of [
       registerListTools, registerClientTools, registerAggregatorTools,
       registerCapabilityShellTools, registerSupportTools, registerBillingTools,
-      registerDomainTools, registerOrderTools, registerServiceTools,
+      registerDomainTools, registerOrderTools,
     ]) {
       try {
         reg(mcp as any, m.whmcs, m.logger, m.rl);
@@ -226,7 +224,6 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
     registerBillingTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
-    registerServiceTools(h.server as any, h.whmcs, h.logger, h.rl);
 
     const names = Object.keys(h.handlers).filter((n) => schemaByName.has(n));
     const cases: [string, Record<string, unknown>][] = names.map((n) => [n, argsFor(n)]);

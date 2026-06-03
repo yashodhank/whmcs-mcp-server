@@ -28,6 +28,8 @@ const READ_ALLOWLIST = new Set<string>([
   // Track A (batch 2) — client contacts, billing pay-methods/credits, ticket
   // operational metadata. Governed read tools; capability `unverified`.
   'GetContacts','GetPayMethods','GetCredits','GetTicketCounts','GetSupportStatuses',
+  // Track A (batch 3) — quotes + system reference reads.
+  'GetQuotes','GetCurrencies','GetPaymentMethods','WhmcsDetails',
 ]);
 
 const WRITE_DENY_PREFIX = /^(Add|Update|Delete|Create|Module|Domain(Register|Renew|Transfer)|Send|Set)/i;

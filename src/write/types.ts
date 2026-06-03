@@ -31,6 +31,12 @@ export const WRITE_SCOPES = [
   'billing:refund:record',
   'service:price_restore',
   'service:domain_rename',
+  // Track C — service lifecycle + domain ops migrated off the legacy
+  // direct-mutate tools into the governed tiered model.
+  'service:suspend',
+  'service:unsuspend',
+  'service:terminate',
+  'domain:nameservers:update',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -47,6 +53,10 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'billing:refund:record': 'AddTransaction',
   'service:price_restore': 'UpdateClientProduct',
   'service:domain_rename': 'UpdateClientProduct',
+  'service:suspend': 'ModuleSuspend',
+  'service:unsuspend': 'ModuleUnsuspend',
+  'service:terminate': 'ModuleTerminate',
+  'domain:nameservers:update': 'DomainUpdateNameservers',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -68,6 +78,15 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // that key off it. Medium ⇒ single approval, no money caps / human-approval
   // record required (those are high-risk only).
   'service:domain_rename': 'medium',
+  // Suspend/unsuspend are reversible service-state changes → medium.
+  'service:suspend': 'medium',
+  'service:unsuspend': 'medium',
+  // Terminate is destructive/irreversible → high. ALSO scope-blocked in prod
+  // (PROD_NEVER_EXECUTABLE_SCOPES) and action-blocked (ModuleTerminate ∈
+  // PROD_NEVER_EXECUTABLE): can be drafted/validated but never executes in prod.
+  'service:terminate': 'high',
+  // Nameserver change is reversible config → medium.
+  'domain:nameservers:update': 'medium',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */

@@ -2,6 +2,25 @@
 
 Newest first.
 
+## 2026-06-03 (Track C write-migration + more reads + MCP Prompts)
+- **Track C — legacy service writes migrated into the tiered governed model.**
+  New scopes: `service:suspend` (med, ModuleSuspend), `service:unsuspend` (med,
+  ModuleUnsuspend), `service:terminate` (high, ModuleTerminate — perma-blocked
+  in prod at BOTH action + scope level), `domain:nameservers:update` (med,
+  DomainUpdateNameservers). Strict mappers + validation (serviceid/domainid
+  positive int; nameservers 2–5 valid hosts). **RETIRED** the legacy
+  direct-`mutate` tools `suspend_service`/`unsuspend_service`/`terminate_service`
+  (deleted services.ts + its test + golden; removed from index + compliance
+  test). Suspend/terminate now ONLY via the governed write-flow.
+- **Reads (parallel agents):** `get_quotes` (GetQuotes), `get_currencies` /
+  `list_payment_methods` / `get_whmcs_details` (GetCurrencies/GetPaymentMethods/
+  WhmcsDetails). Allowlisted, capability `unverified`.
+- **MCP Prompts** (`src/prompts/whmcsPrompts.ts`, SDK 1.29 `registerPrompt`):
+  month_end_reconciliation, phantom_tds_sweep, suspend_for_nonpayment (drafts
+  service:suspend via the governed flow — forbids direct mutate),
+  new_client_onboarding, domain_renewal_review.
+- Full suite **939 pass**. tsc/eslint/build clean.
+
 ## 2026-06-03 (Phase 1/2 batch — parallel)
 - **A3 get_client_contacts** (GetContacts; canonical/contact.ts — PII classed).
 - **A5 get_pay_methods + get_credits** (GetPayMethods/GetCredits;
