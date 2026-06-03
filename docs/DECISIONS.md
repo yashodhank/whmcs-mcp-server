@@ -4,6 +4,30 @@ Append-only. One entry per decision. Newest last.
 
 ---
 
+## 2026-06-03 — HTTP→tool identity binding via trusted marker
+
+**Decision:** HTTP transport auth must drive tool-layer governance (not the
+client-supplied `auth_token` param). Mechanism: the HTTP server authenticates the
+bearer (registry token OR OAuth JWT→consumerBridge), resolves the ConsumerProfile,
+and OVERWRITES the tools/call `auth_token` arg with `${TRANSPORT_BOUND_PREFIX}<id>`.
+`resolveConsumer` trusts that marker ONLY when `enableTransportConsumerBinding(true)`
+was called — which ONLY the HTTP server does at startup. stdio never enables it,
+so the marker is a non-matching token there (no impersonation). The HTTP server
+overwrites any client-supplied `auth_token`/marker, so an HTTP client can't forge
+it either. Uniform across registry + OAuth modes; zero per-tool changes (single
+chokepoint in resolveConsumer + the HTTP layer).
+
+**Why:** review found HTTP bearer identity was never propagated to tools (tools
+re-resolved from the param) — HTTP auth ≠ governance. This binds them.
+
+**Files:** `src/governance/consumers.ts` (TRANSPORT_BOUND_PREFIX,
+enableTransportConsumerBinding, resolveConsumer marker branch),
+`src/http/httpServer.ts` (auth → bindConsumerIdentity + scope gate + OAuth verify
++ PRM). OAuth scope vocab is coarse at the boundary; fine-grained per-scope/tier
+stays in `executionGate`.
+
+---
+
 ## 2026-06-03 — MCP spec/SDK adoption backlog (research, not yet built)
 
 Reviewed github.com/modelcontextprotocol (spec rev **2025-11-25**, TS SDK 1.x).

@@ -25,6 +25,9 @@ const cfg = vi.hoisted(() => ({
     MCP_HTTP_PORT: 0, // OS-assigned free port
     MCP_HTTP_PATH: '/mcp',
     MCP_HTTP_ALLOWED_ORIGINS: [] as string[],
+    MCP_HTTP_MAX_SESSIONS: 256,
+    MCP_HTTP_SESSION_IDLE_MS: 300000,
+    MCP_OAUTH_ENABLED: false,
   },
 }));
 vi.mock('../../src/config.js', () => cfg);

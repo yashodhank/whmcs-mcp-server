@@ -91,34 +91,107 @@ export function mapClientNoteParams(params: Record<string, unknown>): Record<str
   return out;
 }
 
+/** Copy only the listed, present (non-undefined) keys from `params` into a fresh object. */
+function pickFields(
+  params: Record<string, unknown>,
+  allow: readonly string[]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of allow) {
+    if (params[key] !== undefined) out[key] = params[key];
+  }
+  return out;
+}
+
 /**
- * `ticket:create` — passthrough. WHMCS `OpenTicket` accepts the intent-shape
- * keys 1:1; the mapper exists so future field divergence has a single home.
+ * STRICT allowlist of WHMCS `OpenTicket` fields the `ticket:create` scope is
+ * permitted to forward (matches the intent contract: deptid/subject/message
+ * required, clientid OR name+email identity, optional priority/serviceid). Any
+ * other caller key — admin-only / injected (status, adminid, date, markdown,
+ * etc.) — is DROPPED (defense in depth, mirrors the other strict mappers).
+ */
+const TICKET_CREATE_FIELD_ALLOWLIST: readonly string[] = [
+  'deptid',
+  'subject',
+  'message',
+  'clientid',
+  'name',
+  'email',
+  'priority',
+  'serviceid',
+];
+
+/**
+ * `ticket:create` → WHMCS `OpenTicket`. STRICT: only the allowlisted OpenTicket
+ * fields pass through; injected/admin-only keys (status, adminid, date,
+ * markdown, …) are dropped.
  */
 export function mapTicketCreateParams(params: Record<string, unknown>): Record<string, unknown> {
-  return { ...params };
+  return pickFields(params, TICKET_CREATE_FIELD_ALLOWLIST);
 }
 
-/** `ticket:reply` — passthrough (intent shape == WHMCS shape today). */
+/**
+ * STRICT allowlist of WHMCS `AddTicketReply` fields the `ticket:reply` scope
+ * may forward (ticketid + message required; clientid OR name+email identity).
+ * `markdown` is intentionally NOT included — the scope does not model it. Any
+ * other key (status, adminid, …) is dropped.
+ */
+const TICKET_REPLY_FIELD_ALLOWLIST: readonly string[] = [
+  'ticketid',
+  'message',
+  'clientid',
+  'name',
+  'email',
+];
+
+/**
+ * `ticket:reply` → WHMCS `AddTicketReply`. STRICT: only allowlisted fields pass
+ * through; status/adminid/etc. are dropped.
+ */
 export function mapTicketReplyParams(params: Record<string, unknown>): Record<string, unknown> {
-  return { ...params };
+  return pickFields(params, TICKET_REPLY_FIELD_ALLOWLIST);
 }
 
-/** `ticket:status` — passthrough. */
+/** STRICT allowlist of WHMCS `UpdateTicket` fields for `ticket:status`. */
+const TICKET_STATUS_FIELD_ALLOWLIST: readonly string[] = ['ticketid', 'status'];
+
+/**
+ * `ticket:status` → WHMCS `UpdateTicket`. STRICT: emits ONLY ticketid + status;
+ * every other caller key (adminid, flag overrides, etc.) is dropped.
+ */
 export function mapTicketStatusParams(params: Record<string, unknown>): Record<string, unknown> {
-  return { ...params };
+  return pickFields(params, TICKET_STATUS_FIELD_ALLOWLIST);
 }
+
+/**
+ * STRICT allowlist of top-level WHMCS `CreateInvoice` fields the
+ * `billing:invoice:create` scope may forward (beyond the flattened
+ * itemdescription{N}/itemamount{N}/itemtaxed{N} keys this mapper builds from
+ * `items`). Any other caller key (status overrides beyond the listed `status`,
+ * sendinvoice, autoapplycredit, injected keys, etc. — anything not listed) is
+ * dropped. `items` is consumed by the flattener and never copied verbatim.
+ */
+const INVOICE_CREATE_FIELD_ALLOWLIST: readonly string[] = [
+  'userid',
+  'status',
+  'date',
+  'duedate',
+  'paymentmethod',
+  'taxrate',
+  'taxrate2',
+  'notes',
+];
 
 /**
  * `billing:invoice:create` `{userid, items: [{description, amount, taxed}], ...}`
  * → flatten items into WHMCS `CreateInvoice` `itemdescription{N}/itemamount{N}/
- * itemtaxed{N}` shape (1-based). The original `items` key is REMOVED.
+ * itemtaxed{N}` shape (1-based). STRICT: only the allowlisted top-level fields
+ * pass through; the original `items` key is consumed (never copied) and any
+ * unknown caller key is dropped.
  */
 export function mapInvoiceCreateParams(params: Record<string, unknown>): Record<string, unknown> {
-  // Carry over every key EXCEPT items.
-  const { items: _ignored, ...rest } = params;
-  void _ignored;
-  const out: Record<string, unknown> = { ...rest };
+  // Only allowlisted top-level fields; `items` is flattened below, never copied.
+  const out: Record<string, unknown> = pickFields(params, INVOICE_CREATE_FIELD_ALLOWLIST);
 
   const items = Array.isArray(params.items) ? params.items : [];
   items.forEach((item, i) => {
@@ -146,17 +219,25 @@ export function mapInvoicePaymentParams(
   params: Record<string, unknown>,
   ctx?: MappingContext
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...params };
-  if (out.transid === undefined || out.transid === '' || out.transid === null) {
+  // STRICT: only AddInvoicePayment fields. invoiceid/amount/date copied if
+  // present; transid synthesized below; gateway only when a non-empty caller
+  // value (else omitted so WHMCS uses the invoice's recorded paymentmethod).
+  const out: Record<string, unknown> = pickFields(params, ['invoiceid', 'amount', 'date']);
+
+  const explicitTransid = params.transid;
+  if (explicitTransid !== undefined && explicitTransid !== '' && explicitTransid !== null) {
+    out.transid = explicitTransid;
+  } else {
     const invoiceid = safeIdPart(params.invoiceid, 'noinv');
     out.transid = deterministicTransIdFromIdempotency(`PAY-${invoiceid}`, ctx?.idempotency_key);
   }
-  if (out.gateway === undefined || out.gateway === '' || out.gateway === null) {
-    // Mapper cannot infer gateway from an invoice without reading WHMCS; the
-    // caller is expected to supply it. We leave the key off so WHMCS uses the
-    // invoice's recorded paymentmethod rather than a wrong default.
-    delete out.gateway;
+
+  const gateway = params.gateway;
+  if (gateway !== undefined && gateway !== '' && gateway !== null) {
+    out.gateway = gateway;
   }
+  // else: leave gateway off — mapper can't infer it without reading WHMCS, and
+  // omitting lets WHMCS fall back to the invoice's recorded paymentmethod.
   return out;
 }
 

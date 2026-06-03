@@ -27,9 +27,57 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { config } from '../config.js';
 import type { Logger } from '../logging.js';
-import { loadConsumerRegistry } from '../governance/consumers.js';
+import {
+  loadConsumerRegistry,
+  resolveConsumer,
+  enableTransportConsumerBinding,
+  TRANSPORT_BOUND_PREFIX,
+} from '../governance/consumers.js';
 import type { ConsumerProfile } from '../governance/types.js';
-import { authorizeHttpRequest } from './auth.js';
+import { extractBearerToken, isOriginAllowed } from './auth.js';
+import {
+  PRM_PATH,
+  buildProtectedResourceMetadata,
+  wwwAuthenticateValue,
+} from '../auth/protectedResourceMetadata.js';
+import { createTokenVerifier, type TokenVerifier } from '../auth/tokenVerifier.js';
+import { consumerFromClaims, consumerScopes } from '../auth/consumerBridge.js';
+import {
+  requiredScopeForRead,
+  requiredScopeForWriteScope,
+  hasRequiredScope,
+} from '../auth/scopes.js';
+
+/** Write-flow tool names whose required scope is a write tier (not read). */
+const WRITE_FLOW_TOOLS = new Set([
+  'write',
+  'draft_write_intent',
+  'validate_write_intent',
+  'approve_write_intent',
+  'execute_write_intent',
+]);
+
+/** Compute the OAuth scope a tools/call requires (coarse boundary gate; the
+ *  in-house authorizer still does fine-grained per-scope/tier enforcement). */
+function requiredScopeForCall(body: unknown): string {
+  const b = body as { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+  if (b.method !== 'tools/call') return requiredScopeForRead();
+  const name = b.params?.name;
+  if (typeof name !== 'string' || !WRITE_FLOW_TOOLS.has(name)) return requiredScopeForRead();
+  const scope = b.params?.arguments?.scope;
+  return typeof scope === 'string' ? requiredScopeForWriteScope(scope) : 'whmcs:write:low';
+}
+
+/** Bind the transport-authenticated consumer to the tool layer: overwrite the
+ *  tools/call `auth_token` arg with the trusted marker (strips any client value)
+ *  so tools resolve the AUTHENTICATED consumer, not a client-supplied token. */
+function bindConsumerIdentity(body: unknown, consumerId: string): void {
+  const b = body as { method?: string; params?: { arguments?: Record<string, unknown> } } | null;
+  if (b?.method === 'tools/call' && b.params) {
+    const args = (b.params.arguments ??= {});
+    args.auth_token = `${TRANSPORT_BOUND_PREFIX}${consumerId}`;
+  }
+}
 
 const SESSION_HEADER = 'mcp-session-id';
 /** Cap on a single request body to avoid unbounded buffering. */
@@ -101,6 +149,35 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   const endpointPath = config.MCP_HTTP_PATH;
   const allowedOrigins = config.MCP_HTTP_ALLOWED_ORIGINS;
 
+  // OAuth 2.1 resource-server (opt-in). When enabled, HTTP bearers are JWTs
+  // validated against the issuer(s) with aud == resource (RFC 8707); a PRM
+  // document (RFC 9728) is served for discovery. Else: registry bearer tokens.
+  const oauthEnabled = config.MCP_OAUTH_ENABLED;
+  let verifier: TokenVerifier | undefined;
+  let prmUrl = '';
+  let prmConfig: { resource: string; authorizationServers: string[]; scopesSupported: string[] } | undefined;
+  if (oauthEnabled) {
+    const resource = config.MCP_OAUTH_RESOURCE;
+    const audience = config.MCP_OAUTH_AUDIENCE ?? resource;
+    const issuers = config.MCP_OAUTH_ISSUERS;
+    if (resource === undefined || audience === undefined || issuers.length === 0) {
+      throw new Error(
+        'MCP_OAUTH_ENABLED requires MCP_OAUTH_RESOURCE, MCP_OAUTH_AUDIENCE (or RESOURCE), and MCP_OAUTH_ISSUERS'
+      );
+    }
+    verifier = createTokenVerifier({ issuers, audience });
+    prmUrl = `${resource.replace(/\/+$/, '')}${PRM_PATH}`;
+    prmConfig = {
+      resource,
+      authorizationServers: issuers,
+      scopesSupported: ['whmcs:read', 'whmcs:write:low', 'whmcs:write:medium', 'whmcs:write:high'],
+    };
+  }
+  // Enable transport→tool identity binding for THIS (HTTP) process, so the
+  // server-injected consumer marker is trusted by resolveConsumer (stdio never
+  // sets this, so the marker can't be used to impersonate there).
+  enableTransportConsumerBinding(true);
+
   // Active sessions: sessionId → its transport. One McpServer is connected per
   // transport (created on the initialize request).
   const transports = new Map<string, StreamableHTTPServerTransport>();
@@ -133,39 +210,68 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = req.method ?? 'GET';
-    // Path match (ignore query string). Anything else → 404.
     const url = req.url ?? '/';
     const pathOnly = url.split('?')[0];
+
+    // PRM discovery (RFC 9728) — UNAUTHENTICATED GET, so clients can find the
+    // authorization server before they hold a token. OAuth mode only.
+    if (oauthEnabled && method === 'GET' && pathOnly === PRM_PATH && prmConfig !== undefined) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(buildProtectedResourceMetadata(prmConfig)));
+      return;
+    }
+
+    // Path match (ignore query string). Anything else → 404.
     if (pathOnly !== endpointPath) {
       writeJsonRpcError(res, 404, -32600, 'Not found');
       return;
     }
 
-    // ── Auth bridge: Origin (403) then bearer (401) BEFORE the transport. ──
-    const decision = authorizeHttpRequest({
-      authorizationHeader: req.headers.authorization,
-      originHeader: req.headers.origin,
-      env,
-      registry,
-      allowedOrigins,
-    });
-    if (!decision.ok) {
-      const headers: Record<string, string> = {};
-      if (decision.wwwAuthenticate) headers['WWW-Authenticate'] = 'Bearer';
-      // Generic, non-leaking message; never echo token or internals.
-      writeJsonRpcError(
-        res,
-        decision.status,
-        decision.status === 401 ? -32001 : -32002,
-        decision.publicMessage,
-        headers
-      );
-      logger.warn('HTTP MCP request rejected', {
-        status: decision.status,
-        method,
-        // NEVER log the token or Authorization header.
-      });
+    // ── Origin gate (403) BEFORE auth — no token-probing oracle. ──
+    if (!isOriginAllowed(req.headers.origin, allowedOrigins)) {
+      writeJsonRpcError(res, 403, -32002, 'Forbidden origin');
+      logger.warn('HTTP MCP request rejected', { status: 403, method });
       return;
+    }
+
+    // ── Bearer → ConsumerProfile (OAuth JWT or registry token). 401 leaks nothing. ──
+    const token = extractBearerToken(req.headers.authorization);
+    let profile: ConsumerProfile;
+    let grantedScopes: string[] = [];
+    if (oauthEnabled) {
+      if (token === undefined) {
+        writeJsonRpcError(res, 401, -32001, 'Unauthorized', {
+          'WWW-Authenticate': wwwAuthenticateValue(prmUrl),
+        });
+        return;
+      }
+      if (verifier === undefined) {
+        writeJsonRpcError(res, 503, -32603, 'Service unavailable');
+        return;
+      }
+      const vr = await verifier.verify(token);
+      if (!vr.ok) {
+        writeJsonRpcError(res, 401, -32001, 'Unauthorized', {
+          'WWW-Authenticate': wwwAuthenticateValue(prmUrl, 'invalid_token'),
+        });
+        logger.warn('HTTP MCP OAuth token rejected', { method, reason: vr.reason });
+        return;
+      }
+      const mapped = consumerFromClaims(vr.claims, registry);
+      if (mapped === null) {
+        writeJsonRpcError(res, 403, -32002, 'No mapped consumer for token');
+        return;
+      }
+      profile = mapped;
+      grantedScopes = consumerScopes(vr.claims);
+    } else {
+      const decision = resolveConsumer(token, env, registry, { allowAnon: false });
+      if (!decision.ok) {
+        writeJsonRpcError(res, 401, -32001, 'Unauthorized', { 'WWW-Authenticate': 'Bearer' });
+        logger.warn('HTTP MCP request rejected', { status: 401, method, reason: decision.reason });
+        return;
+      }
+      profile = decision.profile;
     }
 
     const sessionId = req.headers[SESSION_HEADER];
@@ -182,6 +288,22 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
         return;
       }
     }
+
+    // OAuth boundary scope gate (coarse — the in-house authorizer still does
+    // fine-grained per-scope/tier enforcement once the consumer is bound).
+    if (
+      oauthEnabled &&
+      body !== undefined &&
+      (body as { method?: string }).method === 'tools/call' &&
+      !hasRequiredScope(grantedScopes, requiredScopeForCall(body))
+    ) {
+      writeJsonRpcError(res, 403, -32003, 'Insufficient scope');
+      return;
+    }
+    // IDENTITY BINDING: overwrite the tools/call auth_token with the trusted
+    // marker for the TRANSPORT-authenticated consumer (strips any client value),
+    // so the tool layer is governed by who the bearer authenticated as.
+    if (body !== undefined) bindConsumerIdentity(body, profile.id);
 
     // Route to an existing session, or create one on an initialize POST.
     let transport: StreamableHTTPServerTransport | undefined =
@@ -211,7 +333,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
           onsessioninitialized: (sid) => {
             transports.set(sid, newTransport);
             lastSeen.set(sid, Date.now());
-            logger.info('HTTP MCP session initialized', { consumer: decision.profile.id });
+            logger.info('HTTP MCP session initialized', { consumer: profile.id });
           },
         });
         newTransport.onclose = () => {
