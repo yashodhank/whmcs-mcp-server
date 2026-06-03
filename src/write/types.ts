@@ -49,6 +49,11 @@ export const WRITE_SCOPES = [
   'domain:register',
   'domain:renew',
   'order:accept',
+  // Track C — final legacy direct-mutate client tools (create_client /
+  // update_client) migrated into the governed tiered model. Both medium-risk:
+  // PII record create/edit, not money movement or destruction.
+  'client:create',
+  'client:update',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -74,6 +79,8 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'domain:register': 'DomainRegister',
   'domain:renew': 'DomainRenew',
   'order:accept': 'AcceptOrder',
+  'client:create': 'AddClient',
+  'client:update': 'UpdateClient',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -121,6 +128,11 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // (an order can be re-set to pending / a service cancelled) → medium ⇒ single
   // approval, audit-gated, no money caps.
   'order:accept': 'medium',
+  // Creating / editing a client record touches PII but moves no money and is
+  // not destructive (no delete) → medium ⇒ single approval, audit-gated, no
+  // money caps. (DeleteClient remains in PROD_NEVER_EXECUTABLE; no delete scope.)
+  'client:create': 'medium',
+  'client:update': 'medium',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */

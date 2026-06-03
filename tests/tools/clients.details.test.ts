@@ -30,6 +30,7 @@ vi.mock('../../src/config.js', () => ({
     return cfg;
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => false,
 }));
 vi.mock('../../src/security.js', () => ({
   AUTH_SHAPE: {},

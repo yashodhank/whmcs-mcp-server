@@ -69,7 +69,39 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'domain:renew': ['domainid', 'regperiod'],
   // order:accept — orderid only; fraud/provisioning flags are never auto-sent.
   'order:accept': ['orderid'],
+  // client:create — firstname/lastname/email required (basic identity). password2
+  // is NOT required here (caller may supply it; otherwise WHMCS requires it).
+  'client:create': ['firstname', 'lastname', 'email'],
+  // client:update — clientid required PLUS ≥1 updatable field (custom disjunction
+  // below). Listing only clientid here avoids forcing every field to be present.
+  'client:update': ['clientid'],
 };
+
+/**
+ * Updatable client fields for the `client:update` ≥1-field rule. Mirrors the
+ * mapper's allowlist minus clientid; an update must touch at least one of these.
+ */
+const CLIENT_UPDATABLE_FIELDS: readonly string[] = [
+  'firstname',
+  'lastname',
+  'email',
+  'companyname',
+  'address1',
+  'address2',
+  'city',
+  'state',
+  'postcode',
+  'country',
+  'phonenumber',
+  'password2',
+  'currency',
+  'clientgroup',
+  'notes',
+  'customfields',
+];
+
+/** Basic email-shape check (local@domain.tld); not a full RFC validator. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * Permissive hostname/domain validator for `service:domain_rename`. Accepts a
@@ -599,6 +631,60 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
         code: 'invalid_orderid',
         severity: 'error',
         message: 'order:accept `orderid` must be a positive integer',
+      });
+    }
+  }
+
+  // Track C — client:create: firstname/lastname non-empty (the present() loop
+  // already errors if missing) + a basic email-shape check. Type-guards reject
+  // non-string values that slip past present().
+  if (intent.scope === 'client:create') {
+    for (const key of ['firstname', 'lastname'] as const) {
+      const v = intent.params[key];
+      if (present(v) && typeof v !== 'string') {
+        issues.push({
+          code: `invalid_${key}`,
+          severity: 'error',
+          message: `client:create \`${key}\` must be a non-empty string`,
+        });
+      }
+    }
+    const email = intent.params.email;
+    if (present(email) && (typeof email !== 'string' || !EMAIL_RE.test(email))) {
+      issues.push({
+        code: 'invalid_email',
+        severity: 'error',
+        message: 'client:create `email` must be a valid email address',
+      });
+    }
+  }
+
+  // Track C — client:update: clientid positive int (present() above errors if
+  // missing) PLUS at least one updatable field. Reject empty/no-op updates.
+  if (intent.scope === 'client:update') {
+    const cid = intent.params.clientid;
+    if (typeof cid !== 'number' || !Number.isInteger(cid) || cid <= 0) {
+      issues.push({
+        code: 'invalid_clientid',
+        severity: 'error',
+        message: 'client:update `clientid` must be a positive integer',
+      });
+    }
+    const hasUpdatableField = CLIENT_UPDATABLE_FIELDS.some((k) => present(intent.params[k]));
+    if (!hasUpdatableField) {
+      issues.push({
+        code: 'empty_update',
+        severity: 'error',
+        message: `client:update requires clientid plus at least one updatable field (${CLIENT_UPDATABLE_FIELDS.join(', ')})`,
+      });
+    }
+    // If email is being updated, it must be a valid shape.
+    const email = intent.params.email;
+    if (present(email) && (typeof email !== 'string' || !EMAIL_RE.test(email))) {
+      issues.push({
+        code: 'invalid_email',
+        severity: 'error',
+        message: 'client:update `email` must be a valid email address when provided',
       });
     }
   }

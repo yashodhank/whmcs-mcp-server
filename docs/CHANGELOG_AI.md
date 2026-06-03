@@ -2,6 +2,24 @@
 
 Newest first.
 
+## 2026-06-03 (Track C COMPLETE + Streamable HTTP transport)
+- **Track C done**: `client:create`/`client:update` governed scopes (medium;
+  password never generated/echoed; DeleteClient stays blocked). Legacy
+  create_client/update_client retired by default. **Every legacy direct-write
+  tool now has a governed path + is retired-by-default behind
+  MCP_ENABLE_LEGACY_WRITE_TOOLS.**
+- **Streamable HTTP transport (opt-in)**: `MCP_TRANSPORT=http` (default stdio,
+  byte-identical). `src/http/{auth,httpServer}.ts` — node:http + SDK
+  StreamableHTTPServerTransport (stateful sessions), bearer auth bridged to the
+  existing consumer registry (resolveConsumer → 401 + WWW-Authenticate), Origin
+  gate (403), malformed JSON → -32700, localhost default, no deps added, tokens
+  never logged. index.ts refactored to a `buildServer()` factory + transport
+  select. Env: MCP_HTTP_{HOST,PORT,PATH}, MCP_HTTP_ALLOWED_ORIGINS.
+- **docs/OAUTH_DESIGN.md**: roadmap from the bearer bridge → full OAuth 2.1
+  resource-server (PRM/JWKS/aud/CIMD/scopes).
+- Fixed clients.details.test config mock (legacyWriteToolsEnabled). Full suite
+  **1038 pass, 3×/3 green**. tsc/eslint/build clean.
+
 ## 2026-06-03 (Track C final domain/order scopes + test-isolation fix)
 - **Track C nearly complete**: governed `domain:register`/`domain:renew` (high,
   registrar spend) + `order:accept` (medium). Strict mappers (no fraud/setup
