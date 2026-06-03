@@ -4,7 +4,17 @@ export default defineConfig({
   test: {
     // Test environment
     environment: 'node',
-    
+
+    // Per-file isolation: each test FILE gets a fresh module graph so
+    // module-level singletons (pipeline.ts `cachedRegistry`, writeFlow.ts
+    // `store`/`ledger`/`audit`/`approvals`/`dayAmounts`, capabilities.ts
+    // `probeCache`) cannot bleed across files within a reused worker. This is
+    // the vitest default; pinned explicitly so a future config change can't
+    // silently disable it and reintroduce cross-file flakiness. NOTE: isolation
+    // does NOT reset `process.env` (the real process environment) — that is
+    // handled by the snapshot/restore in tests/setupEach.ts.
+    isolate: true,
+
     // Test file patterns
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
     

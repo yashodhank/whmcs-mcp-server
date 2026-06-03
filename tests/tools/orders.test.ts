@@ -19,6 +19,7 @@ vi.mock('../src/config.js', () => ({
     MCP_TOOL_ALLOWLIST: [],
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 
 // Correctly-pathed mocks for the integration-style mapper tests below.
@@ -34,6 +35,7 @@ vi.mock('../../src/config.js', () => ({
     MCP_TOOL_ALLOWLIST: [],
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 vi.mock('../../src/security.js', () => ({
   AUTH_SHAPE: {},

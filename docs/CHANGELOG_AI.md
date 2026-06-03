@@ -2,6 +2,18 @@
 
 Newest first.
 
+## 2026-06-03 (Track C final domain/order scopes + test-isolation fix)
+- **Track C nearly complete**: governed `domain:register`/`domain:renew` (high,
+  registrar spend) + `order:accept` (medium). Strict mappers (no fraud/setup
+  flags auto-sent; ns normalized). DomainTransfer stays PROD_NEVER_EXECUTABLE.
+  Legacy `register_domain`/`renew_domain`/`accept_order` retired by default.
+  Remaining legacy w/o governed scope: create_client/update_client.
+- **Test-isolation fix** (flaky writeFlow prod-block ~1/N): root cause =
+  unteardown `process.env` (MCP_CONSUMER_REGISTRY etc.) leaking across same-worker
+  files. Fix: global snapshot/restore in `tests/setupEach.ts` + pinned
+  `isolate:true`. No src semantics changed. Full suite **5×/5 green, 1015 pass**.
+- AGENT_CONTEXT.md refreshed to current surface.
+
 ## 2026-06-03 (annotation hints — clients/domains/orders)
 - Migrated `server.tool()` → `server.registerTool(...)` in clients/domains/orders
   and set all 4 annotation hints per tool (readOnly/destructive/idempotent/

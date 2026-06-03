@@ -62,6 +62,13 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'billing:payment:capture': ['invoiceid'],
   // billing:credit:apply — applies account credit against a specific invoice.
   'billing:credit:apply': ['invoiceid', 'amount'],
+  // Track C — legacy domain/order tools migrated to governed scopes.
+  // domain:register — domainid only; ns1..ns5 are optional (mapper-normalized).
+  'domain:register': ['domainid'],
+  // domain:renew — domainid + regperiod (term in years).
+  'domain:renew': ['domainid', 'regperiod'],
+  // order:accept — orderid only; fraud/provisioning flags are never auto-sent.
+  'order:accept': ['orderid'],
 };
 
 /**
@@ -533,6 +540,66 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
           message: 'billing:credit:apply `amount` must be a positive number',
         });
       }
+    }
+  }
+
+  // Track C — domain:register: domainid positive int. Optional ns1..ns5 must be
+  // valid hostnames when present (the mapper normalizes/drops blanks).
+  if (intent.scope === 'domain:register') {
+    const did = intent.params.domainid;
+    if (typeof did !== 'number' || !Number.isInteger(did) || did <= 0) {
+      issues.push({
+        code: 'invalid_domainid',
+        severity: 'error',
+        message: 'domain:register `domainid` must be a positive integer',
+      });
+    }
+    for (let i = 1; i <= 5; i++) {
+      const ns = intent.params[`ns${String(i)}`];
+      if (ns !== undefined && present(ns)) {
+        const h = typeof ns === 'string' ? ns.trim().toLowerCase() : '';
+        if (h.length === 0 || h.length > 253 || !DOMAIN_RE.test(h)) {
+          issues.push({
+            code: 'invalid_nameserver',
+            severity: 'error',
+            message: `domain:register \`ns${String(i)}\` is not a valid hostname`,
+          });
+        }
+      }
+    }
+  }
+
+  // Track C — domain:renew: domainid positive int + regperiod integer 1..10.
+  if (intent.scope === 'domain:renew') {
+    const did = intent.params.domainid;
+    if (typeof did !== 'number' || !Number.isInteger(did) || did <= 0) {
+      issues.push({
+        code: 'invalid_domainid',
+        severity: 'error',
+        message: 'domain:renew `domainid` must be a positive integer',
+      });
+    }
+    const rp = intent.params.regperiod;
+    if (typeof rp !== 'number' || !Number.isInteger(rp) || rp < 1 || rp > 10) {
+      issues.push({
+        code: 'invalid_regperiod',
+        severity: 'error',
+        message: 'domain:renew `regperiod` must be an integer between 1 and 10',
+      });
+    }
+  }
+
+  // Track C — order:accept: orderid must be a positive integer. (Fraud /
+  // provisioning flags are intentionally NOT validated or accepted — the mapper
+  // emits only orderid.)
+  if (intent.scope === 'order:accept') {
+    const oid = intent.params.orderid;
+    if (typeof oid !== 'number' || !Number.isInteger(oid) || oid <= 0) {
+      issues.push({
+        code: 'invalid_orderid',
+        severity: 'error',
+        message: 'order:accept `orderid` must be a positive integer',
+      });
     }
   }
 

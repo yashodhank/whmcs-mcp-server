@@ -331,6 +331,49 @@ export function mapCreditApplyParams(params: Record<string, unknown>): Record<st
   };
 }
 
+/**
+ * `domain:register` `{domainid, [ns1..ns5]}` → WHMCS `DomainRegister`
+ * `{domainid, [ns1..nsN]}`. STRICT: emits ONLY domainid + any supplied
+ * positional ns keys (normalized lowercase/trim, reusing the nameserver
+ * approach from mapDomainNameserversParams). Any extra input key — including
+ * any cost / pricing / status override — is dropped (defense in depth so a
+ * malformed intent can never leak an unintended field into the live call).
+ */
+export function mapDomainRegisterParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { domainid: params.domainid };
+  for (let i = 1; i <= 5; i++) {
+    const v = params[`ns${String(i)}`];
+    if (typeof v === 'string' && v.trim() !== '') {
+      out[`ns${String(i)}`] = v.trim().toLowerCase();
+    }
+  }
+  return out;
+}
+
+/**
+ * `domain:renew` `{domainid, regperiod}` → WHMCS `DomainRenew`
+ * `{domainid, regperiod}`. STRICT 2-key output; extras dropped.
+ */
+export function mapDomainRenewParams(params: Record<string, unknown>): Record<string, unknown> {
+  return {
+    domainid: params.domainid,
+    regperiod: params.regperiod,
+  };
+}
+
+/**
+ * `order:accept` `{orderid}` → WHMCS `AcceptOrder` `{orderid}`. STRICT 1-key
+ * output; ALL extras dropped. In particular fraud-bypass / module-control flags
+ * (e.g. `fraudbypass`, `sendregistrar`, `autosetup`, `sendemail`) are NEVER
+ * auto-sent — accepting an order must not silently override WHMCS's fraud
+ * checks or provisioning defaults.
+ */
+export function mapOrderAcceptParams(params: Record<string, unknown>): Record<string, unknown> {
+  return { orderid: params.orderid };
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -381,6 +424,12 @@ export function intentToWhmcsParams(
       return mapPaymentCaptureParams(params);
     case 'billing:credit:apply':
       return mapCreditApplyParams(params);
+    case 'domain:register':
+      return mapDomainRegisterParams(params);
+    case 'domain:renew':
+      return mapDomainRenewParams(params);
+    case 'order:accept':
+      return mapOrderAcceptParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls
