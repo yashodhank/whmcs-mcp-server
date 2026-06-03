@@ -16,11 +16,17 @@ import { WhmcsClient } from './whmcs/WhmcsClient.js';
 import { registerClientTools } from './tools/clients.js';
 import { registerBillingTools } from './tools/billing.js';
 import { registerOrderTools } from './tools/orders.js';
-import { registerServiceTools } from './tools/services.js';
 import { registerDomainTools } from './tools/domains.js';
 import { registerSupportTools } from './tools/support.js';
 import { registerListTools } from './tools/listTools.js';
 import { registerReportingListTools } from './tools/reportingListTools.js';
+import { registerInfraTools } from './tools/infraTools.js';
+import { registerContactsTools } from './tools/contactsTools.js';
+import { registerBillingReadTools } from './tools/billingReadTools.js';
+import { registerTicketMetaTools } from './tools/ticketMetaTools.js';
+import { registerQuoteTools } from './tools/quoteTools.js';
+import { registerSystemRefTools } from './tools/systemRefTools.js';
+import { registerWhmcsPrompts } from './prompts/whmcsPrompts.js';
 import { registerTicketThreadTool } from './tools/ticketThreadTool.js';
 import { registerAggregatorTools } from './tools/aggregators.js';
 import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
@@ -69,11 +75,19 @@ async function main(): Promise<void> {
   registerClientTools(server, whmcsClient, logger, rateLimiter);
   registerBillingTools(server, whmcsClient, logger, rateLimiter);
   registerOrderTools(server, whmcsClient, logger, rateLimiter);
-  registerServiceTools(server, whmcsClient, logger, rateLimiter);
+  // Track C: legacy direct-mutate suspend/unsuspend/terminate_service tools
+  // RETIRED — service lifecycle now flows through the governed tiered model
+  // (write scopes service:suspend/unsuspend/terminate via the write-flow).
   registerDomainTools(server, whmcsClient, logger, rateLimiter);
   registerSupportTools(server, whmcsClient, logger, rateLimiter);
   registerListTools(server, whmcsClient, logger, rateLimiter);
   registerReportingListTools(server, whmcsClient, logger, rateLimiter);
+  registerInfraTools(server, whmcsClient, logger, rateLimiter);
+  registerContactsTools(server, whmcsClient, logger, rateLimiter);
+  registerBillingReadTools(server, whmcsClient, logger, rateLimiter);
+  registerTicketMetaTools(server, whmcsClient, logger, rateLimiter);
+  registerQuoteTools(server, whmcsClient, logger, rateLimiter);
+  registerSystemRefTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
   registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
@@ -84,6 +98,10 @@ async function main(): Promise<void> {
   registerResources(server, whmcsClient, logger, rateLimiter);
   registerPlaybookResource(server, logger);
   registerCompat9xResource(server, logger);
+
+  // Register MCP prompts (reusable WHMCS ops playbooks)
+  logger.info('Registering MCP prompts...');
+  registerWhmcsPrompts(server);
   
   // Connect with stdio transport
   const transport = new StdioServerTransport();

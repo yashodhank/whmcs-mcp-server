@@ -183,6 +183,27 @@ describe('executePriceRestoreBatch — Phase 2', () => {
     ]);
   });
 
+  it('cap FLOOR: unconfigured caps {0,0} block even a zero-delta target (no mutate)', async () => {
+    const h = harness();
+    // new_amount === current ⇒ delta 0; must STILL be blocked when caps are 0.
+    const intent = approvedBatch([{ serviceid: 555, new_amount: 45000 }]);
+    h.read.mockResolvedValueOnce({
+      products: { product: [{ id: 555, recurringamount: '45000', domainstatus: 'Active' }] },
+    });
+    const res = await executePriceRestoreBatch({
+      intent,
+      whmcs: { read: h.read, mutate: h.mutate } as never,
+      audit: h.audit,
+      ledger: h.ledger,
+      caps: { perAction: 0, daily: 0 },
+      approval: APPROVAL,
+      dayAmounts: new Map(),
+    });
+    expect(res.allowed).toBe(false);
+    expect(res.reason).toBe('target_amount_cap_exceeded');
+    expect(h.mutate).not.toHaveBeenCalled();
+  });
+
   it('halts mid-batch on first mutate failure; later targets untouched', async () => {
     const h = harness();
     const intent = approvedBatch([
@@ -339,7 +360,12 @@ vi.mock('../../src/config.js', () => ({
     MCP_MAX_PAGE_SIZE: 100,
     MCP_WRITE_KILL_SWITCH: false,
     MCP_PROD_WRITE_AUTHORIZED: [],
-    MCP_WRITE_EXECUTION_AUTHORIZED: 'UpdateClientProduct',
+    // Real config parses MCP_WRITE_EXECUTION_AUTHORIZED to a string[] (see
+    // config.ts). It MUST be an array here so runtimeAuthorizedActions() reads
+    // it directly; a bare string falls through to the unset process.env and
+    // yields [] (no authorization). The batch path now enforces this allowlist
+    // (steps 1–7 via preAuthorizeIntent), so the value must reflect reality.
+    MCP_WRITE_EXECUTION_AUTHORIZED: ['UpdateClientProduct'],
     MCP_PROD_HIGH_RISK_PER_ACTION_CAP: 20000,
     MCP_PROD_HIGH_RISK_DAILY_CAP: 50000,
     MCP_WRITE_AUDIT_PATH: '',

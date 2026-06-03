@@ -32,6 +32,7 @@ import {
   type CanonicalCreditNote,
 } from '../canonical/creditNote.js';
 import { asRecord, isRecord, num, str } from '../canonical/_shared.js';
+import { mapToCanonicalTldPricing } from '../canonical/tldPricing.js';
 
 /** Loose WHMCS API row / container object. */
 type WhmcsRow = Record<string, unknown>;
@@ -979,6 +980,192 @@ export function registerAggregatorTools(
     }
   );
 
+  register(
+    server,
+    'get_domain_portfolio_snapshot',
+    'Read-only domain portfolio for a client: each domain with status, registrar, expiry, days-to-expiry, lock/id-protection, and an estimated 1-year renewal cost matched from GetTLDPricing. Sub-reads fault-isolated; pricing is best-effort (omitted on failure).',
+    { clientid: z.number().int().positive().optional() },
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = requireClientId(params);
+
+      // Best-effort TLD price map: longest-suffix → first-year renew price.
+      interface PriceMap {
+        map: Map<string, number>;
+        currency: string | null;
+      }
+      const pricing = await safeSection<PriceMap | null>('tld_pricing', errs, null, async () => {
+        const raw = await whmcs.read<Record<string, unknown>>('GetTLDPricing', {});
+        const canon = mapToCanonicalTldPricing(raw);
+        const map = new Map<string, number>();
+        for (const p of canon.data.prices) {
+          if (p.renew.length > 0) {
+            const renew1 = p.renew.find((r) => r.period === 1) ?? p.renew[0];
+            map.set(p.tld.toLowerCase(), renew1.price);
+          }
+        }
+        return { map, currency: canon.data.currencyCode };
+      });
+      // Longest matching TLD suffix (so example.co.uk prefers .co.uk over .uk).
+      const tldKeys = pricing
+        ? [...pricing.map.keys()].sort((a, b) => b.length - a.length)
+        : [];
+      const renewalCostFor = (domainName: string): number | null => {
+        if (!pricing) return null;
+        const lower = domainName.toLowerCase();
+        for (const k of tldKeys) {
+          if (lower.endsWith(k)) return pricing.map.get(k) ?? null;
+        }
+        return null;
+      };
+      const truthy = (v: unknown): boolean =>
+        v === true || v === 1 || v === '1' || v === 'on' || v === 'enabled';
+      const today = new Date().toISOString().slice(0, 10);
+      const daysTo = (d?: string): number | null => {
+        if (!d || !/^\d{4}-\d{2}-\d{2}/.test(d)) return null;
+        const ms = Date.parse(`${d.slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`);
+        return Number.isFinite(ms) ? Math.round(ms / 86400000) : null;
+      };
+
+      let domainsTruncated = false;
+      const domains = await safeSection('domains', errs, [], async () => {
+        const raw = norm<WhmcsRow>(
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsDomains', {
+              clientid: cid,
+              limitnum: RENEWAL_FETCH_LIMIT,
+            })
+          ).domains,
+          'domain'
+        );
+        domainsTruncated = raw.length >= RENEWAL_FETCH_LIMIT;
+        return raw.map((d) => {
+          const name = str(d, 'domainname') ?? '';
+          const expiry = str(d, 'expirydate') ?? str(d, 'nextduedate');
+          return {
+            id: num(d, 'id'),
+            domain: name,
+            status: str(d, 'status'),
+            registrar: str(d, 'registrar'),
+            expiry_date: expiry,
+            days_to_expiry: daysTo(expiry),
+            id_protection: truthy(d.idprotection),
+            do_not_renew: truthy(d.donotrenew),
+            registrar_lock: truthy(d.registrarlock ?? d.registrarlockstatus),
+            estimated_renewal_cost: renewalCostFor(name),
+          };
+        });
+      });
+
+      const soon = domains.filter(
+        (d) => d.days_to_expiry !== null && d.days_to_expiry <= 30 && d.days_to_expiry >= -3650
+      ).length;
+      const knownCosts = domains
+        .map((d) => d.estimated_renewal_cost)
+        .filter((c): c is number => typeof c === 'number');
+      return {
+        clientid: cid,
+        currency: pricing ? pricing.currency : null,
+        summary: {
+          total: domains.length,
+          expiring_within_30d: soon,
+          estimated_total_renewal_cost: knownCosts.reduce((a, b) => a + b, 0),
+          priced_domains: knownCosts.length,
+        },
+        domains: domains.sort((a, b) => (a.expiry_date ?? '').localeCompare(b.expiry_date ?? '')),
+        truncated: { domains: domainsTruncated },
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_accounts_receivable_aging',
+    'Read-only A/R aging for a client: unpaid + overdue invoices bucketed by days-past-due (current / 1-30 / 31-60 / 61-90 / 90+), with per-bucket count + outstanding amount and a total. Sub-reads fault-isolated.',
+    { clientid: z.number().int().positive().optional() },
+    logger,
+    rl,
+    async (params) => {
+      const errs: PartialError[] = [];
+      const cid = requireClientId(params);
+      const today = new Date().toISOString().slice(0, 10);
+      const daysPastDue = (due?: string): number | null => {
+        if (!due || !/^\d{4}-\d{2}-\d{2}/.test(due)) return null;
+        const ms = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due.slice(0, 10)}T00:00:00Z`);
+        return Number.isFinite(ms) ? Math.round(ms / 86400000) : null;
+      };
+      const outstanding = (inv: WhmcsRow): number => {
+        const bal = num(inv, 'balance');
+        if (bal !== undefined && Number.isFinite(bal)) return bal;
+        const total = num(inv, 'total') ?? 0;
+        const paid = num(inv, 'amountpaid') ?? 0;
+        return total - paid;
+      };
+
+      const fetchByStatus = async (status: string): Promise<WhmcsRow[]> =>
+        norm<WhmcsRow>(
+          (
+            await whmcs.read<Record<string, unknown>>('GetInvoices', {
+              userid: cid,
+              status,
+              limitnum: RENEWAL_FETCH_LIMIT,
+            })
+          ).invoices,
+          'invoice'
+        );
+
+      const invoices = await safeSection<WhmcsRow[]>('invoices', errs, [], async () => {
+        const [unpaid, overdue] = await Promise.all([
+          fetchByStatus('Unpaid'),
+          fetchByStatus('Overdue'),
+        ]);
+        // De-dup by invoice id (an overdue invoice may appear in both lists).
+        const byId = new Map<string, WhmcsRow>();
+        for (const inv of [...unpaid, ...overdue]) {
+          byId.set(String(num(inv, 'id') ?? str(inv, 'id') ?? Math.random()), inv);
+        }
+        return [...byId.values()];
+      });
+
+      const buckets = {
+        current: { count: 0, amount: 0 },
+        d1_30: { count: 0, amount: 0 },
+        d31_60: { count: 0, amount: 0 },
+        d61_90: { count: 0, amount: 0 },
+        d90_plus: { count: 0, amount: 0 },
+      };
+      let currency: string | null = null;
+      for (const inv of invoices) {
+        currency ??= str(inv, 'currencycode') ?? str(inv, 'currency') ?? null;
+        const amt = outstanding(inv);
+        const dpd = daysPastDue(str(inv, 'duedate'));
+        const b =
+          dpd === null || dpd <= 0
+            ? buckets.current
+            : dpd <= 30
+              ? buckets.d1_30
+              : dpd <= 60
+                ? buckets.d31_60
+                : dpd <= 90
+                  ? buckets.d61_90
+                  : buckets.d90_plus;
+        b.count += 1;
+        b.amount += amt;
+      }
+      const total = Object.values(buckets).reduce((a, b) => a + b.amount, 0);
+      return {
+        clientid: cid,
+        currency,
+        buckets,
+        summary: { open_invoices: invoices.length, total_outstanding: total },
+        partial_errors: errs,
+      };
+    }
+  );
+
   // ── Phase D aggregators (compose governed reads; degrade on unavailable
   //    capability; source IDs included; partial/incomplete clearly marked) ──
 
@@ -1271,6 +1458,310 @@ export function registerAggregatorTools(
         suspended_services: suspended,
         source_invoice_ids: overdue.map((i) => i.invoiceid),
         partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_service_lifecycle',
+    'Read-only lifecycle of a single service: the service record (status/next-due/recurring), its provisioning orders (GetOrders, matched by serviceid), and a capability-gated automation section (GetAutomationLog — degrades to a structured unavailable/supported marker). Sub-reads fault-isolated.',
+    { serviceid: z.number().int().positive() },
+    logger,
+    rl,
+    async (params) => {
+      const cid = requireClientId(params);
+      const sid = num(params, 'serviceid');
+      if (sid === undefined) throw new Error('serviceid is required');
+      const errs: PartialError[] = [];
+
+      const service = await safeSection<Record<string, unknown> | null>(
+        'service',
+        errs,
+        null,
+        async () => {
+          const r = await whmcs.read<Record<string, unknown>>(
+            'GetClientsProducts',
+            { clientid: cid, serviceid: sid }
+          );
+          const row = norm<WhmcsRow>(r.products, 'product').find(
+            (p) => num(p, 'id') === sid
+          );
+          if (!row) return null;
+          return {
+            id: num(row, 'id'),
+            name: str(row, 'name'),
+            domain: str(row, 'domain'),
+            status: str(row, 'status'),
+            nextduedate: str(row, 'nextduedate'),
+            recurringamount: str(row, 'recurringamount'),
+          };
+        }
+      );
+
+      const orders = await safeSection('orders', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetOrders', {
+          userid: cid,
+          limitnum: 50,
+        });
+        return norm<WhmcsRow>(r.orders, 'order')
+          .filter((o) => {
+            // Provisioning orders referencing this service (best-effort:
+            // WHMCS exposes serviceid on order line items in some builds).
+            const direct = num(o, 'serviceid');
+            if (direct !== undefined) return direct === sid;
+            // Fall back to scanning a nested line-item container if present.
+            const lines = norm<WhmcsRow>(
+              (o as Record<string, unknown>).lineitems,
+              'lineitem'
+            );
+            return lines.some((li) => num(li, 'relid') === sid);
+          })
+          .map(mapOrderRow);
+      });
+
+      return {
+        clientid: cid,
+        service,
+        orders,
+        automation: capSection('GetAutomationLog'),
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_revenue_report',
+    'Read-only revenue report over a `days` window (default 90): paid invoices (count + total) from GetInvoices filtered client-side by date, plus a capability-gated transactions roll-up (GetTransactions — total_in/total_out, or a structured unavailable marker). Includes an accrual-vs-cash caveat. Sub-reads fault-isolated.',
+    { days: z.number().int().min(1).max(3650).default(90) },
+    logger,
+    rl,
+    async (params) => {
+      const cid = requireClientId(params);
+      const windowDays = num(params, 'days') ?? 90;
+      const errs: PartialError[] = [];
+      const since = new Date(Date.now() - windowDays * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      const inWindow = (d: string | null): boolean =>
+        !!d && /^\d{4}-\d{2}-\d{2}/.test(d) && d.slice(0, 10) >= since;
+
+      let currency: string | null = null;
+      const paid = await safeSection<{ count: number; total: number }>(
+        'invoices',
+        errs,
+        { count: 0, total: 0 },
+        async () => {
+          const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
+            userid: cid,
+            status: 'Paid',
+            limitnum: RENEWAL_FETCH_LIMIT,
+            orderby: 'date',
+            order: 'desc',
+          });
+          const rows = norm<WhmcsRow>(r.invoices, 'invoice').filter((i) =>
+            inWindow(str(i, 'datepaid') ?? str(i, 'date') ?? null)
+          );
+          let total = 0;
+          for (const i of rows) {
+            currency ??= str(i, 'currencycode') ?? str(i, 'currency') ?? null;
+            total += num(i, 'total') ?? 0;
+          }
+          return { count: rows.length, total: Number(total.toFixed(2)) };
+        }
+      );
+
+      // Transactions roll-up is capability-gated (highest-sensitivity data).
+      const cap = getCapability('GetTransactions');
+      let transactions: Record<string, unknown>;
+      if (cap.status !== 'supported') {
+        transactions = capSection('GetTransactions');
+      } else {
+        const txn = await safeSection<{
+          count: number;
+          total_in: number;
+          total_out: number;
+        }>(
+          'transactions',
+          errs,
+          { count: 0, total_in: 0, total_out: 0 },
+          async () => {
+            const r = await whmcs.read<Record<string, unknown>>(
+              'GetTransactions',
+              { clientid: cid, limitnum: RECON_TX_FETCH_LIMIT }
+            );
+            const canon = mapToCanonicalTransactions(r);
+            let totalIn = 0;
+            let totalOut = 0;
+            let count = 0;
+            for (const c of canon) {
+              const t = c.data;
+              const dt = inWindow(t.date);
+              if (!dt) continue;
+              count += 1;
+              if (typeof t.amountIn === 'number') totalIn += t.amountIn;
+              if (typeof t.amountOut === 'number') totalOut += t.amountOut;
+            }
+            return {
+              count,
+              total_in: Number(totalIn.toFixed(2)),
+              total_out: Number(totalOut.toFixed(2)),
+            };
+          }
+        );
+        transactions = {
+          action: cap.action,
+          status: cap.status,
+          composed: true as const,
+          count: txn.count,
+          total_in: txn.total_in,
+          total_out: txn.total_out,
+        };
+      }
+
+      return {
+        clientid: cid,
+        window_days: windowDays,
+        currency,
+        paid: { count: paid.count, total: paid.total },
+        transactions,
+        accrual_vs_cash:
+          'Paid invoices reflect accrual revenue (invoice total marked paid); transactions reflect cash movements (gateway in/out). They can differ due to credits, partial payments, fees, or refunds — reconcile before reporting.',
+        partial_errors: errs,
+      };
+    }
+  );
+
+  register(
+    server,
+    'get_reconciliation_export',
+    'Read-only NORMALIZED reconciliation ledger: each entry pairs an invoice with its matching transaction (invoice_id/total/status, transaction_id/gateway/amount_in/amount_out/date, matched flag) suitable for bank / 26AS reconciliation, plus unmatched_invoices / unmatched_transactions counts. Built on GetInvoices + (capability-gated) GetTransactions. Clearly marks when GetTransactions is unavailable. Sub-reads fault-isolated.',
+    {},
+    logger,
+    rl,
+    async (params) => {
+      const cid = requireClientId(params);
+      const errs: PartialError[] = [];
+
+      const invoices = await safeSection('invoices', errs, [], async () => {
+        const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
+          userid: cid,
+          limitnum: RENEWAL_FETCH_LIMIT,
+          orderby: 'date',
+          order: 'desc',
+        });
+        return norm<WhmcsRow>(r.invoices, 'invoice').map(mapReconInvoiceRow);
+      });
+
+      const cap = getCapability('GetTransactions');
+      const base: Record<string, unknown> = {
+        clientid: cid,
+        source_invoice_ids: invoices.map((i) => i.invoiceid),
+        whmcs9_notice: WHMCS9_NOTICE,
+        partial_errors: errs,
+      };
+
+      // Without GetTransactions we cannot pair payments — degrade clearly:
+      // emit invoice-only entries (unmatched) and a capability marker.
+      if (cap.status !== 'supported') {
+        const entries = invoices.map((inv) => ({
+          invoice_id: inv.invoiceid,
+          invoice_total: inv.total,
+          invoice_status: inv.status,
+          transaction_id: null,
+          gateway: null,
+          amount_in: null,
+          amount_out: null,
+          date: inv.date,
+          matched: false,
+        }));
+        return {
+          ...base,
+          transactions: capSection('GetTransactions'),
+          reconciliation_ledger: { entries },
+          unmatched_invoices: entries.length,
+          unmatched_transactions: 0,
+        };
+      }
+
+      const txnRows = await safeSection<CanonicalTransaction[]>(
+        'transactions',
+        errs,
+        [],
+        async () => {
+          const r = await whmcs.read<Record<string, unknown>>(
+            'GetTransactions',
+            { clientid: cid, limitnum: RECON_TX_FETCH_LIMIT }
+          );
+          return mapToCanonicalTransactions(r).map((c) => c.data);
+        }
+      );
+
+      // Index invoices by id; build the normalized ledger.
+      const invById = new Map<number, (typeof invoices)[number]>();
+      for (const inv of invoices) {
+        const id = Number(inv.invoiceid);
+        if (Number.isFinite(id)) invById.set(id, inv);
+      }
+      const matchedInvoiceIds = new Set<number>();
+      let unmatchedTransactions = 0;
+
+      const entries = txnRows.map((t) => {
+        const inv =
+          t.invoiceId !== null ? invById.get(t.invoiceId) : undefined;
+        const isMatched = inv !== undefined;
+        if (isMatched && t.invoiceId !== null) {
+          matchedInvoiceIds.add(t.invoiceId);
+        } else {
+          unmatchedTransactions += 1;
+        }
+        return {
+          invoice_id: inv ? inv.invoiceid : t.invoiceId,
+          invoice_total: inv ? inv.total : null,
+          invoice_status: inv ? inv.status : null,
+          transaction_id: t.transactionId,
+          gateway: t.gateway,
+          amount_in: t.amountIn,
+          amount_out: t.amountOut,
+          date: t.date,
+          matched: isMatched,
+        };
+      });
+
+      // Invoices with no transaction at all → unmatched ledger rows.
+      for (const inv of invoices) {
+        const id = Number(inv.invoiceid);
+        if (Number.isFinite(id) && matchedInvoiceIds.has(id)) continue;
+        entries.push({
+          invoice_id: inv.invoiceid,
+          invoice_total: inv.total ?? null,
+          invoice_status: inv.status ?? null,
+          transaction_id: null,
+          gateway: null,
+          amount_in: null,
+          amount_out: null,
+          date: inv.date ?? null,
+          matched: false,
+        });
+      }
+
+      const unmatchedInvoices = invoices.filter(
+        (inv) => !matchedInvoiceIds.has(Number(inv.invoiceid))
+      ).length;
+
+      return {
+        ...base,
+        transactions: {
+          action: cap.action,
+          status: cap.status,
+          composed: true as const,
+          count: txnRows.length,
+        },
+        source_transaction_ids: txnRows.map((t) => t.transactionRowId),
+        reconciliation_ledger: { entries },
+        unmatched_invoices: unmatchedInvoices,
+        unmatched_transactions: unmatchedTransactions,
       };
     }
   );

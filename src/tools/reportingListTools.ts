@@ -20,6 +20,8 @@ import { normalizeToArray, parseNumber } from '../whmcs/normalizers.js';
 import {
   READ_ONLY_ANNOTATIONS,
   LIST_TOOL_OUTPUT_SCHEMA,
+  encodeCursor,
+  decodeCursor,
 } from './listTools.js';
 import {
   applyGovernanceOrLegacy,
@@ -156,6 +158,12 @@ export function registerReportingListTools(
         .optional(),
       limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(50),
       offset: z.number().int().min(0).default(0),
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          'Opaque pagination cursor from a prior response\'s nextCursor; pages forward through ALL matched rows. When set it overrides offset.'
+        ),
       fetch_limit: z.number().int().min(1).max(500).optional(),
       scan_limit: z.number().int().min(1).max(MAX_REPORTING_SCAN).optional(),
       sort_by: z
@@ -274,16 +282,32 @@ export function registerReportingListTools(
             return ((a.invoiceid ?? a.id ?? 0) - (b.invoiceid ?? b.id ?? 0)) * direction;
           });
 
-        const page = filtered.slice(params.offset, params.offset + params.limit);
+        // Cursor (opaque) supersedes offset when supplied; garbage → 0. The
+        // window is over the locally-filtered+sorted set, so the cursor encodes
+        // the next index into that set.
+        const effectiveOffset =
+          typeof params.cursor === 'string'
+            ? decodeCursor(params.cursor)
+            : params.offset;
+        const page = filtered.slice(effectiveOffset, effectiveOffset + params.limit);
         const items = page.map(mapInvoiceSummary);
         const completeScan =
           totalResults === undefined ? null : rawInvoices.length >= totalResults;
+        // Emit a forward cursor only when more matched rows remain beyond this
+        // window AND the scan was complete enough that "more rows" is honest
+        // (a full page returned). REPLACES silent truncation at limit.
+        const hasMore = effectiveOffset + items.length < filtered.length;
+        const nextCursor =
+          hasMore && items.length === params.limit
+            ? encodeCursor(effectiveOffset + items.length)
+            : undefined;
 
         const envelope = {
           total: filtered.length,
           count: items.length,
-          offset: params.offset,
+          offset: effectiveOffset,
           limit: params.limit,
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
           matched: filtered.length,
           scanned: rawInvoices.length,
           scan_limit: scanLimit,
@@ -355,6 +379,12 @@ export function registerReportingListTools(
         .describe('When true, only services with recurring_amount > 0'),
       limit: z.number().int().min(1).max(config.MCP_MAX_PAGE_SIZE).default(50),
       offset: z.number().int().min(0).default(0),
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          'Opaque pagination cursor from a prior response\'s nextCursor; pages forward through ALL matched rows. When set it overrides offset.'
+        ),
       fetch_limit: z.number().int().min(1).max(500).default(250),
       scan_limit: z.number().int().min(1).max(MAX_REPORTING_SCAN).default(10_000),
       contract: z
@@ -430,16 +460,30 @@ export function registerReportingListTools(
         const uniqueClientIds = new Set(
           filtered.map((s) => s.userid ?? s.clientid).filter((id) => id !== undefined)
         );
-        const page = filtered.slice(params.offset, params.offset + params.limit);
+        // Cursor (opaque) supersedes offset when supplied; garbage → 0. Window
+        // is over the locally-filtered set; cursor encodes the next index.
+        const effectiveOffset =
+          typeof params.cursor === 'string'
+            ? decodeCursor(params.cursor)
+            : params.offset;
+        const page = filtered.slice(effectiveOffset, effectiveOffset + params.limit);
         const items = page.map(mapServiceSummary);
         const completeScan =
           totalResults === undefined ? null : rawServices.length >= totalResults;
+        // Forward cursor only when more matched rows remain past this window
+        // and a full page was returned. REPLACES silent truncation at limit.
+        const hasMore = effectiveOffset + items.length < filtered.length;
+        const nextCursor =
+          hasMore && items.length === params.limit
+            ? encodeCursor(effectiveOffset + items.length)
+            : undefined;
 
         const envelope = {
           total: filtered.length,
           count: items.length,
-          offset: params.offset,
+          offset: effectiveOffset,
           limit: params.limit,
+          ...(nextCursor !== undefined ? { nextCursor } : {}),
           paying_only: params.paying_only,
           unique_client_count: uniqueClientIds.size,
           scanned: rawServices.length,

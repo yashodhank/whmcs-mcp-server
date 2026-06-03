@@ -58,6 +58,24 @@ const SUPPORTED_READS: readonly (readonly [action: string, capability: string])[
  */
 const UNVERIFIED_READS: readonly (readonly [action: string, capability: string])[] = [
   ['GetUsers', 'list_users'],
+  // Track A — infrastructure / reference reads. Allowlisted (actionPolicy.ts)
+  // so the governed tools function, but NOT yet prod-probed, so honestly
+  // declared `unverified`. The read tools still work (capability status is
+  // informational, as with the list_* tools); an operator probe can promote
+  // these to `supported`.
+  ['GetServers', 'get_server_health'],
+  ['GetTLDPricing', 'get_tld_pricing'],
+  // Track A (batch 2)
+  ['GetContacts', 'get_client_contacts'],
+  ['GetPayMethods', 'get_pay_methods'],
+  ['GetCredits', 'get_credits'],
+  ['GetTicketCounts', 'get_ticket_counts'],
+  ['GetSupportStatuses', 'list_support_statuses'],
+  // Track A (batch 3)
+  ['GetQuotes', 'get_quotes'],
+  ['GetCurrencies', 'get_currencies'],
+  ['GetPaymentMethods', 'list_payment_methods'],
+  ['WhmcsDetails', 'get_whmcs_details'],
 ];
 
 function buildRegistry(): Record<string, CapabilityStatus> {

@@ -17,6 +17,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../src/config.js', () => ({
   config: { MCP_MAX_PAGE_SIZE: 100, MCP_GOVERNANCE_ENABLED: false, MCP_ENV: 'production', MCP_ALLOW_ANON_LLM: false },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => false,
 }));
 vi.mock('../../src/security.js', () => ({
   AUTH_SHAPE: {},
@@ -35,7 +36,6 @@ import { registerSupportTools } from '../../src/tools/support.js';
 import { registerBillingTools } from '../../src/tools/billing.js';
 import { registerDomainTools } from '../../src/tools/domains.js';
 import { registerOrderTools } from '../../src/tools/orders.js';
-import { registerServiceTools } from '../../src/tools/services.js';
 
 function harness() {
   const handlers: Record<string, any> = {};
@@ -72,6 +72,7 @@ function argsFor(name: string): Record<string, unknown> {
   if (name === 'get_client_details') return { clientid: 30 };
   if (name === 'get_capability_matrix') return {};
   if (name === 'get_stats') return {};
+  if (name === 'get_service_lifecycle') return { clientid: 30, serviceid: 1 };
   return { clientid: 30, limit: 25, offset: 0 };
 }
 
@@ -96,7 +97,6 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
     registerBillingTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
-    registerServiceTools(h.server as any, h.whmcs, h.logger, h.rl);
 
     const names = Object.keys(h.handlers).filter(
       (n) => h.configs[n]?.outputSchema
@@ -188,7 +188,7 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
     for (const reg of [
       registerListTools, registerClientTools, registerAggregatorTools,
       registerCapabilityShellTools, registerSupportTools, registerBillingTools,
-      registerDomainTools, registerOrderTools, registerServiceTools,
+      registerDomainTools, registerOrderTools,
     ]) {
       try {
         reg(mcp as any, m.whmcs, m.logger, m.rl);
@@ -226,7 +226,6 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
     registerBillingTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
-    registerServiceTools(h.server as any, h.whmcs, h.logger, h.rl);
 
     const names = Object.keys(h.handlers).filter((n) => schemaByName.has(n));
     const cases: [string, Record<string, unknown>][] = names.map((n) => [n, argsFor(n)]);

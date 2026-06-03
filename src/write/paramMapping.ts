@@ -229,6 +229,84 @@ export function mapServicePriceRestoreTarget(target: {
   };
 }
 
+/**
+ * Canonical hostname/domain normalization — the SINGLE place a domain value is
+ * cleaned, so validation and the mapper agree on the EXACT string sent to
+ * WHMCS (otherwise validation could trim/lowercase for its check while the
+ * mapper sends the raw value — a validate-vs-execute divergence). Lowercases,
+ * trims surrounding whitespace, and strips a single trailing FQDN-root dot.
+ * Non-string input yields '' (the validator rejects that as missing/invalid).
+ */
+export function normalizeDomain(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let d = raw.trim().toLowerCase();
+  if (d.endsWith('.')) d = d.slice(0, -1);
+  return d;
+}
+
+/**
+ * `service:domain_rename` `{serviceid, domain}` →
+ *   WHMCS `UpdateClientProduct` `{serviceid, domain}`.
+ *
+ * STRICT 2-key output. `UpdateClientProduct` accepts many high-impact fields
+ * (recurringamount, status, billingcycle, paymentmethod, …); this mapper emits
+ * ONLY serviceid + the NORMALIZED domain so a malformed/over-broad intent can
+ * NEVER leak an unintended field into the live call. Any extra key on the
+ * input is dropped (defense in depth, mirrors mapServicePriceRestoreTarget).
+ */
+export function mapServiceDomainRenameParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    serviceid: params.serviceid,
+    domain: normalizeDomain(params.domain),
+  };
+}
+
+/**
+ * `service:suspend` `{serviceid, [suspendreason]}` → WHMCS `ModuleSuspend`.
+ * STRICT: only serviceid (+ suspendreason when a non-empty string). ModuleSuspend
+ * also accepts no other meaningful fields; dropping extras prevents leakage.
+ */
+export function mapServiceSuspendParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { serviceid: params.serviceid };
+  if (typeof params.suspendreason === 'string' && params.suspendreason.trim() !== '') {
+    out.suspendreason = params.suspendreason;
+  }
+  return out;
+}
+
+/** `service:unsuspend` `{serviceid}` → WHMCS `ModuleUnsuspend`. STRICT 1-key. */
+export function mapServiceUnsuspendParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return { serviceid: params.serviceid };
+}
+
+/** `service:terminate` `{serviceid}` → WHMCS `ModuleTerminate`. STRICT 1-key. */
+export function mapServiceTerminateParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return { serviceid: params.serviceid };
+}
+
+/**
+ * `domain:nameservers:update` `{domainid, nameservers:[...]}` → WHMCS
+ * `DomainUpdateNameservers` `{domainid, ns1..nsN}`. STRICT: emits ONLY domainid
+ * + the positional ns keys (normalized lowercase/trim); any extra input key is
+ * dropped. Validation guarantees 2–5 valid hostnames.
+ */
+export function mapDomainNameserversParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { domainid: params.domainid };
+  const ns = Array.isArray(params.nameservers) ? params.nameservers : [];
+  ns.slice(0, 5).forEach((n, i) => {
+    out[`ns${String(i + 1)}`] = typeof n === 'string' ? n.trim().toLowerCase() : n;
+  });
+  return out;
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -265,6 +343,16 @@ export function intentToWhmcsParams(
       return mapCreditAddParams(params);
     case 'billing:refund:record':
       return mapRefundRecordParams(params, ctx);
+    case 'service:domain_rename':
+      return mapServiceDomainRenameParams(params);
+    case 'service:suspend':
+      return mapServiceSuspendParams(params);
+    case 'service:unsuspend':
+      return mapServiceUnsuspendParams(params);
+    case 'service:terminate':
+      return mapServiceTerminateParams(params);
+    case 'domain:nameservers:update':
+      return mapDomainNameserversParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls

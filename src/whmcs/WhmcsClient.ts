@@ -10,6 +10,7 @@ import { AppConfig, McpMode, getWhmcsApiEndpoint } from '../config.js';
 import { Logger } from '../logging.js';
 import { normalizeWhmcsResponse, boolToWhmcs } from './normalizers.js';
 import { assertReadAction } from './actionPolicy.js';
+import { ReadCache } from './readCache.js';
 
 /**
  * WHMCS business-level error
@@ -102,11 +103,20 @@ export class WhmcsClient {
   private readonly config: AppConfig;
   private readonly logger: Logger;
   private readonly mode: McpMode;
+  /**
+   * F1: per-instance short-TTL read cache. Disabled by default (TTL 0). Caches
+   * only idempotent, allowlisted reference reads on the read() path.
+   */
+  private readonly readCache: ReadCache;
 
   constructor(config: AppConfig, logger: Logger) {
     this.config = config;
     this.logger = logger;
     this.mode = config.MCP_MODE;
+    this.readCache = new ReadCache({
+      ttlMs: config.MCP_READ_CACHE_TTL_MS,
+      cacheableActions: config.MCP_READ_CACHE_ACTIONS,
+    });
 
     this.axios = axios.create({
       baseURL: getWhmcsApiEndpoint(),
@@ -349,8 +359,34 @@ export class WhmcsClient {
     action: string,
     params: Record<string, unknown> = {}
   ): Promise<T> {
+    // Policy guard stays BEFORE the cache so a denied action is never cached
+    // and a deny is never satisfied from cache.
     assertReadAction(action);
-    return this.call<T>(action, params, { isMutating: false });
+
+    // Key the cache on the SAME params shape sent to WHMCS (transformParams
+    // drops `undefined` and normalizes booleans) so the key-space matches the
+    // request-space — otherwise `{x: undefined}` and `{}` would be distinct
+    // cache slots for an identical API call.
+    const cacheParams = this.transformParams(params);
+
+    // F1 cache: returns undefined when disabled (TTL 0), not allowlisted, or miss.
+    const cached = this.readCache.get(action, cacheParams);
+    if (cached !== undefined) {
+      return cached as T;
+    }
+
+    const result = await this.call<T>(action, params, { isMutating: false });
+    // Only successful reads reach here (call() throws on error). set() is a
+    // no-op when caching is disabled or the action is not allowlisted.
+    this.readCache.set(action, cacheParams, result);
+    return result;
+  }
+
+  /**
+   * Clear the per-instance read cache. Exposed for tests / explicit bypass.
+   */
+  clearReadCache(): void {
+    this.readCache.clear();
   }
 
   /**

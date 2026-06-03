@@ -10,7 +10,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { config, isToolAllowed } from '../config.js';
+import { config, isToolAllowed, legacyWriteToolsEnabled } from '../config.js';
 import {
   ensureToolAuth,
   clientModeDenied,
@@ -429,7 +429,7 @@ export function registerBillingTools(
   // ============================================
   // Tool: mark_invoice_paid
   // ============================================
-  if (isToolAllowed('mark_invoice_paid')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('mark_invoice_paid')) {
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
     // open `[x: string]: unknown` index signature; our shared `ensure*`/result
     // helpers return the local closed `McpToolResponse`, which is structurally
@@ -611,7 +611,7 @@ export function registerBillingTools(
   // ============================================
   // Tool: record_refund
   // ============================================
-  if (isToolAllowed('record_refund')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('record_refund')) {
     // Boundary cast: SDK v1.29 `ToolCallback` declares a return shape with an
     // open `[x: string]: unknown` index signature; our shared `ensure*`/result
     // helpers return the local closed `McpToolResponse`, which is structurally
@@ -1015,7 +1015,7 @@ export function registerBillingTools(
   // ============================================
   // Tool: create_invoice
   // ============================================
-  if (isToolAllowed('create_invoice')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('create_invoice')) {
     const createInvoiceSchema = z.object({
       userid: z.number().int().positive('User ID must be positive'),
       paymentmethod: z.string().optional().describe('Payment method code (e.g., paypal, stripe)'),
@@ -1152,7 +1152,7 @@ export function registerBillingTools(
   // ============================================
   // Tool: add_credit
   // ============================================
-  if (isToolAllowed('add_credit')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('add_credit')) {
     const addCreditSchema = z.object({
       clientid: z.number().int().positive('Client ID must be positive'),
       amount: z

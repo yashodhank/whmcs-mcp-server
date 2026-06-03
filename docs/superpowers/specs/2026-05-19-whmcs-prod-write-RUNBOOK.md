@@ -146,10 +146,18 @@ detail.
 ### Env for prod activation (operator action)
 
 ```
-MCP_PROD_WRITE_AUTHORIZED=UpdateClientProduct
+MCP_PROD_WRITE_AUTHORIZED=service:price_restore
 MCP_PROD_HIGH_RISK_PER_ACTION_CAP=20000   # max |new−old| delta per target
 MCP_PROD_HIGH_RISK_DAILY_CAP=50000        # sum of executed deltas per UTC day
 ```
+
+> **Authorize by SCOPE, not action.** `service:price_restore` and
+> `service:domain_rename` BOTH map to the WHMCS action `UpdateClientProduct`.
+> The allowlist matches an entry against the intent's action OR its scope, so a
+> bare `MCP_PROD_WRITE_AUTHORIZED=UpdateClientProduct` entry (BROAD grant)
+> silently authorizes BOTH scopes at once. List the scope string to gate them
+> independently — only put `UpdateClientProduct` if you intend to enable every
+> scope on that action.
 
 A consumer with `writeCapability='execution_allowed'` and
 `allowedWriteScopes=['service:price_restore']` must also exist in
@@ -200,6 +208,68 @@ A consumer with `writeCapability='execution_allowed'` and
 unset MCP_PROD_WRITE_AUTHORIZED
 unset MCP_PROD_HIGH_RISK_PER_ACTION_CAP
 unset MCP_PROD_HIGH_RISK_DAILY_CAP
+```
+
+Or set `MCP_WRITE_KILL_SWITCH=1` to instantly re-seal everything.
+
+## 7. Service hostname/domain rename (`service:domain_rename`)
+
+A narrow, governed, audited path to change a service's `domain` (hostname)
+field through `UpdateClientProduct`. Single-call (one service per intent), risk
+tier `medium`. Shares the `UpdateClientProduct` action with `price_restore` —
+see the **Authorize by SCOPE, not action** note in §6.
+
+### Env for prod activation (operator action)
+
+```
+MCP_PROD_WRITE_AUTHORIZED=service:domain_rename
+```
+
+No high-risk caps apply (medium tier). A consumer with
+`writeCapability='execution_allowed'` and
+`allowedWriteScopes=['service:domain_rename']` must exist in
+`MCP_CONSUMER_REGISTRY`. To enable both service scopes, comma-join the scope
+strings: `MCP_PROD_WRITE_AUTHORIZED=service:price_restore,service:domain_rename`.
+
+### Worked example — rename svc 42 → `vps42.newhost.example.com`
+
+1. **Draft** (`draft_write_intent`):
+   ```jsonc
+   {
+     "scope": "service:domain_rename",
+     "params": {
+       "serviceid": 42,
+       "domain": "vps42.newhost.example.com",
+       "expected_old_domain": "vps42.oldhost.example.com"  // optional guard
+     },
+     "naturalKey": "svc42-hostname-rename",
+     "projected_effect": "Rename svc 42 hostname to vps42.newhost.example.com"
+   }
+   ```
+2. **Validate**, **approve**, **execute**.
+3. Confirm `executed === true` and `execution.verified === true`.
+
+### Atomicity / safety contract
+
+- **Domain normalization**: the value is lowercased, trimmed, and a trailing
+  FQDN-root dot stripped in ONE place; validation and the sent value agree.
+- **Precondition snapshot** (read-only, before any mutation): confirms the
+  service exists, is not Terminated/Cancelled, and — if `expected_old_domain`
+  is supplied — that the live domain still matches. Any failure →
+  `precondition_mismatch`, **zero mutation**.
+- **Scope-output assertion**: defense-in-depth check that the mapper produced
+  exactly `{serviceid, domain}` before the `UpdateClientProduct` call.
+- **Read-back verification**: after the rename, re-reads the service and
+  compares the (normalized) `domain` field; `execution.verified` is `true` only
+  on an exact match.
+- **Idempotency**: keyed by `consumer | action | scope | naturalKey | window`.
+  Reusing a `naturalKey` for a DIFFERENT rename within the 5-min window is
+  treated as a replay — use a distinct `naturalKey` per distinct rename.
+
+### Re-seal after completion
+
+```
+unset MCP_PROD_WRITE_AUTHORIZED
 ```
 
 Or set `MCP_WRITE_KILL_SWITCH=1` to instantly re-seal everything.
