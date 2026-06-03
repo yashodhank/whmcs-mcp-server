@@ -11,15 +11,36 @@
  *     not include `env`, throw `ProjectionEnvError` BEFORE touching any
  *     field. This is how `none_local_only` / `debug_local` are hard-
  *     blocked outside local — no raw secret is ever read off-box.
- *  2. Walk `canonical.data`'s top-level keys. For each, resolve its
- *     `FieldClass` from `canonical.classes`. An UNMAPPED path is treated
- *     as the most-restrictive class ⇒ dropped (never silently public).
+ *  2. RECURSIVELY walk `canonical.data`. Every LEAF resolves its
+ *     `FieldClass` from `canonical.classes` using the SAME path convention
+ *     the ClassMapBuilder / `assertClassmapComplete` use:
+ *       - object child  → `parent.child`
+ *       - array element → `parent[]`  (array indices collapse to literal `[]`)
+ *     An UNMAPPED leaf path is treated as the most-restrictive class ⇒
+ *     dropped (never silently public). An UNMAPPED *container* (object/array
+ *     with no class of its own) is structural: we recurse and emit only the
+ *     surviving children (the restrictive rule binds the LEAVES that would
+ *     actually be emitted, not the transparent structure above them).
  *  3. Apply the contract's `ProjectionAction` for that class:
- *       allow          → emit value as-is
- *       drop           → omit the field
+ *       allow          → emit value as-is (leaf) / recurse (container)
+ *       drop           → omit the field / the whole container
  *       mask           → partial reveal (class-specific)
  *       wrap_untrusted → emit { untrusted: true, value }
  *       summarize      → derived summary for strings, else drop
+ *
+ * Container handling (matches existing top-level behaviour):
+ *  - A container key that HAS a class honours that class as a GATE:
+ *      `allow` ⇒ recurse into children (children are still projected
+ *      individually — a `public.safe`/`business.label` container does NOT
+ *      emit its subtree raw); any non-`allow` action ⇒ the whole container is
+ *      dropped (a `secret.credential` object/array never partially survives).
+ *  - A container key with NO class is structural ⇒ recurse.
+ *  - Empty results are PRESERVED, not pruned: an object whose children all
+ *    dropped becomes `{}`; an array whose elements all emptied stays `[]`
+ *    (a dropped LEAF is omitted from its parent object; a surviving but
+ *    fully-stripped element object becomes `{}` and stays in the array).
+ *    This mirrors the original top-level rule (dropped leaf omitted; object
+ *    with all-dropped children ⇒ `{}`).
  *
  * Imports only from the frozen seam; no edits to existing files.
  */
@@ -201,43 +222,160 @@ function applyAction(
   }
 }
 
-/* ── shared per-key decision (the single source of truth) ──────────────────── */
+/* ── recursive value projection (the single source of truth) ───────────────── */
+
+/** A non-null, non-array plain object. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** True when a value is a structural container we can recurse into. */
+function isContainer(v: unknown): v is Record<string, unknown> | unknown[] {
+  return v !== null && typeof v === 'object';
+}
 
 /**
- * The authoritative per-key decision. BOTH `project()` and
- * `projectWithTrace()` walk top-level keys through this exact function, so a
- * trace record can never disagree with the data `project()` emits.
- *
- * `mapped` is `false` for a top-level key absent from `canonical.classes`
- * (genuinely unclassified ⇒ dropped, never leaked). When `mapped` is true,
- * `projected === DROP` means the contract action omitted the field.
+ * The child path for a key, using the ClassMapBuilder convention:
+ *  - object child  → `parent.child`  (top level: just `child`)
+ *  - array element → `parent[]`      (top level: `[]`)
  */
-type KeyDecision =
-  | { readonly mapped: false }
-  | {
-      readonly mapped: true;
-      readonly cls: FieldClass;
-      readonly action: string;
-      /** The projected value, or the DROP sentinel. */
-      readonly projected: unknown;
-    };
+function childPath(parent: string, key: string): string {
+  return parent === '' ? key : `${parent}.${key}`;
+}
+function arrayElemPath(parent: string): string {
+  return parent === '' ? '[]' : `${parent}[]`;
+}
 
-function decideKey(
+/**
+ * A trace record for one decision, OR the DROP sentinel when the result is
+ * to omit. Recursion descends container nodes and returns the projected
+ * value (or DROP). Trace records are appended to `trace` when supplied.
+ */
+interface ProjectNodeCtx {
+  readonly canonical: Canonical<unknown>;
+  readonly contract: DataContract;
+  readonly env: ProjectionEnv;
+  /** When present, authoritative trace records are appended here. */
+  readonly trace?: AuditTraceRecord[];
+  readonly traceCtx?: AuditTraceContext;
+}
+
+/** Does `path` have an explicit class in the classmap? */
+function classFor(
   canonical: Canonical<unknown>,
-  contract: DataContract,
-  source: Record<string, unknown>,
-  key: string
-): KeyDecision {
-  // Resolve class. `FieldClassMap`'s index signature widens to `FieldClass`,
-  // but at runtime an unmapped path is genuinely absent — a presence check
-  // guarantees an unclassified field is never leaked.
-  if (!Object.prototype.hasOwnProperty.call(canonical.classes, key)) {
-    return { mapped: false };
+  path: string
+): FieldClass | undefined {
+  return Object.prototype.hasOwnProperty.call(canonical.classes, path)
+    ? canonical.classes[path]
+    : undefined;
+}
+
+/** Push a trace record (only when tracing is enabled). */
+function pushTrace(
+  ctx: ProjectNodeCtx,
+  rec: Omit<AuditTraceRecord, 'consumer_id' | 'contract' | 'tool' | 'environment'>
+): void {
+  if (!ctx.trace || !ctx.traceCtx) return;
+  ctx.trace.push({
+    ...rec,
+    consumer_id: ctx.traceCtx.consumer_id,
+    contract: ctx.traceCtx.contract,
+    tool: ctx.traceCtx.tool,
+    environment: ctx.env,
+  });
+}
+
+/**
+ * Project ONE value at `path`. Returns the projected value or the DROP
+ * sentinel. Pure: never mutates `value`; containers produce fresh copies.
+ *
+ * `pathClass` is the class explicitly set on THIS path (if any). Leaves
+ * without a class drop; containers without a class are transparent (recurse).
+ */
+function projectNode(
+  ctx: ProjectNodeCtx,
+  path: string,
+  value: unknown
+): unknown {
+  const pathClass = classFor(ctx.canonical, path);
+
+  // ── Container nodes (objects / arrays) ───────────────────────────────────
+  if (isContainer(value)) {
+    // A container with its OWN class is gated by that class' action:
+    //  - allow  ⇒ recurse (children still individually projected)
+    //  - else   ⇒ drop the whole container (a secret object never partially
+    //             survives; mask/summarize/wrap on a container collapse to drop)
+    if (pathClass !== undefined) {
+      const action = ctx.contract.policy[pathClass];
+      if (action !== 'allow') {
+        pushTrace(ctx, {
+          source_path: path,
+          output_path: '',
+          field_classification: pathClass,
+          projection_decision: 'omit',
+          rule_id: `${ctx.traceCtx?.contract ?? ''}:${pathClass}->${action}`,
+          reason: reasonFor('omit', `${pathClass}->${action}`),
+          value_state: 'omitted',
+        });
+        return DROP;
+      }
+      // allow ⇒ fall through to structural recursion below.
+    }
+
+    if (Array.isArray(value)) {
+      const outArr: unknown[] = [];
+      for (const el of value) {
+        const projected = projectNode(ctx, arrayElemPath(path), el);
+        // A dropped ELEMENT is omitted from the array; a surviving (possibly
+        // emptied) element is kept. Drop only when the element itself dropped.
+        if (projected !== DROP) {
+          outArr.push(projected);
+        }
+      }
+      return outArr;
+    }
+
+    const obj = value;
+    const outObj: Record<string, unknown> = {};
+    for (const key of Object.keys(obj)) {
+      const projected = projectNode(ctx, childPath(path, key), obj[key]);
+      if (projected !== DROP) {
+        outObj[key] = projected; // dropped child key is omitted; {} survives
+      }
+    }
+    return outObj;
   }
-  const cls: FieldClass = canonical.classes[key];
-  const action = contract.policy[cls];
-  const projected = applyAction(cls, contract, source[key]);
-  return { mapped: true, cls, action, projected };
+
+  // ── Leaf nodes (primitives / null) ───────────────────────────────────────
+  // An unmapped leaf is most-restrictive ⇒ dropped, never leaked.
+  if (pathClass === undefined) {
+    pushTrace(ctx, {
+      source_path: path,
+      output_path: '',
+      field_classification: UNMAPPED,
+      projection_decision: 'omit',
+      rule_id: 'unmapped_dropped',
+      reason: reasonFor('omit', 'unmapped_dropped'),
+      value_state: 'omitted',
+    });
+    return DROP;
+  }
+
+  const action = ctx.contract.policy[pathClass];
+  const projected = applyAction(pathClass, ctx.contract, value);
+  const { decision, value_state } = decisionFor(action, projected);
+  const rule_id = `${ctx.traceCtx?.contract ?? ''}:${pathClass}->${action}`;
+  const emitted = decision !== 'omit';
+  pushTrace(ctx, {
+    source_path: path,
+    output_path: emitted ? path : '',
+    field_classification: pathClass,
+    projection_decision: decision,
+    rule_id,
+    reason: reasonFor(decision, rule_id),
+    value_state,
+  });
+  return projected;
 }
 
 /* ── the projection boundary ───────────────────────────────────────────────── */
@@ -256,24 +394,23 @@ export const project: ProjectFn = <T>(
   }
 
   const data = canonical.data as unknown;
+  if (!isPlainObject(data)) {
+    return {};
+  }
+
+  const ctx: ProjectNodeCtx = {
+    canonical: canonical as Canonical<unknown>,
+    contract,
+    env,
+  };
+
   const out: Record<string, unknown> = {};
-
-  if (data === null || typeof data !== 'object') {
-    return out;
-  }
-
-  const source = data as Record<string, unknown>;
-  for (const key of Object.keys(source)) {
-    const d = decideKey(canonical, contract, source, key);
-    if (!d.mapped) {
-      continue; // unmapped path: never leaked
+  for (const key of Object.keys(data)) {
+    const projected = projectNode(ctx, key, data[key]);
+    if (projected !== DROP) {
+      out[key] = projected;
     }
-    if (d.projected === DROP) {
-      continue;
-    }
-    out[key] = d.projected;
   }
-
   return out;
 };
 
@@ -312,7 +449,7 @@ function reasonFor(decision: ProjectionDecision, rule_id: string): string {
     case 'omit':
     default:
       return rule_id === 'unmapped_dropped'
-        ? 'top-level key not in canonical classmap; dropped'
+        ? 'leaf path not in canonical classmap; dropped'
         : 'contract drops this class; field omitted';
   }
 }
@@ -335,9 +472,9 @@ export interface ProjectWithTraceOptions {
 
 /**
  * Project `canonical` AND emit an authoritative `AuditTraceRecord[]` from the
- * SAME per-key decision `project()` uses. The returned `data` is byte-
- * identical to `project(canonical, contract, env)` for every mapped scenario.
- * The trace NEVER contains a field value.
+ * SAME recursive per-node decision `project()` uses. The returned `data` is
+ * byte-identical to `project(canonical, contract, env)` for every mapped
+ * scenario (both call `projectNode`). The trace NEVER contains a field value.
  */
 export function projectWithTrace(
   canonical: Canonical<unknown>,
@@ -372,56 +509,27 @@ export function projectWithTrace(
     return { data: {}, trace: [denyRecord], denied: true };
   }
 
-  const out: Record<string, unknown> = {};
   const trace: AuditTraceRecord[] = [];
   const data: unknown = canonical.data;
 
-  if (data === null || typeof data !== 'object') {
-    return { data: out, trace, denied: false };
+  if (!isPlainObject(data)) {
+    return { data: {}, trace, denied: false };
   }
 
-  const source = data as Record<string, unknown>;
-  for (const key of Object.keys(source)) {
-    const d = decideKey(canonical, contract, source, key);
+  const nodeCtx: ProjectNodeCtx = {
+    canonical,
+    contract,
+    env,
+    trace,
+    traceCtx: ctx,
+  };
 
-    if (!d.mapped) {
-      trace.push({
-        source_path: key,
-        output_path: '',
-        field_classification: UNMAPPED,
-        consumer_id: ctx.consumer_id,
-        contract: ctx.contract,
-        projection_decision: 'omit',
-        rule_id: 'unmapped_dropped',
-        reason: reasonFor('omit', 'unmapped_dropped'),
-        value_state: 'omitted',
-        environment: env,
-        tool: ctx.tool,
-      });
-      continue;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(data)) {
+    const projected = projectNode(nodeCtx, key, data[key]);
+    if (projected !== DROP) {
+      out[key] = projected;
     }
-
-    // `mapped` is true here ⇒ `cls`/`action` are present (discriminated).
-    const cls = d.cls;
-    const { decision, value_state } = decisionFor(d.action, d.projected);
-    const emitted = decision !== 'omit';
-    if (emitted) {
-      out[key] = d.projected;
-    }
-    const rule_id = `${ctx.contract}:${cls}->${d.action}`;
-    trace.push({
-      source_path: key,
-      output_path: emitted ? key : '',
-      field_classification: cls,
-      consumer_id: ctx.consumer_id,
-      contract: ctx.contract,
-      projection_decision: decision,
-      rule_id,
-      reason: reasonFor(decision, rule_id),
-      value_state,
-      environment: env,
-      tool: ctx.tool,
-    });
   }
 
   return { data: out, trace, denied: false };
