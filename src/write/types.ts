@@ -30,6 +30,7 @@ export const WRITE_SCOPES = [
   'billing:credit:add',
   'billing:refund:record',
   'service:price_restore',
+  'service:domain_rename',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -45,6 +46,7 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'billing:credit:add': 'AddCredit',
   'billing:refund:record': 'AddTransaction',
   'service:price_restore': 'UpdateClientProduct',
+  'service:domain_rename': 'UpdateClientProduct',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -61,6 +63,11 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   'billing:credit:add': 'high',
   'billing:refund:record': 'high',
   'service:price_restore': 'high',
+  // Non-monetary, reversible metadata edit (hostname/domain field). Not low:
+  // changing a live service's hostname can affect provisioning/module commands
+  // that key off it. Medium ⇒ single approval, no money caps / human-approval
+  // record required (those are high-risk only).
+  'service:domain_rename': 'medium',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */
@@ -189,6 +196,23 @@ export const PROD_NEVER_EXECUTABLE: ReadonlySet<string> = new Set<string>([
   'UpdateApiCredential',
 ]);
 
+/**
+ * Scope-level permanent block — complements the action-keyed set above. Needed
+ * because two scopes can share one WHMCS action (e.g. UpdateClientProduct), so
+ * action-keying alone cannot hard-block ONE scope while allowing its sibling.
+ * Scopes here can NEVER execute in production even if allowlisted. Destructive
+ * scopes (e.g. a future `service:terminate`) are born blocked-by-default; an
+ * operator must consciously remove them here to enable. Frozen.
+ */
+export const PROD_NEVER_EXECUTABLE_SCOPES: ReadonlySet<string> = new Set<string>([
+  // Reserved for destructive scopes added by later tracks (Track C). Listing a
+  // not-yet-defined scope is harmless (the gate matches the intent's scope
+  // string) and makes the scope hard-blocked the moment it is introduced.
+  'service:terminate',
+  'domain:transfer',
+  'domain:release',
+]);
+
 /** Recorded human approval for a high-risk (money) production action. */
 export interface HumanApprovalRecord {
   readonly approver: string;
@@ -230,6 +254,22 @@ export interface ExecutionRequest {
   readonly amountContext?: AmountContext;
   /** High-risk caps. Default { perAction: 0, daily: 0 } ⇒ money denied. */
   readonly caps?: HighRiskCaps;
+  /**
+   * Tiered-friction override. Default false ⇒ the per-environment allowlist is
+   * enforced for HIGH-RISK intents only; low/medium scopes are audit-gated
+   * (consumer execution capability + always-on audit) and need no per-action
+   * allowlisting. Set true to restore strict allowlist-for-ALL-tiers (the
+   * legacy posture) — a deployment-level safety lever for cautious operators.
+   */
+  readonly strictAllowlist?: boolean;
+  /**
+   * Per-scope tightening. Scopes listed here ALWAYS require the allowlist even
+   * if their risk tier is low/medium (e.g. `billing:invoice:create` —
+   * financial-document creation an operator may want opt-in per env). This can
+   * only TIGHTEN: it never loosens a high-risk scope below its full gate.
+   * Sourced from `MCP_WRITE_STRICT_SCOPES`. Default-empty here.
+   */
+  readonly strictScopes?: readonly string[];
 }
 
 export type ExecutionDeniedReason =

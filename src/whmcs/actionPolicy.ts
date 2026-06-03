@@ -21,6 +21,10 @@ const READ_ALLOWLIST = new Set<string>([
   // Phase H — promoted after read-only probes confirmed `supported` on
   // Dev WHMCS 8, Dev WHMCS 9 AND production. GetUsers NOT added (degraded).
   'GetTransactions','GetStats','GetToDoItems','GetAutomationLog',
+  // Track A — infrastructure / reference reads. Allowlisted so the governed
+  // read tools (get_server_health, get_tld_pricing) can call them. Capability
+  // status is `unverified` (not yet prod-probed) — see capabilities.ts.
+  'GetServers','GetHealthStatus','GetTLDPricing','GetRegistrars',
 ]);
 
 const WRITE_DENY_PREFIX = /^(Add|Update|Delete|Create|Module|Domain(Register|Renew|Transfer)|Send|Set)/i;

@@ -4,9 +4,15 @@
  * SAFETY: pure / in-memory. No WHMCS or network calls. The ledger exists to
  * block duplicate execution + replay; it never performs the execution itself.
  *
- * A key is sha256(consumer_id | action | naturalKey | windowBucket). The
- * window bucket folds time into fixed-width slots so two attempts inside the
- * same window collide (deduped) while a later window produces a fresh key.
+ * A key is sha256(consumer_id | action | scope | naturalKey | windowBucket).
+ * The window bucket folds time into fixed-width slots so two attempts inside
+ * the same window collide (deduped) while a later window produces a fresh key.
+ *
+ * `scope` is part of the material because two distinct write scopes can map to
+ * the SAME WHMCS action (e.g. service:price_restore and service:domain_rename
+ * both → UpdateClientProduct). Without scope in the key, a price_restore and a
+ * domain_rename from the same consumer with the same naturalKey in the same
+ * window would collide and the second would be wrongly denied as a replay.
  */
 
 import crypto from 'node:crypto';
@@ -20,6 +26,7 @@ const DEFAULT_WINDOW_MS = 5 * 60 * 1000;
  *
  * @param consumer_id  the requesting consumer
  * @param action       WHMCS action the intent would call
+ * @param scope        write scope (disambiguates scopes sharing one action)
  * @param naturalKey   caller-stable description of the target effect
  * @param windowMs     dedupe window width (defaults to 5 minutes)
  * @param nowMs        injectable clock for the window bucket (testing)
@@ -27,13 +34,14 @@ const DEFAULT_WINDOW_MS = 5 * 60 * 1000;
 export function idempotencyKey(
   consumer_id: string,
   action: string,
+  scope: string,
   naturalKey: string,
   windowMs: number = DEFAULT_WINDOW_MS,
   nowMs: number = Date.now()
 ): string {
   const width = windowMs > 0 ? windowMs : DEFAULT_WINDOW_MS;
   const bucket = Math.floor(nowMs / width);
-  const material = [consumer_id, action, naturalKey, String(bucket)].join(' ');
+  const material = [consumer_id, action, scope, naturalKey, String(bucket)].join(' ');
   return crypto.createHash('sha256').update(material, 'utf8').digest('hex');
 }
 

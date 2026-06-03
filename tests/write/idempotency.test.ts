@@ -11,23 +11,31 @@ import { idempotencyKey, IdempotencyLedger } from '../../src/write/idempotency.j
 
 describe('idempotencyKey', () => {
   it('is deterministic sha256 hex for identical inputs', () => {
-    const a = idempotencyKey('consumer-1', 'AddClientNote', 'client:42:note', 60000);
-    const b = idempotencyKey('consumer-1', 'AddClientNote', 'client:42:note', 60000);
+    const a = idempotencyKey('consumer-1', 'AddClientNote', 'client_note:write', 'client:42:note', 60000);
+    const b = idempotencyKey('consumer-1', 'AddClientNote', 'client_note:write', 'client:42:note', 60000);
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('changes when any input changes', () => {
-    const base = idempotencyKey('c', 'A', 'k', 60000);
-    expect(idempotencyKey('c2', 'A', 'k', 60000)).not.toBe(base);
-    expect(idempotencyKey('c', 'A2', 'k', 60000)).not.toBe(base);
-    expect(idempotencyKey('c', 'A', 'k2', 60000)).not.toBe(base);
+    const base = idempotencyKey('c', 'A', 's', 'k', 60000);
+    expect(idempotencyKey('c2', 'A', 's', 'k', 60000)).not.toBe(base);
+    expect(idempotencyKey('c', 'A2', 's', 'k', 60000)).not.toBe(base);
+    expect(idempotencyKey('c', 'A', 's', 'k2', 60000)).not.toBe(base);
+  });
+
+  it('changes with scope even when action + naturalKey are identical', () => {
+    // Two scopes sharing one WHMCS action (service:price_restore and
+    // service:domain_rename both → UpdateClientProduct) must NOT collide.
+    const a = idempotencyKey('c', 'UpdateClientProduct', 'service:price_restore', 'k', 60000, 0);
+    const b = idempotencyKey('c', 'UpdateClientProduct', 'service:domain_rename', 'k', 60000, 0);
+    expect(a).not.toBe(b);
   });
 
   it('buckets keys by time window so different windows differ', () => {
-    const w1 = idempotencyKey('c', 'A', 'k', 1000, 0);
-    const w2 = idempotencyKey('c', 'A', 'k', 1000, 5000);
-    const sameBucket = idempotencyKey('c', 'A', 'k', 1000, 500);
+    const w1 = idempotencyKey('c', 'A', 's', 'k', 1000, 0);
+    const w2 = idempotencyKey('c', 'A', 's', 'k', 1000, 5000);
+    const sameBucket = idempotencyKey('c', 'A', 's', 'k', 1000, 500);
     expect(w1).not.toBe(w2);
     expect(w1).toBe(sameBucket);
   });
@@ -36,7 +44,7 @@ describe('idempotencyKey', () => {
 describe('IdempotencyLedger', () => {
   it('detects duplicates only after record', () => {
     const ledger = new IdempotencyLedger(60000);
-    const key = idempotencyKey('c', 'A', 'k', 60000);
+    const key = idempotencyKey('c', 'A', 's', 'k', 60000);
     expect(ledger.seen(key)).toBe(false);
     ledger.record(key, { ok: true });
     expect(ledger.seen(key)).toBe(true);
@@ -46,7 +54,7 @@ describe('IdempotencyLedger', () => {
   it('forgets a key after its window expires', () => {
     let now = 1_000;
     const ledger = new IdempotencyLedger(1000, () => now);
-    const key = idempotencyKey('c', 'A', 'k', 1000);
+    const key = idempotencyKey('c', 'A', 's', 'k', 1000);
     ledger.record(key, 'r');
     expect(ledger.seen(key)).toBe(true);
     now = 2_500;

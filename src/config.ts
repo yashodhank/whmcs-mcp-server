@@ -93,6 +93,25 @@ const configSchema = z
         .map((s) => s.trim())
         .filter(Boolean);
     }, z.array(z.string()).default([])),
+    // ── F1: short-TTL in-memory READ cache (default OFF) ────────────────────
+    // Caches ONLY idempotent reads for truly-static reference actions, to cut
+    // repeated WHMCS API load. Default TTL 0 ⇒ cache DISABLED, so existing
+    // behaviour/tests are byte-identical unless explicitly enabled. The cache
+    // is per-WhmcsClient-instance and pure in-memory (no disk).
+    MCP_READ_CACHE_TTL_MS: z.coerce.number().int().min(0).default(0),
+    // Allowlist of WHMCS read actions eligible for caching (comma list). Only
+    // actions in this set are cached, and only when MCP_READ_CACHE_TTL_MS > 0.
+    // Default is a SMALL set of truly-static reference reads.
+    MCP_READ_CACHE_ACTIONS: z.preprocess((val) => {
+      const raw = preprocessCommaSeparatedString(val);
+      if (raw === '') {
+        return ['GetTLDPricing', 'GetRegistrars', 'GetSupportDepartments', 'GetProducts', 'GetCurrencies'];
+      }
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }, z.array(z.string()).default(['GetTLDPricing', 'GetRegistrars', 'GetSupportDepartments', 'GetProducts', 'GetCurrencies'])),
     // Optional id:label map for client custom fields (e.g. "12:Tax ID,34:VAT Number").
     // Configured labels override WHMCS-provided field names when set.
     MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess(
@@ -159,6 +178,26 @@ const configSchema = z
     MCP_WRITE_KILL_SWITCH: z.preprocess(
       (val) => val === 'true' || val === '1',
       z.boolean().default(false)
+    ),
+    // Tiered-friction safety lever. Default false ⇒ the per-environment write
+    // allowlist is enforced for HIGH-RISK scopes only; low/medium scopes are
+    // audit-gated and need no allowlist. Set true to restore strict
+    // allowlist-for-ALL-tiers (legacy posture) for cautious deployments.
+    MCP_WRITE_STRICT_ALLOWLIST: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    // Per-scope tightening (comma list). Scopes here ALWAYS require the write
+    // allowlist even if low/medium risk. Default gates billing:invoice:create
+    // (financial-document creation). Can only tighten, never loosen high-risk.
+    // Set to empty to make every medium scope one-call.
+    MCP_WRITE_STRICT_SCOPES: z.preprocess(
+      (val) =>
+        (typeof val === 'string' ? val : 'billing:invoice:create')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      z.array(z.string()).default(['billing:invoice:create'])
     ),
     // Empty ⇒ pure in-memory (legacy). A non-empty prod allowlist REQUIRES a
     // durable audit path (enforced below) so a production mutation is never

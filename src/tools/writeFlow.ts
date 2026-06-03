@@ -40,15 +40,17 @@ import {
   type HumanApprovalRecord,
   type AmountContext,
   type HighRiskCaps,
+  type ExecutionDeniedReason,
 } from '../write/types.js';
 import { createDraftIntent, IntentStore } from '../write/intents.js';
 import { validateIntent } from '../write/validation.js';
 import { IdempotencyLedger } from '../write/idempotency.js';
 import { AuditLog, AuditPersistError, auditEvent } from '../write/audit.js';
-import { defaultExecutionAuthorizer } from '../write/executionGate.js';
+import { defaultExecutionAuthorizer, preAuthorizeIntent } from '../write/executionGate.js';
 import {
   intentToWhmcsParams,
   mapServicePriceRestoreTarget,
+  normalizeDomain,
   PRICE_RESTORE_RECURRING_FIELD,
 } from '../write/paramMapping.js';
 
@@ -86,6 +88,78 @@ export function assertPriceRestoreOutput(out: Record<string, unknown>): void {
       `scope-output assertion: missing ${PRICE_RESTORE_RECURRING_FIELD} in service:price_restore mapper output`
     );
   }
+}
+
+/** Defense-in-depth: ensures the domain-rename mapper never leaks extra keys. */
+export class DomainRenameOutputAssertionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DomainRenameOutputAssertionError';
+  }
+}
+
+const DOMAIN_RENAME_ALLOWED_KEYS = new Set<string>(['serviceid', 'domain']);
+
+/**
+ * Scope-output assertion for `service:domain_rename`. Verifies the mapper
+ * produced exactly `{ serviceid, domain }` and nothing else before the value
+ * reaches the high-impact `UpdateClientProduct` action (which also accepts
+ * recurringamount/status/billingcycle/…). Mirrors assertPriceRestoreOutput.
+ */
+export function assertDomainRenameOutput(out: Record<string, unknown>): void {
+  for (const k of Object.keys(out)) {
+    if (!DOMAIN_RENAME_ALLOWED_KEYS.has(k)) {
+      throw new DomainRenameOutputAssertionError(
+        `scope-output assertion: unexpected key "${k}" in service:domain_rename mapper output`
+      );
+    }
+  }
+  if (!('serviceid' in out)) {
+    throw new DomainRenameOutputAssertionError(
+      'scope-output assertion: missing serviceid in service:domain_rename mapper output'
+    );
+  }
+  if (!('domain' in out)) {
+    throw new DomainRenameOutputAssertionError(
+      'scope-output assertion: missing domain in service:domain_rename mapper output'
+    );
+  }
+}
+
+/**
+ * Read-only precondition snapshot for `service:domain_rename` (mirrors the
+ * price_restore Phase-1 check). Confirms the target service exists, is not
+ * Terminated/Cancelled, and — when `expected_old_domain` is supplied — that its
+ * current domain still matches (guards against renaming a service someone else
+ * already changed). Returns a structured deny reason on any failure; performs
+ * NO mutation. The single-call execute path mutates blind without this.
+ */
+export async function precheckDomainRename(
+  whmcs: { read: WhmcsClient['read'] },
+  intent: WriteIntent
+): Promise<{ ok: true } | { ok: false; reason: ExecutionDeniedReason }> {
+  const serviceid = intent.params.serviceid;
+  let resp: { products?: { product?: readonly Record<string, unknown>[] } };
+  try {
+    resp = await whmcs.read('GetClientsProducts', { serviceid });
+  } catch {
+    return { ok: false, reason: 'precondition_mismatch' };
+  }
+  const p = resp.products?.product?.[0];
+  if (!p) {
+    return { ok: false, reason: 'precondition_mismatch' };
+  }
+  const status = p.domainstatus;
+  if (status === 'Terminated' || status === 'Cancelled') {
+    return { ok: false, reason: 'precondition_mismatch' };
+  }
+  const expected = intent.params.expected_old_domain;
+  if (typeof expected === 'string' && expected.trim() !== '') {
+    if (normalizeDomain(p.domain) !== normalizeDomain(expected)) {
+      return { ok: false, reason: 'precondition_mismatch' };
+    }
+  }
+  return { ok: true };
 }
 
 /*
@@ -561,7 +635,10 @@ export async function executePriceRestoreBatch(
       continue;
     }
 
-    if (delta > caps.perAction || dayRunning + delta > caps.daily) {
+    // Cap floor mirrors the single-call authorizer (executionGate step 8):
+    // an UNCONFIGURED cap (<=0) denies, so a zero/equal-amount (delta=0) target
+    // can never slip through with default {0,0} caps.
+    if (caps.perAction <= 0 || caps.daily <= 0 || delta > caps.perAction || dayRunning + delta > caps.daily) {
       audit.append(
         auditEvent(
           'intent.execution_blocked',
@@ -802,14 +879,10 @@ export function registerWriteFlowTools(
     }
   );
 
-  register(
-    server,
-    'execute_write_intent',
-    'Phase G+: execute an approved intent through the deny-by-default risk-tiered authorizer. Production is SEALED unless the action is explicitly in MCP_PROD_WRITE_AUTHORIZED; high-risk (money) actions additionally require a human approval record and per-action/daily caps. PROD_NEVER_EXECUTABLE actions can never run. Durable audit is written before any mutation (fail-closed).',
-    { intent_id: z.string().min(1) },
-    logger,
-    rl,
-    async (p) => {
+  // Shared execute core — reused by execute_write_intent AND the one-call
+  // `write` tool. Resolves consumer + intent from p (auth_token + intent_id),
+  // enforces approved-state, then runs the batch / single-call execute path.
+  const executeRun = async (p: Record<string, unknown>) => {
       const res = resolveWriteConsumer(p);
       if (!res.ok) return err(`consumer denied: ${res.reason}`);
       const intent = store.get(p.intent_id as string);
@@ -838,6 +911,34 @@ export function registerWriteFlowTools(
       // audit), so we branch BEFORE the single-call authorizer/mutate path.
       // (intent.state === 'approved' is already enforced by the early-return above.)
       if (intent.scope === 'service:price_restore') {
+        // Steps 1–7 of the gate (kill switch, mode, consumer execution
+        // capability, idempotency, permanently-blocked, prod/runtime allowlist)
+        // MUST run for the batch path too — otherwise price_restore would
+        // execute without ever consulting MCP_PROD_WRITE_AUTHORIZED, breaking
+        // the keystone. Per-target monetary caps stay inside the batch helper.
+        const pre = preAuthorizeIntent(
+          {
+            intent,
+            env: getProjectionEnv(),
+            mcpMode: config.MCP_MODE,
+            consumerWriteCapability: consumerWriteCapability(res.profile),
+            runtimeAuthorizedActions: runtimeAuthorizedActions(),
+            killSwitch: config.MCP_WRITE_KILL_SWITCH,
+            prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
+            strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
+            strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+          },
+          (k) => ledger.seen(k)
+        );
+        if (!pre.allowed) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          audit.append(auditEvent('intent.execution_blocked', blocked, pre.reason));
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: { attempted: false, blocked_reason: pre.reason },
+            })
+          );
+        }
         const approval = approvals.get(intent.intent_id);
         if (!approval) {
           const blocked = store.transition(intent.intent_id, 'execution_blocked');
@@ -913,6 +1014,8 @@ export function registerWriteFlowTools(
           runtimeAuthorizedActions: runtimeAuthorizedActions(),
           killSwitch: config.MCP_WRITE_KILL_SWITCH,
           prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
+          strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
+          strictScopes: config.MCP_WRITE_STRICT_SCOPES,
           humanApproval: approvals.get(intent.intent_id),
           amountContext,
           caps: {
@@ -930,6 +1033,25 @@ export function registerWriteFlowTools(
             execution: { attempted: false, blocked_reason: decision.reason },
           })
         );
+      }
+
+      // Scope precondition snapshot (service:domain_rename): read-only check
+      // that the service exists, is not Terminated/Cancelled, and (if supplied)
+      // still has the expected current domain — BEFORE any mutation. Runs after
+      // authorization (no read before the gate allows) and before durable audit
+      // so a precondition failure never records idempotency or transitions to
+      // executed. Other single-call scopes have no read-only precondition.
+      if (intent.scope === 'service:domain_rename') {
+        const pc = await precheckDomainRename(whmcs, intent);
+        if (!pc.ok) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          audit.append(auditEvent('intent.execution_blocked', blocked, pc.reason));
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: { attempted: false, blocked_reason: pc.reason },
+            })
+          );
+        }
       }
 
       // Gates passed. FAIL-CLOSED durable audit: the "attempting mutation"
@@ -973,12 +1095,17 @@ export function registerWriteFlowTools(
         // working with the semantic intent shape while WHMCS receives the
         // exact field names it requires (e.g. notes/userid, item flattening,
         // amountout-only refund payload — no `amountin`).
-        await whmcs.mutate(
-          intent.action,
-          intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
-            idempotency_key: intent.idempotency_key,
-          })
+        const mappedParams = intentToWhmcsParams(
+          intent.scope,
+          intent.params as Record<string, unknown>,
+          { idempotency_key: intent.idempotency_key }
         );
+        // Defense-in-depth on the shared, high-impact UpdateClientProduct
+        // action: assert the strict mapper leaked no extra field before sending.
+        if (intent.scope === 'service:domain_rename') {
+          assertDomainRenameOutput(mappedParams);
+        }
+        await whmcs.mutate(intent.action, mappedParams);
       } catch (e) {
         const failed = store.transition(intent.intent_id, 'failed');
         audit.append(
@@ -1004,7 +1131,16 @@ export function registerWriteFlowTools(
       // and the intent stays in `executed` (only `verified` re-transitions).
       let verified = false;
       try {
-        if (typeof intent.preconditions.verifyAction === 'string') {
+        if (intent.scope === 'service:domain_rename') {
+          // Real read-back: confirm the service's domain field actually became
+          // the requested (normalized) value — not just that a read succeeded.
+          const want = normalizeDomain(intent.params.domain);
+          const resp = await whmcs.read<{
+            products?: { product?: readonly Record<string, unknown>[] };
+          }>('GetClientsProducts', { serviceid: intent.params.serviceid });
+          const vp = resp.products?.product?.[0];
+          verified = vp !== undefined && normalizeDomain(vp.domain) === want;
+        } else if (typeof intent.preconditions.verifyAction === 'string') {
           await whmcs.read(intent.preconditions.verifyAction, {});
           verified = true;
         }
@@ -1025,6 +1161,79 @@ export function registerWriteFlowTools(
           execution: { attempted: true, verified },
         })
       );
+  };
+
+  register(
+    server,
+    'execute_write_intent',
+    'Execute an approved intent through the risk-tiered authorizer. HIGH-RISK: prod/runtime allowlist + human approval + caps; LOW/MEDIUM: audit-gated (no allowlist). PROD_NEVER_EXECUTABLE actions can never run. Durable audit is written before any mutation (fail-closed).',
+    { intent_id: z.string().min(1) },
+    logger,
+    rl,
+    executeRun
+  );
+
+  register(
+    server,
+    'write',
+    'Tiered ONE-CALL write: draft→validate→(auto-approve for low/medium)→execute in a single call, always audited. LOW/MEDIUM scopes execute immediately (no separate approval step). HIGH-RISK scopes are validated then RETURNED for the explicit approve_write_intent → execute_write_intent ceremony (never auto-executed). Identical governance to the multi-step flow.',
+    {
+      scope: z.enum(WRITE_SCOPES),
+      params: z.record(z.string(), z.unknown()),
+      naturalKey: z.string().min(1),
+      projected_effect: z.string().min(1),
+      preconditions: z.record(z.string(), z.unknown()).optional(),
+    },
+    logger,
+    rl,
+    async (p) => {
+      const res = resolveWriteConsumer(p);
+      if (!res.ok) return err(`consumer denied: ${res.reason}`, { stage: 'draft' });
+      const scope = p.scope as WriteScope;
+      const gate = assertWriteScopeAllowed(res.profile, scope);
+      if (!gate.ok) return err(`write scope denied: ${gate.reason}`, { stage: 'draft', scope });
+      const intent = createDraftIntent({
+        consumer_id: res.profile.id,
+        scope,
+        params: (p.params ?? {}) as Record<string, unknown>,
+        naturalKey: p.naturalKey as string,
+        preconditions: (p.preconditions ?? {}) as Record<string, unknown>,
+        projected_effect: p.projected_effect as string,
+      });
+      store.put(intent);
+      audit.append(auditEvent('intent.drafted', intent));
+      const validation = validateIntent(intent, {});
+      if (!validation.ok) {
+        const rej = store.transition(intent.intent_id, 'rejected');
+        audit.append(auditEvent('intent.rejected', rej));
+        return out(toToolResult(rej, 'validate', { validation, execution: { attempted: false } }));
+      }
+      const validated = store.transition(intent.intent_id, 'validated');
+      audit.append(auditEvent('intent.validated', validated));
+      // One-call execute is reserved for LOW/MEDIUM scopes AND a consumer cleared
+      // for execution. HIGH-RISK, or any lesser writeCapability, is returned at
+      // 'validated' for the explicit approve_write_intent → execute_write_intent
+      // ceremony — we do NOT record a spurious auto-approval for a consumer that
+      // could never approve via the multi-step flow.
+      const cap = consumerWriteCapability(res.profile);
+      if (intent.risk === 'high' || cap !== 'execution_allowed') {
+        const note =
+          intent.risk === 'high'
+            ? 'high-risk: call approve_write_intent then execute_write_intent'
+            : `writeCapability='${cap}' cannot one-call execute; use approve_write_intent then execute_write_intent`;
+        return out(
+          toToolResult(validated, 'validate', {
+            validation,
+            execution: { attempted: false, note },
+          })
+        );
+      }
+      // LOW/MEDIUM + execution_allowed: auto-approve (no human approver required
+      // for these tiers) then execute in the SAME call. executeRun re-runs the
+      // full gate (re-resolves consumer, re-checks approved state).
+      const approved = store.transition(intent.intent_id, 'approved');
+      audit.append(auditEvent('intent.approved', approved, 'auto (low/medium one-call write)'));
+      return executeRun({ intent_id: intent.intent_id, auth_token: p.auth_token });
     }
   );
 

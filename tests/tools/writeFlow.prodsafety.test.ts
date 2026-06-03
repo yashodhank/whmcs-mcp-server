@@ -1,10 +1,10 @@
 /**
- * Phase G+ KEYSTONE INVARIANT: production is SEALED BY DEFAULT. Even when
- * EVERY other gate is green (mode=full, consumer execution_allowed, action
- * runtime-authorized, intent approved, low-risk action), with no
- * MCP_PROD_WRITE_AUTHORIZED configured the request is denied
- * `action_not_prod_authorized` and WHMCS mutate is NEVER called — behaviour
- * byte-identical to the legacy absolute deny.
+ * KEYSTONE INVARIANT (tiered-friction): HIGH-RISK production is SEALED BY
+ * DEFAULT. Even when EVERY other gate is green (mode=full, consumer
+ * execution_allowed, intent approved), with no MCP_PROD_WRITE_AUTHORIZED
+ * configured a high-risk request is denied `action_not_prod_authorized` and
+ * WHMCS mutate is NEVER called. (Low/medium scopes are audit-gated and DO
+ * execute here — covered in tests/write/executionGate.test.ts.)
  */
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -23,11 +23,12 @@ beforeAll(() => {
       writeCapability: 'execution_allowed',
       envRestrictions: [],
       anonymous: false,
-      allowedWriteScopes: ['ticket:reply'],
+      allowedWriteScopes: ['billing:credit:add'],
     },
   ]);
-  // Even with the action runtime-authorized AND mode=full, production must block.
-  process.env.MCP_WRITE_EXECUTION_AUTHORIZED = 'AddTicketReply';
+  // Even with the action runtime-authorized AND mode=full, production must block
+  // a HIGH-RISK action when the prod allowlist is empty.
+  process.env.MCP_WRITE_EXECUTION_AUTHORIZED = 'AddCredit';
 });
 vi.mock('../../src/config.js', () => ({
   config: { MCP_MODE: 'full', MCP_ENV: 'production', MCP_MAX_PAGE_SIZE: 100 },
@@ -68,14 +69,14 @@ function harness() {
 }
 const tok = { auth_token: RAW };
 
-describe('Phase G+ — production sealed by default (empty prod allowlist)', () => {
-  it('every gate green + mode=full + execution_allowed + approved ⇒ STILL blocked, zero mutate', async () => {
+describe('Phase G+ — HIGH-RISK production sealed by default (empty prod allowlist)', () => {
+  it('high-risk: every gate green + mode=full + execution_allowed + approved ⇒ STILL blocked, zero mutate', async () => {
     const { h, mutate, read } = harness();
     const d = await h.draft_write_intent({
-      scope: 'ticket:reply',
-      params: { ticketid: 1, message: 'hi' },
+      scope: 'billing:credit:add',
+      params: { clientid: 1, amount: 50, description: 'x' },
       naturalKey: 'prod-1',
-      projected_effect: 'reply',
+      projected_effect: 'credit',
       ...tok,
     });
     const id = rec(J(d).intent).intent_id as string;

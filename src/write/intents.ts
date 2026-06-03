@@ -58,6 +58,7 @@ export function createDraftIntent(
     idempotency_key: idempotencyKey(
       input.consumer_id,
       action,
+      input.scope,
       input.naturalKey,
       input.windowMs,
       createdMs,

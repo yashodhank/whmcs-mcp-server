@@ -59,7 +59,11 @@ export type CanonicalEntity =
   | 'domain'
   | 'ticket'
   | 'order'
-  | 'activity';
+  | 'activity'
+  // Infrastructure / reference-data entities (Track A reads). No per-customer
+  // PII; classmaps use existing FieldClasses, so contracts.ts is unaffected.
+  | 'server'
+  | 'tldPricing';
 
 /* ─────────────────────────  Data contracts (B2)  ─────────────────────────── */
 

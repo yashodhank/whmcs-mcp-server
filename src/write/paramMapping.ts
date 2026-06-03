@@ -229,6 +229,40 @@ export function mapServicePriceRestoreTarget(target: {
   };
 }
 
+/**
+ * Canonical hostname/domain normalization — the SINGLE place a domain value is
+ * cleaned, so validation and the mapper agree on the EXACT string sent to
+ * WHMCS (otherwise validation could trim/lowercase for its check while the
+ * mapper sends the raw value — a validate-vs-execute divergence). Lowercases,
+ * trims surrounding whitespace, and strips a single trailing FQDN-root dot.
+ * Non-string input yields '' (the validator rejects that as missing/invalid).
+ */
+export function normalizeDomain(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let d = raw.trim().toLowerCase();
+  if (d.endsWith('.')) d = d.slice(0, -1);
+  return d;
+}
+
+/**
+ * `service:domain_rename` `{serviceid, domain}` →
+ *   WHMCS `UpdateClientProduct` `{serviceid, domain}`.
+ *
+ * STRICT 2-key output. `UpdateClientProduct` accepts many high-impact fields
+ * (recurringamount, status, billingcycle, paymentmethod, …); this mapper emits
+ * ONLY serviceid + the NORMALIZED domain so a malformed/over-broad intent can
+ * NEVER leak an unintended field into the live call. Any extra key on the
+ * input is dropped (defense in depth, mirrors mapServicePriceRestoreTarget).
+ */
+export function mapServiceDomainRenameParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    serviceid: params.serviceid,
+    domain: normalizeDomain(params.domain),
+  };
+}
+
 /* ───────────────────────────  Dispatcher  ───────────────────────────────── */
 
 /**
@@ -265,6 +299,8 @@ export function intentToWhmcsParams(
       return mapCreditAddParams(params);
     case 'billing:refund:record':
       return mapRefundRecordParams(params, ctx);
+    case 'service:domain_rename':
+      return mapServiceDomainRenameParams(params);
     case 'service:price_restore': {
       // Batch scope — the dispatcher's single-call contract doesn't fit.
       // The write-flow's executePriceRestoreBatch helper calls

@@ -11,7 +11,7 @@ For agent/contributor orientation (architecture, governance, write-flow, doc map
   - **Governed list & reporting** — per-client lists (`list_client_*`), global `list_invoices` / `list_services`, `get_activity_log`
   - **Aggregators** — `get_account_360`, `get_billing_snapshot`, `get_support_snapshot`, `get_renewal_snapshot`
   - **Capability & probes** — `get_capability_matrix`, `get_stats`, transactions, automation log, todo items (`list_users` remains unverified — see [docs/getusers-investigation.md](docs/getusers-investigation.md))
-  - **Controlled write-flow** — `draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent` → `get_write_intent` (production deny-by-default; scopes include e.g. `service:price_restore`)
+  - **Controlled write-flow** — `draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent` → `get_write_intent` (production deny-by-default; scopes include e.g. `service:price_restore`, `service:domain_rename`)
 
 - **7 MCP resources** for passive context:
   - Client summary and activity log

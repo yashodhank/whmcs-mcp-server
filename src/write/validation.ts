@@ -15,7 +15,7 @@
  * execute stage.
  */
 
-import { intentToWhmcsParams } from './paramMapping.js';
+import { intentToWhmcsParams, normalizeDomain } from './paramMapping.js';
 import {
   SCOPE_ACTION,
   WRITE_RISK,
@@ -50,7 +50,18 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   // can produce the correct WHMCS `AddTransaction` payload (no `amountin`).
   'billing:refund:record': ['invoiceid', 'amount', 'refund_type', 'paymentmethod'],
   'service:price_restore': ['targets'],
+  // service:domain_rename — single-call edit of a service's hostname/domain.
+  'service:domain_rename': ['serviceid', 'domain'],
 };
+
+/**
+ * Permissive hostname/domain validator for `service:domain_rename`. Accepts a
+ * dot-separated set of LDH labels (letters/digits/hyphen, no leading/trailing
+ * hyphen per label), 1..253 chars total. Rejects spaces, slashes, schemes,
+ * and other shell/URL metacharacters so a malformed value can't reach WHMCS.
+ */
+const DOMAIN_LABEL = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?';
+const DOMAIN_RE = new RegExp(`^${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL})*$`);
 
 /** Allowed values for `ticket:status` `status`. */
 const TICKET_STATUS_ENUM: readonly string[] = [
@@ -237,6 +248,82 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
     compat_warnings.push(WHMCS9_BILLING_ADVISORY);
   }
 
+  // ── Enhanced billing business-logic validators ──────────────────────────
+
+  // billing:invoice:create — line-item amount warnings + taxed advisory.
+  if (intent.scope === 'billing:invoice:create' && Array.isArray(intent.params.items)) {
+    const items = intent.params.items as Record<string, unknown>[];
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx];
+      if (isPlainObject(item)) {
+        if (typeof item.amount === 'number' && item.amount < 0) {
+          issues.push({
+            code: 'negative_item_amount',
+            severity: 'warning',
+            message: `items[${idx}].amount is negative (${item.amount}); unusual but not always wrong`,
+          });
+        }
+        if (item.taxed === true) {
+          compat_warnings.push(
+            `items[${idx}].taxed is true; tax behavior may differ between WHMCS 8 and 9`
+          );
+        }
+      }
+    }
+  }
+
+  // billing:credit:add — amount sign + threshold.
+  if (intent.scope === 'billing:credit:add' && present(intent.params.amount)) {
+    const amt = intent.params.amount;
+    if (typeof amt === 'number') {
+      if (amt < 0) {
+        issues.push({
+          code: 'negative_credit_amount',
+          severity: 'error',
+          message: 'Credit amount must be positive',
+        });
+      } else if (amt > 10000) {
+        issues.push({
+          code: 'large_credit_amount',
+          severity: 'warning',
+          message: 'Large credit amount detected (>10000); verify this is intentional',
+        });
+      }
+    }
+  }
+
+  // billing:refund:record — amount sign + threshold.
+  if (intent.scope === 'billing:refund:record' && present(intent.params.amount)) {
+    const amt = intent.params.amount;
+    if (typeof amt === 'number') {
+      if (amt < 0) {
+        issues.push({
+          code: 'negative_refund_amount',
+          severity: 'error',
+          message: 'Refund amount must be positive',
+        });
+      } else if (amt > 50000) {
+        issues.push({
+          code: 'large_refund_amount',
+          severity: 'warning',
+          message: 'Very large refund amount detected; verify this is intentional',
+        });
+      }
+    }
+  }
+
+  // billing:payment:add — amount must be positive.
+  if (intent.scope === 'billing:payment:add' && present(intent.params.amount)) {
+    const amt = intent.params.amount;
+    if (typeof amt === 'number' && amt <= 0) {
+      issues.push({
+        code: 'non_positive_payment_amount',
+        severity: 'error',
+        message: 'Payment amount must be positive',
+      });
+    }
+  }
+
   // service:price_restore — batch-shape: targets is a non-empty array of
   // { serviceid:int>0, new_amount:number>0, expected_old_amount?:number>0 };
   // optional intent-level dry_run:boolean.
@@ -292,6 +379,67 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
         severity: 'error',
         message: 'service:price_restore `dry_run` must be a boolean when provided',
       });
+    }
+  }
+
+  // service:domain_rename — serviceid positive int; domain a valid
+  // hostname/domain string. The mapper already restricts output to exactly
+  // {serviceid, domain}; these checks reject malformed values before approval.
+  if (intent.scope === 'service:domain_rename') {
+    const sid = intent.params.serviceid;
+    if (typeof sid !== 'number' || !Number.isInteger(sid) || sid <= 0) {
+      issues.push({
+        code: 'invalid_serviceid',
+        severity: 'error',
+        message: 'service:domain_rename `serviceid` must be a positive integer',
+      });
+    }
+    const domain = intent.params.domain;
+    if (typeof domain !== 'string') {
+      // present() above already errors on missing; only add a type error if a
+      // non-string value slipped through (e.g. number/object).
+      if (present(domain)) {
+        issues.push({
+          code: 'invalid_domain',
+          severity: 'error',
+          message: 'service:domain_rename `domain` must be a string',
+        });
+      }
+    } else {
+      // Validate the NORMALIZED form — the exact string the mapper will send to
+      // WHMCS (normalizeDomain trims, lowercases, strips a trailing root dot).
+      // This keeps validate and execute in agreement; a leading-space or
+      // trailing-dot value can never pass validation yet reach WHMCS un-cleaned.
+      const d = normalizeDomain(domain);
+      if (d.length === 0 || d.length > 253 || !DOMAIN_RE.test(d)) {
+        issues.push({
+          code: 'invalid_domain',
+          severity: 'error',
+          message: `Invalid domain/hostname "${domain}"; expected a dot-separated set of LDH labels (no spaces, scheme, or path)`,
+        });
+      }
+    }
+    // Optional precondition: expected_old_domain (the current domain the caller
+    // believes is set). When present it must be a valid domain; the execute
+    // path read-checks it against the live service before renaming.
+    const expectedOld = intent.params.expected_old_domain;
+    if (expectedOld !== undefined && present(expectedOld)) {
+      if (typeof expectedOld !== 'string') {
+        issues.push({
+          code: 'invalid_expected_old_domain',
+          severity: 'error',
+          message: 'service:domain_rename `expected_old_domain` must be a string when provided',
+        });
+      } else {
+        const eod = normalizeDomain(expectedOld);
+        if (eod.length === 0 || eod.length > 253 || !DOMAIN_RE.test(eod)) {
+          issues.push({
+            code: 'invalid_expected_old_domain',
+            severity: 'error',
+            message: `Invalid expected_old_domain "${expectedOld}"`,
+          });
+        }
+      }
     }
   }
 
