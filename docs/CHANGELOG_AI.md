@@ -2,6 +2,22 @@
 
 Newest first.
 
+## 2026-06-03 (MCP resource templates + completions + logging — parallel)
+- **Resource templates** (`ResourceTemplate`): `whmcs://client/{clientid}/{summary,
+  services,domains}`, `whmcs://invoice/{invoiceid}/history`,
+  `whmcs://ticket/{ticketid}/thread`. Existing plural-URI resources refactored to
+  shared handlers + dual-registered — backward compatible. SEC-003 + client-scope
+  preserved.
+- **Completions**: `{clientid}` (bounded GetClients search, ≤10, ids only, no PII;
+  client-mode returns prefix-matched allowlist, never queries WHMCS) and
+  `{status}` (closed enum sets). Empty input → []; errors → [].
+- **MCP logging utility**: `logging` capability + `src/mcpLogging.ts` bridge —
+  `mcpLog(level,msg,data)` → `sendLoggingMessage` (RFC-5424 levels; setLevel
+  auto-handled by SDK; client-capability feature-detect; secret/PII/PAN-safe;
+  never throws). Default behavior unchanged without a logging-capable client.
+- Authored by 2 parallel agents (disjoint files). Full suite **994 pass**.
+  tsc/eslint/build clean.
+
 ## 2026-06-03 (PCI PAN guard + MCP Elicitation + adoption report)
 - **PCI-DSS PAN input guard ADOPTED + WIRED.** Committed `src/security/panScanner.ts`
   (was dormant/untracked) and call `assertNoPAN(params)` in the write-flow

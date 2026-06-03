@@ -17,13 +17,23 @@ import {
   applyGovernanceOrLegacy,
   governedToolResult,
   governanceEnabled,
+  governedListResult,
 } from '../governance/pipeline.js';
 import {
   mapToCanonicalClient,
   mapToCanonicalInvoice,
   mapToCanonicalTicket,
+  mapToCanonicalServices,
+  mapToCanonicalDomains,
 } from '../canonical/index.js';
 import type { Canonical } from '../governance/types.js';
+import {
+  makeClientIdCompletion,
+  makeEnumCompletion,
+  SERVICE_STATUSES,
+  DOMAIN_STATUSES,
+  COMPLETION_LIMIT,
+} from './completions.js';
 
 /**
  * Adapt the governed/legacy tool-result boundary onto the read-only resource
@@ -91,13 +101,18 @@ export function registerResources(
   rateLimiter: RateLimiter
 ): void {
   
+  // Shared completion callbacks (bounded; see ./completions.ts).
+  const completeClientId = makeClientIdCompletion(whmcsClient, logger);
+  const completeServiceStatus = makeEnumCompletion(SERVICE_STATUSES);
+  const completeDomainStatus = makeEnumCompletion(DOMAIN_STATUSES);
+
   // ============================================
   // Resource: Client Summary
   // ============================================
-  server.resource(
-    'client-summary',
-    new ResourceTemplate('whmcs://clients/{clientid}/summary', { list: undefined }),
-    async (uri, params) => {
+  const readClientSummary = async (
+    uri: URL,
+    params: { clientid?: unknown }
+  ): Promise<{ contents: { uri: string; mimeType: string; text: string }[] }> => {
       const resourceLogger = logger.child();
       const safeUri = stripAuthFromUri(uri);
 
@@ -178,16 +193,251 @@ export function registerResources(
 
         throw error;
       }
-    }
+  };
+  // Existing plural URI (backward compatible).
+  server.resource(
+    'client-summary',
+    new ResourceTemplate('whmcs://clients/{clientid}/summary', {
+      list: undefined,
+      complete: { clientid: completeClientId },
+    }),
+    (uri, params) => readClientSummary(uri, params)
   );
-  
+  // New singular templated URI (per brief).
+  server.resource(
+    'client-summary-v2',
+    new ResourceTemplate('whmcs://client/{clientid}/summary', {
+      list: undefined,
+      complete: { clientid: completeClientId },
+    }),
+    (uri, params) => readClientSummary(uri, params)
+  );
+
+  // ============================================
+  // Resource: Client Services
+  // ============================================
+  const readClientServices = async (
+    uri: URL,
+    params: { clientid?: unknown; status?: unknown }
+  ): Promise<{ contents: { uri: string; mimeType: string; text: string }[] }> => {
+    const resourceLogger = logger.child();
+    const safeUri = stripAuthFromUri(uri);
+
+    const parsed = parsePositiveId(params.clientid, 'clientid');
+    if (!parsed.ok) {
+      return {
+        contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: parsed.error }) }],
+      };
+    }
+    const clientid = parsed.value;
+
+    try {
+      if (isClientMode()) {
+        const scopeError = ensureClientAllowed(clientid);
+        if (scopeError) {
+          return {
+            contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: 'Access denied: client scope mismatch.' }) }],
+          };
+        }
+      }
+
+      resourceLogger.info('Fetching client services', { clientid });
+
+      if (!rateLimiter.tryConsume()) {
+        return {
+          contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }) }],
+        };
+      }
+
+      interface ProductSummary {
+        id: number;
+        pid?: number;
+        name?: string;
+        domain?: string;
+        status?: string;
+        billingcycle?: string;
+        nextduedate?: string;
+        recurringamount?: string;
+        paymentmethod?: string;
+      }
+
+      const result = await whmcsClient.read<{
+        products?: { product?: ProductSummary[] };
+        totalresults?: number;
+      }>('GetClientsProducts', { clientid, limitnum: COMPLETION_LIMIT * 5 });
+
+      const products = normalizeToArray<ProductSummary>(result.products?.product);
+      const statusFilter = typeof params.status === 'string' ? params.status : undefined;
+      const filtered = statusFilter
+        ? products.filter((p) => (p.status ?? '') === statusFilter)
+        : products;
+      const total = result.totalresults ?? filtered.length;
+
+      const legacyPayload = {
+        clientid,
+        total,
+        services: filtered.map((p) => ({
+          serviceid: p.id,
+          pid: p.pid,
+          product: p.name,
+          domain: p.domain,
+          status: p.status,
+          billing_cycle: p.billingcycle,
+          next_due_date: p.nextduedate,
+          recurring_amount: p.recurringamount,
+          payment_method: p.paymentmethod,
+        })),
+      };
+
+      const result2 = applyGovernanceOrLegacy({
+        enabled: governanceEnabled(),
+        legacy: legacyPayload,
+        govern: () =>
+          governedListResult({
+            rows: filtered,
+            mapItem: (raw) => mapToCanonicalServices({ products: { product: [raw] } })[0],
+            envelope: { clientid, total },
+            authToken: undefined,
+            requestedContract: undefined,
+          }),
+      });
+      return {
+        contents: [{ uri: safeUri, mimeType: 'application/json', text: result2.content[0].text }],
+      };
+    } catch (error) {
+      resourceLogger.error('Failed to fetch client services', {
+        clientid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }) }],
+      };
+    }
+  };
+  server.resource(
+    'client-services',
+    new ResourceTemplate('whmcs://client/{clientid}/services', {
+      list: undefined,
+      complete: { clientid: completeClientId, status: completeServiceStatus },
+    }),
+    (uri, params) => readClientServices(uri, params)
+  );
+
+  // ============================================
+  // Resource: Client Domains
+  // ============================================
+  const readClientDomains = async (
+    uri: URL,
+    params: { clientid?: unknown; status?: unknown }
+  ): Promise<{ contents: { uri: string; mimeType: string; text: string }[] }> => {
+    const resourceLogger = logger.child();
+    const safeUri = stripAuthFromUri(uri);
+
+    const parsed = parsePositiveId(params.clientid, 'clientid');
+    if (!parsed.ok) {
+      return {
+        contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: parsed.error }) }],
+      };
+    }
+    const clientid = parsed.value;
+
+    try {
+      if (isClientMode()) {
+        const scopeError = ensureClientAllowed(clientid);
+        if (scopeError) {
+          return {
+            contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: 'Access denied: client scope mismatch.' }) }],
+          };
+        }
+      }
+
+      resourceLogger.info('Fetching client domains', { clientid });
+
+      if (!rateLimiter.tryConsume()) {
+        return {
+          contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: 'Rate limit exceeded. Please retry shortly.' }) }],
+        };
+      }
+
+      interface DomainSummary {
+        id: number;
+        domainname?: string;
+        registrar?: string;
+        status?: string;
+        regdate?: string;
+        expirydate?: string;
+        nextduedate?: string;
+        donotrenew?: string;
+      }
+
+      const result = await whmcsClient.read<{
+        domains?: { domain?: DomainSummary[] };
+        totalresults?: number;
+      }>('GetClientsDomains', { clientid, limitnum: COMPLETION_LIMIT * 5 });
+
+      const domains = normalizeToArray<DomainSummary>(result.domains?.domain);
+      const statusFilter = typeof params.status === 'string' ? params.status : undefined;
+      const filtered = statusFilter
+        ? domains.filter((d) => (d.status ?? '') === statusFilter)
+        : domains;
+      const total = result.totalresults ?? filtered.length;
+
+      const legacyPayload = {
+        clientid,
+        total,
+        domains: filtered.map((d) => ({
+          domainid: d.id,
+          domain: d.domainname,
+          registrar: d.registrar,
+          status: d.status,
+          regdate: d.regdate,
+          expiry_date: d.expirydate,
+          next_due_date: d.nextduedate,
+          donotrenew: d.donotrenew,
+        })),
+      };
+
+      const result2 = applyGovernanceOrLegacy({
+        enabled: governanceEnabled(),
+        legacy: legacyPayload,
+        govern: () =>
+          governedListResult({
+            rows: filtered,
+            mapItem: (raw) => mapToCanonicalDomains({ domains: { domain: [raw] } })[0],
+            envelope: { clientid, total },
+            authToken: undefined,
+            requestedContract: undefined,
+          }),
+      });
+      return {
+        contents: [{ uri: safeUri, mimeType: 'application/json', text: result2.content[0].text }],
+      };
+    } catch (error) {
+      resourceLogger.error('Failed to fetch client domains', {
+        clientid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }) }],
+      };
+    }
+  };
+  server.resource(
+    'client-domains',
+    new ResourceTemplate('whmcs://client/{clientid}/domains', {
+      list: undefined,
+      complete: { clientid: completeClientId, status: completeDomainStatus },
+    }),
+    (uri, params) => readClientDomains(uri, params)
+  );
+
   // ============================================
   // Resource: Invoice History
   // ============================================
-  server.resource(
-    'invoice-history',
-    new ResourceTemplate('whmcs://invoices/{invoiceid}/history', { list: undefined }),
-    async (uri, params) => {
+  const readInvoiceHistory = async (
+    uri: URL,
+    params: { invoiceid?: unknown }
+  ): Promise<{ contents: { uri: string; mimeType: string; text: string }[] }> => {
       const resourceLogger = logger.child();
       const safeUri = stripAuthFromUri(uri);
 
@@ -280,16 +530,27 @@ export function registerResources(
           contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }) }],
         };
       }
-    }
+  };
+  // Existing plural URI (backward compatible).
+  server.resource(
+    'invoice-history',
+    new ResourceTemplate('whmcs://invoices/{invoiceid}/history', { list: undefined }),
+    (uri, params) => readInvoiceHistory(uri, params)
   );
-  
+  // New singular templated URI (per brief).
+  server.resource(
+    'invoice-history-v2',
+    new ResourceTemplate('whmcs://invoice/{invoiceid}/history', { list: undefined }),
+    (uri, params) => readInvoiceHistory(uri, params)
+  );
+
   // ============================================
   // Resource: Ticket Thread
   // ============================================
-  server.resource(
-    'ticket-thread',
-    new ResourceTemplate('whmcs://tickets/{ticketid}/thread', { list: undefined }),
-    async (uri, params) => {
+  const readTicketThread = async (
+    uri: URL,
+    params: { ticketid?: unknown }
+  ): Promise<{ contents: { uri: string; mimeType: string; text: string }[] }> => {
       const resourceLogger = logger.child();
       const safeUri = stripAuthFromUri(uri);
 
@@ -357,15 +618,29 @@ export function registerResources(
           contents: [{ uri: safeUri, mimeType: 'application/json', text: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }) }],
         };
       }
-    }
+  };
+  // Existing plural URI (backward compatible).
+  server.resource(
+    'ticket-thread',
+    new ResourceTemplate('whmcs://tickets/{ticketid}/thread', { list: undefined }),
+    (uri, params) => readTicketThread(uri, params)
   );
-  
+  // New singular templated URI (per brief).
+  server.resource(
+    'ticket-thread-v2',
+    new ResourceTemplate('whmcs://ticket/{ticketid}/thread', { list: undefined }),
+    (uri, params) => readTicketThread(uri, params)
+  );
+
   // ============================================
   // Resource: Client Activity Log
   // ============================================
   server.resource(
     'client-log',
-    new ResourceTemplate('whmcs://clients/{clientid}/log', { list: undefined }),
+    new ResourceTemplate('whmcs://clients/{clientid}/log', {
+      list: undefined,
+      complete: { clientid: completeClientId },
+    }),
     async (uri, params) => {
       const resourceLogger = logger.child();
       const safeUri = stripAuthFromUri(uri);

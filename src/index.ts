@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { config } from './config.js';
 import { Logger } from './logging.js';
+import { initMcpLogging } from './mcpLogging.js';
 import { RateLimiter } from './rateLimiter.js';
 import { WhmcsClient } from './whmcs/WhmcsClient.js';
 
@@ -64,12 +65,25 @@ async function main(): Promise<void> {
   // Initialize WHMCS client
   const whmcsClient = new WhmcsClient(config, logger);
   
-  // Create MCP server
-  const server = new McpServer({
-    name: 'whmcs-mcp-server',
-    version: '1.0.0',
-  });
-  
+  // Create MCP server.
+  // Declare the `logging` capability (spec 2025-11-25 logging utility). This is
+  // what makes the SDK auto-install its `logging/setLevel` request handler and
+  // enables the `notifications/message` emit path. The McpLoggingBridge below
+  // rides on top of server.server.sendLoggingMessage.
+  const server = new McpServer(
+    {
+      name: 'whmcs-mcp-server',
+      version: '1.0.0',
+    },
+    {
+      capabilities: { logging: {} },
+    }
+  );
+
+  // Initialize the MCP logging bridge (server->client structured logs). No-op
+  // until a logging-capable client connects; default behaviour unchanged.
+  initMcpLogging(server);
+
   // Register all tools
   logger.info('Registering MCP tools...');
   registerClientTools(server, whmcsClient, logger, rateLimiter);
