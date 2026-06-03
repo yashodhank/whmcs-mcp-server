@@ -171,15 +171,16 @@ function mapOnePayMethod(raw: Record<string, unknown>): CanonicalPayMethod {
 }
 
 const PAY_METHOD_CLASSES = new ClassMapBuilder()
-  // SECURITY (CRITICAL fix): the container itself is secret.credential, NOT
-  // public.safe. `project()` walks only top-level keys, so the per-leaf
-  // `payMethods[].card.*` secret labels below were DEAD — the whole array
-  // (raw PAN / bank / token) leaked to every consumer. Classing the container
-  // secret makes it fail-closed (dropped in all non-local contracts). Per-leaf
-  // labels are retained for when projection recurses (then a granular safe
-  // subset can be restored). Until then payment instruments are local/admin
-  // only — the correct PCI posture.
-  .set('payMethods', 'secret.credential')
+  // SECURITY (GRANULAR, recursion-enforced): `project()` now recurses into
+  // nested objects AND array elements, resolving each LEAF's class. So the
+  // container `payMethods` is `public.safe` again — a non-secret container is
+  // a GATE that says "this array may appear", after which every LEAF below is
+  // projected on its OWN class. The SAFE leaves (type/description/lastFour/
+  // payMethodId/gateway) survive; the `secret.credential` leaves
+  // (`payMethods[].card.*`, `bankAccount.*`, `remoteToken`, and the `card`/
+  // `bankAccount` container nodes themselves) are DROPPED by recursion in
+  // every non-local contract. Raw PAN / bank / token can never leak.
+  .set('payMethods', 'public.safe')
   .set('payMethods[].payMethodId', 'business.identifier')
   .set('payMethods[].type', 'public.safe')
   .set('payMethods[].description', 'business.label')

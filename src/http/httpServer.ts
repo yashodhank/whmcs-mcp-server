@@ -14,10 +14,17 @@
  * `onsessioninitialized` and use to route every subsequent request to the same
  * transport (stored in a per-process map). DELETE / transport close evicts it.
  *
- * SECURITY: every request is run through the auth bridge (`authorizeHttpRequest`)
- * — Origin allowlist (403) then bearer-token resolution against the EXISTING
- * consumer registry (401, with `WWW-Authenticate: Bearer`, no body leak) —
- * BEFORE the body is handed to the transport. Tokens are never logged.
+ * SECURITY: every request runs an inline auth flow BEFORE the body is handed to
+ * the transport, in this order:
+ *   1. Origin allowlist gate (403) — no token-probing oracle.
+ *   2. Bearer/OAuth resolution to a ConsumerProfile — registry token or (when
+ *      `MCP_OAUTH_ENABLED`) a verified JWT mapped to a consumer (401 with
+ *      `WWW-Authenticate`, no body leak).
+ *   3. Session-owner check — each session records the `profile.id` of the
+ *      consumer that initialized it; a subsequent request targeting an existing
+ *      session whose authenticated `profile.id` differs is rejected (403), so an
+ *      authenticated consumer cannot ride another consumer's `mcp-session-id`.
+ * Tokens are never logged.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -184,12 +191,18 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   // Last-activity per session, for idle eviction + LRU cap (memory/DoS guard:
   // a client that initializes then drops without DELETE must not leak forever).
   const lastSeen = new Map<string, number>();
+  // Owner binding: sessionId → the `profile.id` of the consumer that
+  // initialized it. A subsequent request targeting that session must
+  // authenticate as the SAME consumer (else 403), so an authenticated consumer
+  // cannot reach another's session by presenting its `mcp-session-id`.
+  const sessionOwner = new Map<string, string>();
   const maxSessions = config.MCP_HTTP_MAX_SESSIONS;
   const idleMs = config.MCP_HTTP_SESSION_IDLE_MS;
   const closeSession = (sid: string): void => {
     const t = transports.get(sid);
     transports.delete(sid);
     lastSeen.delete(sid);
+    sessionOwner.delete(sid);
     if (t) {
       try {
         void t.close();
@@ -277,6 +290,19 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
     const sessionId = req.headers[SESSION_HEADER];
     const sessionIdStr = Array.isArray(sessionId) ? sessionId[0] : sessionId;
 
+    // ── Session-owner check (403) ── For any request targeting an EXISTING
+    // session, the authenticated consumer must be the one that initialized it.
+    // (Origin + bearer/OAuth already ran, so the caller is authenticated — just
+    // not the owner.) No leak: same opaque Forbidden shape as the origin gate.
+    if (sessionIdStr !== undefined) {
+      const owner = sessionOwner.get(sessionIdStr);
+      if (owner !== undefined && owner !== profile.id) {
+        writeJsonRpcError(res, 403, -32002, 'Forbidden');
+        logger.warn('HTTP MCP session owner mismatch', { status: 403, method });
+        return;
+      }
+    }
+
     // Parse body for POST; GET/DELETE carry none. Malformed JSON → JSON-RPC
     // parse error (-32700), not a crash.
     let body: unknown;
@@ -333,6 +359,8 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
           onsessioninitialized: (sid) => {
             transports.set(sid, newTransport);
             lastSeen.set(sid, Date.now());
+            // Bind the session to the initializing consumer for owner checks.
+            sessionOwner.set(sid, profile.id);
             logger.info('HTTP MCP session initialized', { consumer: profile.id });
           },
         });
@@ -341,6 +369,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
           if (sid !== undefined) {
             transports.delete(sid);
             lastSeen.delete(sid);
+            sessionOwner.delete(sid);
           }
         };
         // Init-failure cleanup: if connect throws before a session id is
@@ -431,6 +460,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
       }
       transports.clear();
       lastSeen.clear();
+      sessionOwner.clear();
       await new Promise<void>((resolve) => {
         httpServer.close(() => { resolve(); });
       });

@@ -240,6 +240,94 @@ describe('unmapped path', () => {
   });
 });
 
+/* ── recursive nested-leaf enforcement ─────────────────────────────────────── */
+
+describe('recursive projection', () => {
+  it('drops a planted secret.credential leaf nested under an allowed parent', () => {
+    // `account` is a public.safe container (a GATE — allowed to appear), but a
+    // `secret.credential` leaf planted under it MUST still be dropped by the
+    // recursive walk; only the safe sibling survives.
+    const data = {
+      account: {
+        label: 'Primary',
+        apiKey: 'sk_live_PLANTED_SECRET',
+      },
+    };
+    const classes: FieldClassMap = {
+      account: 'public.safe',
+      'account.label': 'public.safe',
+      'account.apiKey': 'secret.credential',
+    };
+    const canonical: Canonical<typeof data> = {
+      entity: 'client',
+      data,
+      classes,
+    };
+    const out = project(canonical, CONTRACTS.llm_safe_summary, 'production');
+    expect(out.account).toEqual({ label: 'Primary' });
+    expect(JSON.stringify(out)).not.toContain('sk_live_PLANTED_SECRET');
+  });
+
+  it('drops a secret leaf nested inside an array element, keeping safe leaves', () => {
+    const data = {
+      items: [{ name: 'one', token: 'tok_SECRET_1' }],
+    };
+    const classes: FieldClassMap = {
+      items: 'public.safe',
+      'items[].name': 'public.safe',
+      'items[].token': 'secret.credential',
+    };
+    const canonical: Canonical<typeof data> = {
+      entity: 'client',
+      data,
+      classes,
+    };
+    const out = project(canonical, CONTRACTS.llm_safe_summary, 'production');
+    expect(out.items).toEqual([{ name: 'one' }]);
+    expect(JSON.stringify(out)).not.toContain('tok_SECRET_1');
+  });
+
+  it('drops a whole secret.credential container object (never partial)', () => {
+    const data = {
+      open: { ok: true },
+      creds: { user: 'admin', pass: 'hunter2' },
+    };
+    const classes: FieldClassMap = {
+      open: 'public.safe',
+      'open.ok': 'public.safe',
+      creds: 'secret.credential',
+    };
+    const canonical: Canonical<typeof data> = {
+      entity: 'client',
+      data,
+      classes,
+    };
+    const out = project(canonical, CONTRACTS.admin_full_trusted, 'production');
+    expect('creds' in out).toBe(false);
+    expect(out.open).toEqual({ ok: true });
+    expect(JSON.stringify(out)).not.toContain('hunter2');
+  });
+
+  it('drops an unmapped nested leaf but keeps the (transparent) container', () => {
+    const data = {
+      wrap: { known: 'yes', mystery: 'leak-me' },
+    };
+    const classes: FieldClassMap = {
+      // `wrap` itself unmapped (transparent container ⇒ recurse);
+      // `wrap.mystery` unmapped leaf ⇒ dropped most-restrictive.
+      'wrap.known': 'public.safe',
+    };
+    const canonical: Canonical<typeof data> = {
+      entity: 'client',
+      data,
+      classes,
+    };
+    const out = project(canonical, CONTRACTS.admin_full_trusted, 'production');
+    expect(out.wrap).toEqual({ known: 'yes' });
+    expect(JSON.stringify(out)).not.toContain('leak-me');
+  });
+});
+
 /* ── purity ────────────────────────────────────────────────────────────────── */
 
 describe('projection purity', () => {

@@ -690,15 +690,45 @@ export function classifyAggregateKey(key: string): FieldClass {
  * canonical with a conservative top-level field-class map. Unmapped keys
  * are dropped by the projection layer (safe by construction).
  */
+/**
+ * Classify EVERY key in the aggregate tree (not just top-level) so the now-
+ * recursive projection boundary governs nested fields too. Path convention
+ * matches the projector / ClassMapBuilder: object child → `parent.child`,
+ * array element descent → `parent[]`. Each key is classed by NAME via
+ * `classifyAggregateKey` (PII/financial/etc.), so nested PII (e.g. a nested
+ * `email`) is masked/dropped per contract instead of wholesale-emitted, and
+ * non-sensitive nested metadata stays `public.safe` (preserved).
+ */
+function classifyAggregateTree(
+  value: unknown,
+  path: string,
+  classes: Record<string, FieldClass>
+): void {
+  if (Array.isArray(value)) {
+    const childPath = `${path}[]`;
+    // Elements INHERIT the array's class so arrays of primitives (e.g.
+    // source_invoice_ids: [11]) aren't dropped as unmapped leaves; object
+    // elements still get their own per-key classes layered on top.
+    if (path !== '' && path in classes) classes[childPath] = classes[path];
+    for (const el of value) classifyAggregateTree(el, childPath, classes);
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      const childPath = path === '' ? key : `${path}.${key}`;
+      classes[childPath] = classifyAggregateKey(key);
+      classifyAggregateTree((value as Record<string, unknown>)[key], childPath, classes);
+    }
+  }
+}
+
 function aggregateCanonical(
   entity: string,
   payload: Record<string, unknown>
 ): Canonical<unknown> {
   void entity;
   const classes: Record<string, FieldClass> = {};
-  for (const key of Object.keys(payload)) {
-    classes[key] = classifyAggregateKey(key);
-  }
+  classifyAggregateTree(payload, '', classes);
   return {
     entity: 'activity' as const,
     data: payload,

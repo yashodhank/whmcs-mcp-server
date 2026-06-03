@@ -93,7 +93,7 @@ function buildRegistry(): Record<string, CapabilityStatus> {
       action,
       status: 'unverified',
       capability,
-      note: 'Needed by Phase C but not yet allowlisted; probe to verify before use.',
+      note: 'Allowlisted but not yet prod-probed; run a capability probe to promote to supported.',
     };
   }
   return registry;
