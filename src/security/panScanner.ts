@@ -18,7 +18,20 @@
  *  - 4111-1111-1111-1111
  *  - 5500000000000004
  */
-export const PAN_REGEX = /\b(?:\d[ -]*?){13,19}\b/g;
+export const PAN_REGEX = /\b\d(?:[ -]?\d){12,18}\b/g;
+
+/**
+ * Fail-safe bounds for {@link scanForPAN}.
+ *
+ * An adversary can submit a (capped) 4 MiB HTTP body that, once parsed,
+ * yields an arbitrarily large/deep structure. Scanning it unbounded is a
+ * CPU-amplification (DoS) vector. We cap both the total volume of string
+ * content scanned and the recursion depth. When either bound is exceeded we
+ * simply STOP scanning (fail-safe) — we never throw. The body-size cap plus
+ * this bounded scan together prevent the amplification.
+ */
+const MAX_SCAN_CHARS = 64 * 1024; // 64 KiB of string content total
+const MAX_DEPTH = 8;
 
 /**
  * Custom error thrown when a potential credit card number is found in
@@ -71,12 +84,37 @@ export function isValidLuhn(digits: string): boolean {
  */
 export function scanForPAN(value: unknown): string[] {
   const found: string[] = [];
+  // Mutable budget shared across the whole recursive walk.
+  const budget = { chars: MAX_SCAN_CHARS };
+  scanInto(value, found, budget, 0);
+  return found;
+}
+
+/**
+ * Internal bounded recursive scanner. Stops (fail-safe, never throws) once the
+ * character budget is exhausted or {@link MAX_DEPTH} is exceeded.
+ */
+function scanInto(
+  value: unknown,
+  found: string[],
+  budget: { chars: number },
+  depth: number
+): void {
+  // Fail-safe: out of budget or too deep — stop scanning further.
+  if (budget.chars <= 0 || depth > MAX_DEPTH) {
+    return;
+  }
 
   if (typeof value === 'string') {
+    // Only scan up to the remaining character budget; this also bounds the
+    // amount of work the regex performs on any single string.
+    const slice = value.length > budget.chars ? value.slice(0, budget.chars) : value;
+    budget.chars -= slice.length;
+
     // Reset lastIndex for the global regex
     PAN_REGEX.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = PAN_REGEX.exec(value)) !== null) {
+    while ((match = PAN_REGEX.exec(slice)) !== null) {
       const digits = match[0].replace(/[ -]/g, '');
       if (digits.length >= 13 && digits.length <= 19 && isValidLuhn(digits)) {
         found.push(digits);
@@ -84,16 +122,16 @@ export function scanForPAN(value: unknown): string[] {
     }
   } else if (Array.isArray(value)) {
     for (const item of value) {
-      found.push(...scanForPAN(item));
+      if (budget.chars <= 0) break;
+      scanInto(item, found, budget, depth + 1);
     }
   } else if (value !== null && typeof value === 'object') {
     for (const key of Object.keys(value as Record<string, unknown>)) {
-      found.push(...scanForPAN((value as Record<string, unknown>)[key]));
+      if (budget.chars <= 0) break;
+      scanInto((value as Record<string, unknown>)[key], found, budget, depth + 1);
     }
   }
   // numbers, booleans, null, undefined — ignored safely
-
-  return found;
 }
 
 /**

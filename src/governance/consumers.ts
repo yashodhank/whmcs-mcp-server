@@ -296,6 +296,23 @@ function envForbidden(profile: ConsumerProfile, env: ProjectionEnv): boolean {
 }
 
 /**
+ * Transport identity binding (HTTP→tool). The HTTP server authenticates the
+ * bearer/JWT, resolves the ConsumerProfile, and OVERWRITES the tool-call
+ * `auth_token` arg with `${TRANSPORT_BOUND_PREFIX}<consumerId>` (stripping any
+ * client value). When binding is enabled (set ONLY by the HTTP server at
+ * startup), `resolveConsumer` trusts that marker and resolves the profile by id
+ * — so the tool layer is governed by the TRANSPORT-authenticated identity, not a
+ * client-supplied `auth_token`. On stdio the flag is never set, so the marker is
+ * treated as an ordinary (non-matching) token: a stdio client cannot impersonate
+ * via this prefix, and an HTTP client cannot either (its value is overwritten).
+ */
+export const TRANSPORT_BOUND_PREFIX = ' mcp-bound:';
+let transportBindingEnabled = false;
+export function enableTransportConsumerBinding(on: boolean): void {
+  transportBindingEnabled = on;
+}
+
+/**
  * Resolve an inbound bearer token to a consumer profile.
  *
  *  - No / empty token → `no_token` (unless the anonymous fallback applies).
@@ -316,6 +333,18 @@ export function resolveConsumer(
   opts: { allowAnon: boolean }
 ): ConsumerResolution {
   const hasToken = typeof token === 'string' && token.length > 0;
+
+  // Transport-bound identity (HTTP): trust the server-injected marker ONLY when
+  // binding is enabled (HTTP process). Resolves the profile by id directly.
+  if (hasToken && transportBindingEnabled && token.startsWith(TRANSPORT_BOUND_PREFIX)) {
+    const id = token.slice(TRANSPORT_BOUND_PREFIX.length);
+    const bound = registry.find((p) => isLoadedProfile(p) && p.id === id);
+    if (!bound) return deny('unknown_token');
+    if (envForbidden(bound, env)) return deny('env_forbidden');
+    const { tokenSha256: _omit, ...publicProfile } = bound as LoadedProfile;
+    void _omit;
+    return { ok: true, profile: publicProfile };
+  }
 
   if (hasToken) {
     const hash = hashToken(token);
