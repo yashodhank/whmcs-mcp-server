@@ -19,6 +19,7 @@ vi.mock('../src/config.js', () => ({
     MCP_TOOL_ALLOWLIST: [],
   },
   isToolAllowed: () => true,
+  legacyWriteToolsEnabled: () => true,
 }));
 
 describe('Domain Tools', () => {

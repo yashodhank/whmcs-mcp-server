@@ -9,7 +9,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { config, isToolAllowed } from '../config.js';
+import { config, isToolAllowed, legacyWriteToolsEnabled } from '../config.js';
 import { ensureToolAuth, clientModeDenied, isClientMode, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray, whmcsToBool } from '../whmcs/normalizers.js';
 
@@ -229,7 +229,10 @@ export function registerOrderTools(
   // ============================================
   // Tool: accept_order
   // ============================================
-  if (isToolAllowed('accept_order')) {
+  // Legacy direct-mutate tool — superseded by the governed `order:accept` write
+  // scope. Retired from the default surface; gate behind legacyWriteToolsEnabled()
+  // (MCP_ENABLE_LEGACY_WRITE_TOOLS=true to re-expose).
+  if (legacyWriteToolsEnabled() && isToolAllowed('accept_order')) {
     // Boundary cast: same rationale as list_products above.
     const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof acceptOrderSchema> & { auth_token?: string };
