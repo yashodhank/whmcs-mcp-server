@@ -2,6 +2,33 @@
 
 Newest first.
 
+## 2026-06-03 (8-agent review fixes + OAuth modules)
+- **CRITICAL fix — payment-instrument leak.** `project()` walks only top-level
+  keys, so nested `payMethods[].card.*` secret labels were DEAD → raw card/bank/
+  token leaked via get_pay_methods to every consumer. Fixed fail-closed: the
+  `payMethods` container is now `secret.credential` (whole array dropped in all
+  non-local contracts). Regression test added (was untested). General recursive-
+  projection fix = tracked follow-up (payMethod was the only exploitable case).
+- **HIGH — transfer_domain** was the one legacy write not gated → now behind
+  `legacyWriteToolsEnabled()` (DomainTransfer no longer reachable by default).
+- **HIGH/MED — HTTP session hardening**: LRU cap (`MCP_HTTP_MAX_SESSIONS`=256) +
+  idle-TTL sweeper (`MCP_HTTP_SESSION_IDLE_MS`=300000) + init-failure transport
+  close (no leak on connect throw).
+- **MED — elicitation**: capability/transport errors no longer false-block a
+  medium write (error → proceed/'unsupported'; only an explicit decline blocks).
+- **OAuth 2.1 modules landed (library, tested; request-path wiring next turn):**
+  `src/auth/{protectedResourceMetadata (RFC 9728 PRM + WWW-Authenticate),
+  tokenVerifier (jose JWT; aud/iss/exp/alg enforced), scopes (tiered vocab,
+  fail-closed hierarchy), consumerBridge (claims→ConsumerProfile, deny-by-default)}`.
+  80 tests.
+- Built+reviewed by 8 parallel agents (4 build + 4 review). Full suite **1123
+  pass, 3×/3 green**. tsc/eslint/build clean.
+- **Tracked follow-ups** (from review): recursive projection + planted-secret
+  test; HTTP→tool identity binding (transport bearer must drive tool governance,
+  not the auth_token param); OAuth request-path wiring (PRM route + JWT verify +
+  scope enforcement); mapper allowlists for ticket/invoice passthrough; session-
+  owner binding; PAN-scan byte budget; redactSensitive array recursion.
+
 ## 2026-06-03 (Track C COMPLETE + Streamable HTTP transport)
 - **Track C done**: `client:create`/`client:update` governed scopes (medium;
   password never generated/echoed; DeleteClient stays blocked). Legacy

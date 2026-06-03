@@ -831,9 +831,16 @@ async function confirmViaElicitation(
         required: ['confirm'],
       },
     });
+    // Explicit decline/cancel comes back as a RETURNED action → block.
     return res.action === 'accept' && res.content?.confirm === true ? 'confirmed' : 'declined';
   } catch {
-    return 'declined';
+    // An ERROR (e.g. client advertised `elicitation` but not the `form` mode the
+    // SDK requires, or a transport hiccup) is NOT a user decline. Treat it as
+    // 'unsupported' → proceed, matching the no-elicitation-client behavior
+    // (medium writes already execute without an inline confirm for those). The
+    // confirm is best-effort UX, not a security gate, so this never weakens a
+    // gate — it only avoids falsely blocking a legitimate medium write.
+    return 'unsupported';
   }
 }
 

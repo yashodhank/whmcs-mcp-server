@@ -104,6 +104,32 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   // Active sessions: sessionId → its transport. One McpServer is connected per
   // transport (created on the initialize request).
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Last-activity per session, for idle eviction + LRU cap (memory/DoS guard:
+  // a client that initializes then drops without DELETE must not leak forever).
+  const lastSeen = new Map<string, number>();
+  const maxSessions = config.MCP_HTTP_MAX_SESSIONS;
+  const idleMs = config.MCP_HTTP_SESSION_IDLE_MS;
+  const closeSession = (sid: string): void => {
+    const t = transports.get(sid);
+    transports.delete(sid);
+    lastSeen.delete(sid);
+    if (t) {
+      try {
+        void t.close();
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+  // Sweep idle sessions periodically (capped at 60s cadence).
+  const sweeper = setInterval(
+    () => {
+      const cutoff = Date.now() - idleMs;
+      for (const [sid, seen] of lastSeen) if (seen < cutoff) closeSession(sid);
+    },
+    Math.min(idleMs, 60_000)
+  );
+  if (typeof sweeper.unref === 'function') sweeper.unref();
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = req.method ?? 'GET';
@@ -160,24 +186,58 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
     // Route to an existing session, or create one on an initialize POST.
     let transport: StreamableHTTPServerTransport | undefined =
       sessionIdStr !== undefined ? transports.get(sessionIdStr) : undefined;
+    if (transport !== undefined && sessionIdStr !== undefined) {
+      lastSeen.set(sessionIdStr, Date.now()); // mark activity
+    }
 
     if (transport === undefined) {
       if (method === 'POST' && sessionIdStr === undefined && isInitializeRequest(body)) {
+        // Hard cap: evict the least-recently-used session before adding a new one.
+        if (transports.size >= maxSessions) {
+          let oldest: string | undefined;
+          let oldestSeen = Infinity;
+          for (const [sid, seen] of lastSeen) {
+            if (seen < oldestSeen) {
+              oldestSeen = seen;
+              oldest = sid;
+            }
+          }
+          if (oldest !== undefined) closeSession(oldest);
+        }
         // New session. The SDK generates the id; we capture it and store the
         // transport. A fresh McpServer is built and connected per session.
         const newTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
             transports.set(sid, newTransport);
+            lastSeen.set(sid, Date.now());
             logger.info('HTTP MCP session initialized', { consumer: decision.profile.id });
           },
         });
         newTransport.onclose = () => {
           const sid = newTransport.sessionId;
-          if (sid !== undefined) transports.delete(sid);
+          if (sid !== undefined) {
+            transports.delete(sid);
+            lastSeen.delete(sid);
+          }
         };
-        const server = buildServer();
-        await server.connect(newTransport);
+        // Init-failure cleanup: if connect throws before a session id is
+        // assigned, the transport/server would leak — close it explicitly.
+        try {
+          const server = buildServer();
+          await server.connect(newTransport);
+        } catch (e) {
+          try {
+            await newTransport.close();
+          } catch {
+            /* best-effort */
+          }
+          logger.error('HTTP MCP session init failed', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+          if (!res.headersSent) writeJsonRpcError(res, 503, -32603, 'Service unavailable');
+          return;
+        }
         transport = newTransport;
       } else {
         // Non-initialize request with a missing/unknown session id.
@@ -239,6 +299,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   return {
     port: boundPort,
     async close(): Promise<void> {
+      clearInterval(sweeper);
       for (const t of transports.values()) {
         try {
           await t.close();
@@ -247,6 +308,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
         }
       }
       transports.clear();
+      lastSeen.clear();
       await new Promise<void>((resolve) => {
         httpServer.close(() => { resolve(); });
       });

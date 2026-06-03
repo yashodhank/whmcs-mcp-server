@@ -575,9 +575,12 @@ export function registerDomainTools(
   }
 
   // ============================================
-  // Tool: transfer_domain
+  // Tool: transfer_domain  (legacy direct-mutate — RETIRED by default)
+  // DomainTransfer is irreversible/destructive and in PROD_NEVER_EXECUTABLE for
+  // the governed flow; this legacy path must NOT be reachable by default. Gated
+  // behind legacyWriteToolsEnabled() like every other legacy write tool.
   // ============================================
-  if (isToolAllowed('transfer_domain')) {
+  if (legacyWriteToolsEnabled() && isToolAllowed('transfer_domain')) {
     const transferDomainSchema = z.object({
       domainid: z.number().int().positive('Domain ID must be positive').optional(),
       domain: z.string().optional(),
