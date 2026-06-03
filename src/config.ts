@@ -247,6 +247,10 @@ const configSchema = z
         .map((s) => s.trim())
         .filter(Boolean);
     }, z.array(z.string()).default([])),
+    // HTTP session bounds (memory/DoS guard). Hard cap on concurrent sessions
+    // (LRU-evicted) + idle TTL after which an unused session is swept/closed.
+    MCP_HTTP_MAX_SESSIONS: z.coerce.number().int().min(1).max(100000).default(256),
+    MCP_HTTP_SESSION_IDLE_MS: z.coerce.number().int().min(1000).default(300000),
   })
   .superRefine((val, ctx) => {
     // Phase G+ fail-fast misconfiguration guards.

@@ -171,7 +171,15 @@ function mapOnePayMethod(raw: Record<string, unknown>): CanonicalPayMethod {
 }
 
 const PAY_METHOD_CLASSES = new ClassMapBuilder()
-  .set('payMethods', 'public.safe')
+  // SECURITY (CRITICAL fix): the container itself is secret.credential, NOT
+  // public.safe. `project()` walks only top-level keys, so the per-leaf
+  // `payMethods[].card.*` secret labels below were DEAD — the whole array
+  // (raw PAN / bank / token) leaked to every consumer. Classing the container
+  // secret makes it fail-closed (dropped in all non-local contracts). Per-leaf
+  // labels are retained for when projection recurses (then a granular safe
+  // subset can be restored). Until then payment instruments are local/admin
+  // only — the correct PCI posture.
+  .set('payMethods', 'secret.credential')
   .set('payMethods[].payMethodId', 'business.identifier')
   .set('payMethods[].type', 'public.safe')
   .set('payMethods[].description', 'business.label')
