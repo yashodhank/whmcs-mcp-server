@@ -16,15 +16,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Load project env (creds + mode) as the single source of truth.
-set -a
-# shellcheck disable=SC1090,SC1091
-[ -f "$HERE/.env" ] && . "$HERE/.env"
-set +a
-
-# Transport/bind overrides — keep stdio clients (which read the same .env) on stdio.
+# Transport/bind overrides exported in the shell. node --env-file then loads the
+# project .env WITHOUT shell expansion (values containing `$` are safe) and does
+# NOT override variables already present in the environment — so these win, and
+# stdio clients (which read the same .env, but without these) stay on stdio.
 export MCP_TRANSPORT=http
 export MCP_HTTP_HOST="${MCP_HTTP_HOST:-127.0.0.1}"
 export MCP_HTTP_PORT="${MCP_HTTP_PORT:-8765}"
 
-exec node "$HERE/dist/index.js"
+exec node --env-file="$HERE/.env" "$HERE/dist/index.js"
