@@ -23,6 +23,8 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+# Cursor local hook state (continual-learning cache — machine-local, not source)
+.cursor/hooks/
 
 # OS
 .DS_Store
