@@ -1,0 +1,54 @@
+name: CI
+
+# Gate for the standing auto-merge policy: every PR into main (and every push
+# to main) must pass build + typecheck + lint + the full test suite before it
+# can be merged. `format:check` is intentionally NOT a gate here — the repo has
+# pre-existing prettier debt across ~160 files that is out of scope for per-PR
+# enforcement; formatting is applied to changed files at authoring time.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        # The suite is fully mocked (no live WHMCS calls), but tests/setup.ts
+        # hard-requires these vars to be present. Dummy placeholders satisfy the
+        # guard; they are NOT real credentials.
+        env:
+          WHMCS_API_URL: https://whmcs.invalid/includes/api.php
+          WHMCS_IDENTIFIER: ci-dummy-identifier
+          WHMCS_SECRET: ci-dummy-secret
+        run: npm test
