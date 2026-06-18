@@ -11,6 +11,7 @@ import { Logger } from '../logging.js';
 import { normalizeWhmcsResponse, boolToWhmcs } from './normalizers.js';
 import { assertReadAction } from './actionPolicy.js';
 import { ReadCache } from './readCache.js';
+import { attemptIpAllowlistHeal } from './ipAllowlistHeal.js';
 
 /**
  * WHMCS business-level error
@@ -226,7 +227,9 @@ export class WhmcsClient {
     const maxAttempts = canRetry ? RETRY_CONFIG.MAX_RETRIES : 1;
     
     let lastError: Error | null = null;
-    
+    // Ensures the IP-allowlist self-heal runs at most once per call (no loops).
+    let healAttempted = false;
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const response = await this.axios.post<WhmcsResponse>('', body);
@@ -290,7 +293,23 @@ export class WhmcsClient {
             axiosError.code === 'ECONNABORTED'
           );
         }
-        
+
+        // IP allowlist self-heal: WHMCS returns 403 when the caller's source IP
+        // is not in APIAllowedIPs (common after an ISP/proxy IP change). Run the
+        // updater once, then retry the call a single time. healAttempted bounds
+        // this to one heal per call so it can never loop.
+        if (statusCode === 403 && this.config.WHMCS_AUTO_IP_HEAL && !healAttempted) {
+          healAttempted = true;
+          const healed = await attemptIpAllowlistHeal(this.config, this.logger);
+          if (healed) {
+            this.logger.warn('WHMCS 403: IP allowlist updated, retrying call once', {
+              action,
+            });
+            attempt = -1; // fresh attempt budget for the single post-heal retry
+            continue;
+          }
+        }
+
         // If not retryable or last attempt, convert to proper error and throw
         if (!isRetryable || attempt >= maxAttempts - 1) {
           if (axios.isAxiosError(error)) {
