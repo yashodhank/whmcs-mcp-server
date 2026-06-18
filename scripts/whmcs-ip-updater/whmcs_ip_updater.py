@@ -312,6 +312,50 @@ def emit_event(logger: logging.Logger, event: str, **fields: Any) -> None:
     logger.info(json.dumps(payload, sort_keys=True))
 
 
+def notify_failure(logger: logging.Logger, event: str, **fields: Any) -> None:
+    """Best-effort failure notifier: appends a structured JSON line to the MCP audit
+    log and optionally POSTs to a webhook.  Never raises — any error is swallowed so
+    alerting failure never blocks the updater.
+
+    Env vars consumed (read at call time so they work with the launchd wrapper):
+      MCP_WRITE_AUDIT_PATH          — path to append structured failure events
+      WHMCS_IP_UPDATER_ALERT_WEBHOOK — URL to POST a JSON failure payload to
+    """
+    try:
+        record = {"event": event, "ts": int(time.time()), **fields}
+        record_line = json.dumps(record, sort_keys=True) + "\n"
+
+        audit_path = os.getenv("MCP_WRITE_AUDIT_PATH")
+        if audit_path:
+            try:
+                with open(audit_path, "a", encoding="utf-8") as fh:
+                    fh.write(record_line)
+            except Exception as exc:  # noqa: BLE001
+                emit_event(logger, "notifier_audit_write_error", error=str(exc))
+
+        webhook = os.getenv("WHMCS_IP_UPDATER_ALERT_WEBHOOK")
+        if webhook:
+            try:
+                body = json.dumps(record, sort_keys=True).encode("utf-8")
+                req = urllib.request.Request(
+                    webhook,
+                    data=body,
+                    headers={"Content-Type": "application/json", "User-Agent": "whmcs-ip-updater/1.0"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as _resp:
+                    pass
+            except Exception as exc:  # noqa: BLE001
+                emit_event(logger, "notifier_webhook_error", error=str(exc))
+
+    except Exception as exc:  # noqa: BLE001
+        # Outer safety net: even if the whole notifier errors, never propagate.
+        try:
+            emit_event(logger, "notifier_error", error=str(exc))
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def parse_ip(value: str, version: int) -> Optional[str]:
     text = (value or "").strip()
     try:
@@ -614,6 +658,15 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
                     mode="local",
                     error=str(exc),
                 )
+                try:
+                    notify_failure(
+                        logger,
+                        "updated_but_api_validation_failed",
+                        mode="local",
+                        error=str(exc),
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 api_validation = {"result": "error", "mode": "local", "message": str(exc)}
             else:
                 api_validation = {"local": local_result}
@@ -628,6 +681,15 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
                             mode="external",
                             error=error_msg,
                         )
+                        try:
+                            notify_failure(
+                                logger,
+                                "updated_but_api_validation_failed",
+                                mode="external",
+                                error=error_msg,
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
                         api_validation["external"] = {"result": "error", "mode": "external", "message": error_msg}
 
                         # Probe-and-correct: if the WHMCS API reports an
@@ -744,6 +806,15 @@ def daemon_loop(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_st
                 failure_count=failure_count,
                 cooldown_seconds=cfg.circuit_breaker_cooldown_seconds,
             )
+            try:
+                notify_failure(
+                    logger,
+                    "circuit_breaker_open",
+                    failure_count=failure_count,
+                    cooldown_seconds=cfg.circuit_breaker_cooldown_seconds,
+                )
+            except Exception:  # noqa: BLE001
+                pass  # notify_failure is best-effort; never block the daemon
             time.sleep(cfg.circuit_breaker_cooldown_seconds)
             if STOP_REQUESTED:
                 break
