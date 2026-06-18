@@ -63,7 +63,17 @@ function resolveUpdaterScript(config: AppConfig): string | null {
  * Attempt to self-heal the WHMCS API IP allowlist. Returns true only if the
  * updater completed successfully (exit code 0 — IP updated or already correct).
  */
-export async function attemptIpAllowlistHeal(config: AppConfig, logger: Logger): Promise<boolean> {
+/**
+ * @param reportedIp Optional source IP WHMCS reported in the "Invalid IP" 403.
+ *   When provided (and well-formed), the updater is told to use it directly
+ *   (--ipv4/--ipv6) instead of detecting via public-IP providers — authoritative
+ *   (no proxy/NAT skew) and faster.
+ */
+export async function attemptIpAllowlistHeal(
+  config: AppConfig,
+  logger: Logger,
+  reportedIp?: string
+): Promise<boolean> {
   if (!config.WHMCS_AUTO_IP_HEAL) {
     return false;
   }
@@ -79,14 +89,19 @@ export async function attemptIpAllowlistHeal(config: AppConfig, logger: Logger):
     });
     return false;
   }
-  inFlight = runUpdaterOnce(config, logger).finally(() => {
+  inFlight = runUpdaterOnce(config, logger, reportedIp).finally(() => {
     inFlight = null;
     lastHealEndMs = Date.now();
   });
   return inFlight;
 }
 
-function runUpdaterOnce(config: AppConfig, logger: Logger): Promise<boolean> {
+/** Accept only a well-formed IPv4/IPv6 literal before handing it to the updater. */
+function isIpLiteral(ip: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) || /^[0-9a-fA-F:]+:[0-9a-fA-F:]*$/.test(ip);
+}
+
+function runUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const script = resolveUpdaterScript(config);
     if (!script) {
@@ -107,7 +122,15 @@ function runUpdaterOnce(config: AppConfig, logger: Logger): Promise<boolean> {
       WHMCS_API_SECRET: config.WHMCS_SECRET,
     };
 
-    logger.warn('WHMCS 403: attempting IP allowlist self-heal (oneshot)', { script });
+    // Build args. If WHMCS reported a well-formed source IP, target it directly
+    // (--ipv4/--ipv6) so the updater skips provider detection and can't be
+    // fooled by proxy/NAT skew between our public IP and the WHMCS-facing one.
+    const args = [script, 'oneshot', '--no-stability-check'];
+    if (reportedIp && isIpLiteral(reportedIp)) {
+      args.push(reportedIp.includes(':') ? '--ipv6' : '--ipv4', reportedIp);
+    }
+
+    logger.warn('WHMCS 403: attempting IP allowlist self-heal (oneshot)', { script, reportedIp });
 
     let stdout = '';
     let stderr = '';
@@ -118,7 +141,7 @@ function runUpdaterOnce(config: AppConfig, logger: Logger): Promise<boolean> {
       resolve(ok);
     };
 
-    const child = spawn(config.WHMCS_IP_UPDATER_PYTHON, [script, 'oneshot', '--no-stability-check'], {
+    const child = spawn(config.WHMCS_IP_UPDATER_PYTHON, args, {
       env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
