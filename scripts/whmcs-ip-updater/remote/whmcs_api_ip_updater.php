@@ -425,14 +425,17 @@ function action_update(mysqli $db, array $payload): never
         $checksumBefore = checksum($currentRaw);
         $checksumAfter = checksum($newRaw);
 
+        $db->begin_transaction();
         $backupId = insert_backup($db, $reason, $currentRaw, $newRaw, $checksumBefore, $checksumAfter);
 
         if (compare_and_swap_update($db, $currentRaw, $newRaw)) {
             $readback = fetch_api_allowed_ips_raw($db);
             if (checksum($readback) !== $checksumAfter) {
+                $db->rollback();
                 respond(false, 'CHECKSUM_VERIFY_FAILED', 'Post-write checksum verification failed', ['backup_id' => $backupId]);
             }
             mark_backup_applied($db, $backupId);
+            $db->commit();
             respond(true, 'OK', 'Update applied', [
                 'action' => 'updated',
                 'backup_id' => $backupId,
@@ -443,10 +446,12 @@ function action_update(mysqli $db, array $payload): never
         }
 
         if ($attempts < 2) {
+            $db->rollback();
             $currentRaw = fetch_api_allowed_ips_raw($db);
             continue;
         }
 
+        $db->rollback();
         respond(false, 'CONCURRENT_MODIFICATION_DETECTED', 'Concurrent modification detected; update aborted');
     }
 
