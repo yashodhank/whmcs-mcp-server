@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import random
+import re
 import signal
 import subprocess
 import sys
@@ -517,6 +518,27 @@ def run_test_api_local(cfg: AppConfig, ssh: SshClient) -> Dict[str, Any]:
     }
 
 
+# Regex mirrors the reactive heal in ipAllowlistHeal.ts / WhmcsClient.ts.
+_INVALID_IP_RE = re.compile(r"invalid\s+ip\s+([0-9a-fA-F:.]+)", re.IGNORECASE)
+
+
+def _extract_reported_ip(error_message: str) -> Optional[str]:
+    """Extract the IP address from a 'Invalid IP <X>' WHMCS error message.
+
+    Returns the IP string if the message matches and the IP is a valid public
+    address (v4 or v6); returns None otherwise.
+    """
+    m = _INVALID_IP_RE.search(error_message)
+    if not m:
+        return None
+    candidate = m.group(1)
+    # Accept valid public IPv4 or IPv6; reject loopback/private/link-local.
+    for version in (4, 6):
+        if parse_ip(candidate, version):
+            return candidate
+    return None
+
+
 def do_dry_run(cfg: AppConfig, ssh: SshClient, logger: logging.Logger) -> Dict[str, Any]:
     ensure_user_guard(cfg)
     # IP detection is HTTP-only; run it concurrently with the first SSH call.
@@ -581,6 +603,7 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
         event_name = "no_change" if action == "no_change" else "update_applied"
 
         api_validation = None
+        corrective_update: Optional[Dict[str, Any]] = None
         if cfg.validate_api_after_update and action != "no_change":
             try:
                 local_result = run_test_api_local(cfg, ssh)
@@ -598,13 +621,72 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
                     try:
                         api_validation["external"] = run_test_api(cfg, logger)
                     except Exception as exc:  # noqa: BLE001
+                        error_msg = str(exc)
                         emit_event(
                             logger,
                             "updated_but_api_validation_failed",
                             mode="external",
-                            error=str(exc),
+                            error=error_msg,
                         )
-                        api_validation["external"] = {"result": "error", "mode": "external", "message": str(exc)}
+                        api_validation["external"] = {"result": "error", "mode": "external", "message": error_msg}
+
+                        # Probe-and-correct: if the WHMCS API reports an
+                        # authoritative IP different from the one we just set,
+                        # re-run the update targeting that exact IP (once).
+                        # Mirrors the reactive heal regex in ipAllowlistHeal.ts.
+                        reported_ip = _extract_reported_ip(error_msg)
+                        if reported_ip is not None:
+                            emit_event(
+                                logger,
+                                "probe_correct_attempt",
+                                reported_ip=reported_ip,
+                                consensus_targets=targets,
+                            )
+                            try:
+                                v4 = reported_ip if "." in reported_ip else None
+                                v6 = reported_ip if ":" in reported_ip else None
+                                corrective_targets: Dict[str, str] = {}
+                                if v4:
+                                    corrective_targets["ipv4"] = v4
+                                if v6:
+                                    corrective_targets["ipv6"] = v6
+                                if corrective_targets:
+                                    corrective_payload = {
+                                        "whmcs_root": cfg.whmcs_root,
+                                        "reason": f"{cfg.reason} [probe-correct reported={reported_ip}]",
+                                        **corrective_targets,
+                                    }
+                                    corrective_response = ssh.call("update", corrective_payload)
+                                    corrective_update = corrective_response.get("data", {})
+                                    emit_event(
+                                        logger,
+                                        "probe_correct_applied",
+                                        reported_ip=reported_ip,
+                                        corrective_action=corrective_update.get("action"),
+                                    )
+                                    # Re-validate after the corrective update.
+                                    try:
+                                        api_validation["external_after_correction"] = run_test_api(cfg, logger)
+                                    except Exception as exc2:  # noqa: BLE001
+                                        emit_event(
+                                            logger,
+                                            "updated_but_api_validation_failed",
+                                            mode="external_after_correction",
+                                            error=str(exc2),
+                                        )
+                                        api_validation["external_after_correction"] = {
+                                            "result": "error",
+                                            "mode": "external_after_correction",
+                                            "message": str(exc2),
+                                        }
+                            except Exception as exc3:  # noqa: BLE001
+                                emit_event(
+                                    logger,
+                                    "probe_correct_failed",
+                                    reported_ip=reported_ip,
+                                    error=str(exc3),
+                                )
+                                api_validation["probe_correct_error"] = str(exc3)
 
         state["last_success_timestamp"] = int(time.time())
         state["last_ipv4"] = targets.get("ipv4")
@@ -622,6 +704,7 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
             "detected": detection,
             "targets": targets,
             "update": response.get("data", {}),
+            "corrective_update": corrective_update,
             "api_validation": api_validation,
         }
 
