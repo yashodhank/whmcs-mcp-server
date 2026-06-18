@@ -102,6 +102,7 @@ class AppConfig:
     whmcs_api_identifier: Optional[str]
     whmcs_api_secret: Optional[str]
     test_api_timeout: int
+    test_api_action: str
     validate_api_after_update: bool
     json_output: bool
     provider_timeout: int
@@ -468,7 +469,7 @@ def run_test_api(cfg: AppConfig, logger: logging.Logger) -> Dict[str, Any]:
 
     endpoint = cfg.whmcs_api_url.rstrip("/") + "/includes/api.php"
     payload = {
-        "action": "WhmcsDetails",
+        "action": cfg.test_api_action,
         "identifier": cfg.whmcs_api_identifier,
         "secret": cfg.whmcs_api_secret,
         "responsetype": "json",
@@ -760,6 +761,14 @@ def load_args(argv: Iterable[str]) -> AppConfig:
     parser.add_argument("--whmcs-api-identifier", default=os.getenv("WHMCS_API_IDENTIFIER"))
     parser.add_argument("--whmcs-api-secret", default=os.getenv("WHMCS_API_SECRET"))
     parser.add_argument("--test-api-timeout", type=int, default=int(os.getenv("WHMCS_TEST_API_TIMEOUT", "15")))
+    parser.add_argument(
+        "--test-api-action",
+        default=os.getenv("WHMCS_TEST_API_ACTION", "GetStaffOnline"),
+        help=(
+            "WHMCS API action used for post-update validation (default: GetStaffOnline). "
+            "Override via WHMCS_TEST_API_ACTION env var if your role does not permit GetStaffOnline."
+        ),
+    )
     parser.add_argument("--validate-api-after-update", action=argparse.BooleanOptionalAction, default=True)
 
     parser.add_argument("--json-output", action="store_true")
@@ -826,6 +835,7 @@ def load_args(argv: Iterable[str]) -> AppConfig:
         whmcs_api_identifier=ns.whmcs_api_identifier,
         whmcs_api_secret=ns.whmcs_api_secret,
         test_api_timeout=ns.test_api_timeout,
+        test_api_action=ns.test_api_action,
         validate_api_after_update=ns.validate_api_after_update,
         json_output=ns.json_output,
         provider_timeout=ns.provider_timeout,
