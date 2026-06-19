@@ -269,4 +269,52 @@ STRUCTURED OUTPUT:
 Read-only except for the governed drafts above.
 `)
   );
+
+  // ============================================================
+  // 7. renewal_risk_triage
+  // ============================================================
+  server.registerPrompt(
+    'renewal_risk_triage',
+    {
+      title: 'Renewal risk triage (draft-only)',
+      description:
+        'Rank upcoming service+domain renewals by churn risk and DRAFT reminder tickets for at-risk ones — never auto-renews.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe('Optional WHMCS client id to scope the renewal triage.'),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are triaging upcoming renewals by churn risk. ${scopeHint(clientid)}
+
+GOVERNANCE — NEVER auto-renew and NEVER charge. The ONLY proposed mutation is a
+\`ticket:create\` DRAFT routed through \`draft_write_intent\`. This workflow STOPS at the
+draft; do not approve or execute any intent. Renewals themselves are recommended for human
+action, never drafted. Do NOT draft any renewal/charge scope (registrar renew, service
+upgrade, or any billing write) — those are HIGH-risk money actions and out of scope.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_renewal_snapshot\`${clientid ? ` for client ${clientid}` : ''} to load upcoming
+   service + domain renewals in the window (default next 30 days; you may widen it). Capture
+   \`{client, item, type, due/expiry date, days_remaining, auto_renew?, amount}\`.
+2. For each client with an upcoming renewal, call \`get_risk_snapshot\` and capture risk
+   signals. Classify a renewal as \`at_risk\` if risk flags exist OR auto-renew is off.
+3. For \`at_risk\` clients, call \`get_billing_snapshot\` to confirm whether a payment method
+   or recent paid invoice exists (a missing one raises the priority).
+4. For each \`at_risk\` renewal, DRAFT a reminder ticket via \`draft_write_intent\` with scope
+   \`ticket:create\` (LOW risk), the subject/body referencing the item and due date. Dedup:
+   one ticket per client per renewal window.
+
+STRUCTURED OUTPUT:
+  (a) a ranked table \`{clientid, item, type, days_remaining, auto_renew, risk_flags,
+      payment_on_file?, priority, drafted_ticket_intent_id}\`, sorted soonest-expiry-first
+      then by risk;
+  (b) a "recommend for human action" list of renewals (not drafted — renewals stay a human
+      decision).
+`)
+  );
 }

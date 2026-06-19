@@ -37,6 +37,7 @@ const ALL_PROMPTS = [
   'new_client_onboarding',
   'domain_renewal_review',
   'dunning_sweep',
+  'renewal_risk_triage',
 ];
 
 function firstText(res: ReturnType<PromptCb>): string {
@@ -133,6 +134,20 @@ describe('registerWhmcsPrompts', () => {
     expect(text).toContain('draft_write_intent');
     expect(text).toContain('client_note:write');
     // governance: it must NOT instruct execution
+    expect(text).not.toContain('execute_write_intent');
+  });
+
+  it('renewal_risk_triage ranks renewals by risk and never auto-renews', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(prompts.renewal_risk_triage.cb({ clientid: '7' }));
+    expect(text).toContain('get_renewal_snapshot');
+    expect(text).toContain('get_risk_snapshot');
+    expect(text).toContain('get_billing_snapshot');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('ticket:create');
+    // governance: never auto-renew / never execute
+    expect(text).not.toContain('domain:renew');
     expect(text).not.toContain('execute_write_intent');
   });
 
