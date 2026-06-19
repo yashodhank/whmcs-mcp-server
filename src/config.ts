@@ -61,6 +61,19 @@ const configSchema = z
     WHMCS_IDENTIFIER: z.string().min(1, 'WHMCS_IDENTIFIER is required'),
     WHMCS_SECRET: z.string().min(1, 'WHMCS_SECRET is required'),
     WHMCS_ACCESS_KEY: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    // IP allowlist self-heal: on a 403 (caller IP missing from APIAllowedIPs,
+    // typically after an ISP/proxy IP change) run scripts/whmcs-ip-updater
+    // oneshot once and retry the call. Opt-in; the updater still needs its own
+    // SSH env (WHMCS_SSH_HOST, WHMCS_SSH_USER, WHMCS_SSH_KEY,
+    // WHMCS_SSH_KNOWN_HOSTS) and WHMCS_ROOT present in the environment.
+    WHMCS_AUTO_IP_HEAL: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    WHMCS_IP_UPDATER_SCRIPT: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    WHMCS_IP_UPDATER_PYTHON: z.string().min(1).default('python3'),
+    WHMCS_AUTO_IP_HEAL_COOLDOWN_MS: z.coerce.number().int().min(0).default(120000),
+    WHMCS_AUTO_IP_HEAL_TIMEOUT_MS: z.coerce.number().int().min(1000).default(60000),
     // SEC-005: allow http for WHMCS_API_URL only when explicitly opted in
     WHMCS_ALLOW_HTTP: z.preprocess(
       (val) => val === 'true' || val === '1',

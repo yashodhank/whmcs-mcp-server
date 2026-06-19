@@ -11,6 +11,7 @@ import { Logger } from '../logging.js';
 import { normalizeWhmcsResponse, boolToWhmcs } from './normalizers.js';
 import { assertReadAction } from './actionPolicy.js';
 import { ReadCache } from './readCache.js';
+import { attemptIpAllowlistHeal } from './ipAllowlistHeal.js';
 
 /**
  * WHMCS business-level error
@@ -93,6 +94,32 @@ function getBackoffDelay(attempt: number): number {
   const exponentialDelay = RETRY_CONFIG.BASE_DELAY_MS * Math.pow(2, attempt);
   const jitter = Math.random() * RETRY_CONFIG.BASE_DELAY_MS;
   return Math.min(exponentialDelay + jitter, RETRY_CONFIG.MAX_DELAY_MS);
+}
+
+/**
+ * Extract the WHMCS error message from a failed request, plus the source IP
+ * WHMCS reports for an "Invalid IP <X>" rejection. WHMCS returns these in the
+ * JSON body even on a 403, so the self-heal can both (a) confirm the 403 is an
+ * IP-allowlist rejection vs a permissions/auth error, and (b) use the exact IP
+ * WHMCS saw instead of guessing via public-IP providers.
+ */
+function extractWhmcsError(error: unknown): { message?: string; reportedIp?: string } {
+  if (!axios.isAxiosError(error)) {
+    return {};
+  }
+  const data = (error as AxiosError).response?.data as { message?: string } | string | undefined;
+  let message: string | undefined;
+  if (typeof data === 'string') {
+    message = data;
+  } else if (data && typeof data === 'object' && typeof data.message === 'string') {
+    message = data.message;
+  }
+  if (!message) {
+    return {};
+  }
+  // e.g. "Invalid IP 117.217.28.213" or an IPv6 form.
+  const match = /invalid\s+ip\s+([0-9a-fA-F:.]+)/i.exec(message);
+  return { message, reportedIp: match?.[1] };
 }
 
 /**
@@ -226,7 +253,9 @@ export class WhmcsClient {
     const maxAttempts = canRetry ? RETRY_CONFIG.MAX_RETRIES : 1;
     
     let lastError: Error | null = null;
-    
+    // Ensures the IP-allowlist self-heal runs at most once per call (no loops).
+    let healAttempted = false;
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const response = await this.axios.post<WhmcsResponse>('', body);
@@ -290,7 +319,36 @@ export class WhmcsClient {
             axiosError.code === 'ECONNABORTED'
           );
         }
-        
+
+        // IP allowlist self-heal: WHMCS returns 403 for several distinct reasons
+        // (IP not in APIAllowedIPs, role/action ACL, bad credentials) — all HTTP
+        // 403 with a different `message`. Only an "Invalid IP" rejection is
+        // healable; a permissions/auth 403 must NOT trigger a pointless SSH run.
+        // When it IS an IP rejection, WHMCS reports the exact source IP it saw
+        // ("Invalid IP <X>") — more authoritative than public-provider detection
+        // (proxy/NAT skew), so pass it to the updater as the manual target.
+        // healAttempted bounds this to one heal per call so it can never loop.
+        if (statusCode === 403 && this.config.WHMCS_AUTO_IP_HEAL && !healAttempted) {
+          const { message, reportedIp } = extractWhmcsError(error);
+          if (message && /invalid\s+ip/i.test(message)) {
+            healAttempted = true;
+            const healed = await attemptIpAllowlistHeal(this.config, this.logger, reportedIp);
+            if (healed) {
+              this.logger.warn('WHMCS 403 (Invalid IP): allowlist updated, retrying call once', {
+                action,
+                reportedIp,
+              });
+              attempt = -1; // fresh attempt budget for the single post-heal retry
+              continue;
+            }
+          } else {
+            this.logger.warn('WHMCS 403 is not an IP-allowlist rejection; not auto-healing', {
+              action,
+              message,
+            });
+          }
+        }
+
         // If not retryable or last attempt, convert to proper error and throw
         if (!isRetryable || attempt >= maxAttempts - 1) {
           if (axios.isAxiosError(error)) {

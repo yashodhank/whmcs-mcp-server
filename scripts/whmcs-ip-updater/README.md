@@ -21,6 +21,7 @@ Production-safe updater that changes only `MacIPv4` and `MacIPv6` entries inside
 - `remote/whmcs_api_ip_updater.php` - remote JSON worker
 - `remote/install-remote-bootstrap.sh` - bootstrap installer (root)
 - `launchd/com.securiace.whmcs-ip-updater.plist.template` - 5-minute LaunchAgent template
+- `launchd/run-oneshot.sh` - launchd entry-point: sources `.env.production`, bridges credential key names, execs updater
 
 ## Bootstrap (root, one-time)
 1. Copy `remote/*` to server.
@@ -42,6 +43,13 @@ Installer behavior:
 ```bash
 ssh -i /path/to/private_key whmcs-ip-updater@195.7.4.219 verify
 ```
+
+## Host key verification
+
+All remote modes use `ssh` with `StrictHostKeyChecking`. If the audited host key
+lives outside the default `~/.ssh/known_hosts`, pass `--ssh-known-hosts <file>`
+(or set `WHMCS_SSH_KNOWN_HOSTS`); the path may use `~`. This avoids per-machine
+`~/.ssh/config` edits and makes the auto-heal portable across machines.
 
 ## Local Commands
 
@@ -80,8 +88,39 @@ Public IP providers may see an address that differs from WHMCS-facing egress. Mi
 3. Manual override `--ipv4` and/or `--ipv6`
 
 ## launchd Scheduling
-Use `launchd` for production scheduling (every 5 minutes):
-- Copy plist template to `~/Library/LaunchAgents/`
-- Replace placeholder paths and user values
-- Run one manual verification cycle (`doctor`, then `oneshot`) before loading the agent
-- Load with `launchctl load ~/Library/LaunchAgents/com.securiace.whmcs-ip-updater.plist`
+
+Use `launchd` for production scheduling (every 5 minutes). The plist now delegates to
+`run-oneshot.sh`, which sources `.env.production` and bridges credential key names before
+executing the updater. Post-update API validation is **enabled** — no `--no-validate-api-after-update`.
+
+**Setup steps (operator):**
+
+1. Copy `launchd/run-oneshot.sh` to the machine alongside `whmcs_ip_updater.py`:
+   ```
+   chmod 700 /path/to/launchd/run-oneshot.sh
+   ```
+2. Copy the plist template to `~/Library/LaunchAgents/`:
+   ```
+   cp launchd/com.securiace.whmcs-ip-updater.plist.template \
+      ~/Library/LaunchAgents/com.securiace.whmcs-ip-updater.plist
+   ```
+3. Replace all `/ABSOLUTE/PATH/TO/...` and `/Users/REPLACE/...` placeholders in the plist.
+4. Ensure `.env.production` contains `WHMCS_IDENTIFIER`, `WHMCS_SECRET`, and `WHMCS_API_URL`
+   (the wrapper bridges `WHMCS_IDENTIFIER`→`WHMCS_API_IDENTIFIER` and `WHMCS_SECRET`→`WHMCS_API_SECRET`).
+5. Run one manual verification cycle before loading the agent:
+   ```
+   source /path/to/.env.production
+   export WHMCS_API_IDENTIFIER="${WHMCS_API_IDENTIFIER:-$WHMCS_IDENTIFIER}"
+   export WHMCS_API_SECRET="${WHMCS_API_SECRET:-$WHMCS_SECRET}"
+   python3 whmcs_ip_updater.py doctor --ssh-host 195.7.4.219 --ssh-user whmcs-ip-updater ...
+   ```
+6. Bootstrap (or reload) the LaunchAgent:
+   ```
+   launchctl bootout  gui/$(id -u) ~/Library/LaunchAgents/com.securiace.whmcs-ip-updater.plist
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.securiace.whmcs-ip-updater.plist
+   ```
+
+**Credential key-name bridging note:**
+`.env.production` uses `WHMCS_IDENTIFIER`/`WHMCS_SECRET` (MCP convention); the updater reads
+`WHMCS_API_IDENTIFIER`/`WHMCS_API_SECRET`. The wrapper `run-oneshot.sh` sets both so either
+naming convention works without modifying `.env.production`.
