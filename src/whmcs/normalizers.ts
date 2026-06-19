@@ -118,6 +118,9 @@ const NORMALIZER_PATHS: Record<string, NormalizerKey[]> = {
   GetClientsDomains: ['domains'],
 };
 
+export const NORMALIZER_ACTION_KEYS: ReadonlySet<string> =
+  Object.freeze(new Set(Object.keys(NORMALIZER_PATHS)));
+
 /**
  * Apply normalization to specific fields in a WHMCS response
  */
