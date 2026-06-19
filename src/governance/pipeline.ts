@@ -18,7 +18,7 @@ import {
   type ProjectionEnv,
   ProjectionEnvError,
 } from './types.js';
-import { loadConsumerRegistry, resolveConsumer } from './consumers.js';
+import { loadConsumerRegistryFromSource, resolveConsumer } from './consumers.js';
 import { getContract } from './contracts.js';
 import { project, projectWithTrace } from './projection.js';
 import type { AuditTraceRecord } from './auditTrace.js';
@@ -296,11 +296,18 @@ export const REGISTRY_CACHE_TTL_MS: number = (() => {
 let cachedRegistry: ConsumerProfile[] | null = null;
 let cachedAt: number | null = null;
 
-/** Lazily load + cache the consumer registry from env (B3 owns parsing). */
+/**
+ * Lazily load + cache the consumer registry (B3 owns parsing). The source is
+ * `MCP_CONSUMER_REGISTRY_FILE` when set (file = live-rotation control plane),
+ * else the inline `MCP_CONSUMER_REGISTRY` JSON. The TTL means a file edit /
+ * env rotation is picked up on the next call past the TTL boundary — no
+ * restart. Both sources fail CLOSED; a bad file throws here rather than serving
+ * a stale or empty registry.
+ */
 export function getConsumerRegistry(): ConsumerProfile[] {
   const now = Date.now();
   if (cachedRegistry === null || cachedAt === null || now - cachedAt > REGISTRY_CACHE_TTL_MS) {
-    cachedRegistry = loadConsumerRegistry(process.env);
+    cachedRegistry = loadConsumerRegistryFromSource(process.env);
     cachedAt = now;
   }
   return cachedRegistry;
