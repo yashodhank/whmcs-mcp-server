@@ -106,16 +106,20 @@ rejected | execution_blocked | verified | failed → (terminal)
 ```
 
 - Execution requires `state='approved'` AND, depending on tier, the gates in §6.
-- `approve_write_intent` records an `{approver, at}` approval record and moves
-  `validated → approved`. HIGH-RISK execution additionally requires this human
-  approval record to be present at execute time (`executionGate.ts` step 8).
-- **Known limitation — no separation of duties.** The `approver` is a
-  caller-supplied string with no identity binding; the gate does not check that
-  the approver differs from the drafting consumer. A single `execution_allowed`
-  consumer can therefore draft, approve, and execute a LOW/MEDIUM intent
-  unattended. Treat human approval as an *audit annotation*, not an enforced
-  second-party control, until identity-bound approval is added. (Tracked as a
-  code hardening item, not closed by this doc.)
+- `approve_write_intent` records an `{approver, approver_consumer_id, at}`
+  approval record and moves `validated → approved`. The `approver_consumer_id` is
+  **server-derived** (the authenticated approving consumer), never caller-supplied.
+  HIGH-RISK execution additionally requires this human approval record to be
+  present at execute time (`executionGate.ts` step 8).
+- **Separation of duties (enforced).** A HIGH-RISK intent can never be
+  self-approved: the gate denies `self_approval_forbidden` when the approval's
+  `approver_consumer_id` equals the drafting consumer — enforced unconditionally,
+  after the keystone allowlist, so sealing is preserved. The approver may be a
+  *distinct* authorized consumer (still capability- and scope-gated); the drafter
+  remains the only party that can execute. `MCP_WRITE_REQUIRE_DISTINCT_APPROVER`
+  (default `true`) extends the distinct-approver rule to LOW/MEDIUM intents that
+  carry an explicit approval record; the low-friction one-call `write` path (no
+  approval record) is unaffected.
 - Execution is a single idempotent `WhmcsClient.mutate(action, params)` reached
   ONLY when the execution gate returns `allowed:true`. Never broad; never implied
   by mode alone.
@@ -128,12 +132,14 @@ two scopes can map to one WHMCS action (`service:price_restore` and
 `service:domain_rename` → `UpdateClientProduct`); without it they would collide.
 A windowed ledger dedupes within the window.
 
-**Durability caveat (precise):** in a single process the ledger caches
-`{key → result}` and returns the prior result on replay. The optional durable
-backing (`MCP_WRITE_IDEMPOTENCY_PATH`) persists only `{key, expiresAt}` — **not**
-the result payload (it may carry sensitive data, and replay-denial only needs the
-key+window). So after a restart a replayed key is *denied* (`idempotency_replay`)
-but the original result is not re-returned. High-risk actions (payments, refunds,
+**Durability (precise):** in a single process the ledger caches `{key → result}`
+and returns the full prior result on replay. The optional durable backing
+(`MCP_WRITE_IDEMPOTENCY_PATH`) persists `{key, expiresAt}` plus a **redacted
+`PersistedReplay` envelope** (`intent_id, action, scope, executed, verified, at`)
+derived through a fixed field allowlist — it **never** persists `params`,
+`would_call`, or any free-form/PII field. So after a restart a replayed key is
+both *denied* (`idempotency_replay`) AND can recall the safe outcome summary, with
+no sensitive data written to disk. High-risk actions (payments, refunds,
 terminations) require a key and a short replay window.
 
 ## 6. Per-consumer write scopes + the tiered gate
@@ -166,10 +172,11 @@ An allowlist entry authorizes by WHMCS **action** (broad — every scope mapping
 that action) OR by **scope** string (narrow — only that scope); this is how
 sibling scopes sharing one action gate independently (`allowlistAuthorizes`).
 
-> **Scope-timing note:** `allowedWriteScopes` is enforced at draft/validate time,
-> not re-checked inside the gate at execute time. With the 15-minute TTL the
-> window is small; revoking a consumer's scope does not retroactively block an
-> already-approved intent until it expires.
+> **Scope-timing note:** `allowedWriteScopes` is enforced at draft/validate time
+> AND **re-checked at execute time** — `executeRun` re-asserts the consumer's
+> current scope grant before the batch/single-call branch, so a scope revoked
+> after approval (within the 15-minute TTL) blocks execution (`scope_not_allowed`)
+> instead of mutating WHMCS.
 
 ## 7. WHMCS action allowlist per consumer / per environment
 
@@ -249,10 +256,13 @@ debt is tracked:
   `scope` in the idempotency material; in-memory `IntentStore` (re-drafted on
   loss); building all scopes sealed rather than one at a time (each is TDD'd and
   prod-sealed).
-- **Watch / candidate hardening (tracked, not closed here):** (a) no
-  separation-of-duties on approval (§4); (b) idempotency result not durable
-  across restart (§5); (c) `allowedWriteScopes` not re-checked at execute (§6);
-  (d) legacy `ExecutionDeniedReason` members (`production_execution_forbidden`,
+- **Shipped hardening (closed):** (a) separation-of-duties on approval — HIGH-RISK
+  self-approval blocked (`self_approval_forbidden`), identity-bound
+  `approver_consumer_id`, `MCP_WRITE_REQUIRE_DISTINCT_APPROVER` (§4); (b) durable
+  redacted idempotency replay envelope, no PII on disk (§5); (c) `allowedWriteScopes`
+  re-checked at execute (`scope_not_allowed`, §6).
+- **Watch / candidate hardening (tracked, not closed here):** (d) legacy
+  `ExecutionDeniedReason` members (`production_execution_forbidden`,
   `action_not_low_risk_executable`) are retained but no longer emitted — prune
   when safe; (e) `MCP_WRITE_STRICT_SCOPES` ships with a non-empty default
   (`billing:invoice:create`) — a hidden default worth surfacing in operator docs.
