@@ -150,7 +150,7 @@ export interface ConsumerProfile {
   readonly allowedContracts: readonly ContractName[];
   /** Capability/action names this consumer may invoke. */
   readonly allowedActions: readonly string[];
-  /** Modeled but inert this engagement — production writes stay disabled. */
+  /** Governs how far a consumer can participate in the write flow (draft / execution). */
   readonly writeCapability: WriteCapability;
   /** Empty ⇒ all environments. */
   readonly envRestrictions: readonly ProjectionEnv[];

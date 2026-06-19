@@ -28,10 +28,12 @@ import type { CapabilityStatusValue } from './types.js';
 /* ─────────────────────────  Action → capability map  ─────────────────────── */
 
 /**
- * The five UNVERIFIED reads this probe is built to verify, mirroring
- * `capabilities.ts` UNVERIFIED_READS verbatim. Kept as a local constant (no
- * import of the mutable registry) so this module stays pure and cannot be
- * coupled to runtime promotion state.
+ * Actions this probe report recognises by name. This covers the original
+ * Phase-H batch that was verified and promoted to `SUPPORTED_READS` in
+ * capabilities.ts, plus the remaining `GetUsers` entry. Kept as a local
+ * constant (no import of the mutable registry) so this module stays pure
+ * and cannot be coupled to runtime promotion state. Actions not in this
+ * map fall back to `synthesizeCapabilityId`.
  */
 const PROBE_CAPABILITY_MAP: Readonly<Record<string, string>> = {
   GetTransactions: 'list_client_transactions',
