@@ -13,7 +13,7 @@ export class WriteActionError extends Error {
   }
 }
 
-const READ_ALLOWLIST = new Set<string>([
+export const READ_ALLOWLIST = new Set<string>([
   'GetClients','GetClientsDetails','GetClientsProducts','GetClientsDomains',
   'GetInvoice','GetInvoices','GetTickets','GetTicket','GetSupportDepartments',
   'GetOrders','GetProducts','GetActivityLog','GetAdminDetails','GetAdminLog',
