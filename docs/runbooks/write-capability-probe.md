@@ -65,7 +65,7 @@ only when all of the above hold.
   - WHMCS 9: <http://localhost:8890>
   - WHMCS 8: <http://localhost:8813>
   - Bring-up / seeding / reset commands live in
-    `docs/local-whmcs-testing.md`.
+    `docs/runbooks/local-whmcs-testing.md`.
 - **Money scopes really move money on dev too.** `UpgradeProduct`
   (`service:upgrade`) raises an upgrade order + charge; `AcceptQuote`
   (`billing:quote:accept`) raises an invoice. Probe these **only** against
@@ -84,7 +84,7 @@ run; record evidence in the PR.
 
 ### (a) Bring up the dev WHMCS
 
-Follow `docs/local-whmcs-testing.md`. Typical fresh path:
+Follow `docs/runbooks/local-whmcs-testing.md`. Typical fresh path:
 
 ```bash
 npm run whmcs:test:up          # both legs
@@ -100,7 +100,7 @@ that doc before continuing.
 ### (b) Grant the single scope to a dev consumer + arm runtime execution
 
 In the dev consumer registry (`MCP_CONSUMER_REGISTRY`, e.g. derived from
-`docs/consumer-registry.c2-example.json`), the dev consumer must have:
+`docs/reference/consumer-registry.c2-example.json`), the dev consumer must have:
 
 - the **one** scope under test in `allowedWriteScopes`, and
 - `"writeCapability": "execution_allowed"`, and

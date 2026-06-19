@@ -48,7 +48,7 @@ audit redaction) ride on the same projection layer.
   or `pii.email|phone|tax|address` path was emitted-raw-and-not-allowed in
   any consumer × tool.
 - This is consistent with the independently LIVE-verified governance
-  behavior matrix in `docs/rollout-validation-report.md` §4.
+  behavior matrix in `docs/archive/rollout-validation-report.md` §4.
 
 ### 2.2 The headline "violations" are a MEASUREMENT ARTIFACT
 
@@ -138,7 +138,7 @@ retained in the enum but no longer emitted.)
 
 ## 5. Phase I (only after §4 passes) — narrowest viable scope
 
-Follow `docs/phase-f-controlled-write-automation.md` §12 rollout order.
+Follow `docs/design/controlled-writes-phase-f.md` §12 rollout order.
 **Phase I ungates exactly ONE action: `add_client_note`** — additive, no
 financial/state impact, trivially ignorable, lowest blast radius.
 

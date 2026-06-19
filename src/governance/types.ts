@@ -4,7 +4,7 @@
  * Tier-1 modules (canonical mappers B1, contracts/projection B2, consumer
  * registry B3, capability registry B4) are built in parallel against THIS
  * file only. Do not add runtime logic here; types + frozen constants only.
- * See docs/PHASE_B_GOVERNANCE.md.
+ * See docs/design/governance.md.
  */
 
 /* ─────────────────────────  Field classification (B1)  ───────────────────── */

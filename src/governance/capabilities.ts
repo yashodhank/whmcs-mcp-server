@@ -8,7 +8,7 @@
  * allowlist (`assertReadAction` / the injected `isAllowlisted`): an action that
  * is not allowlisted is reported `unsupported` and NEVER called. We never fake
  * data and never broadly expand the read allowlist here — see
- * docs/PHASE_B_GOVERNANCE.md §6.
+ * docs/design/governance.md §6.
  *
  * This module imports the FROZEN seam `./types.js` only and owns no other state.
  */
@@ -53,7 +53,7 @@ const SUPPORTED_READS: readonly (readonly [action: string, capability: string])[
 /**
  * Remaining unverified. GetUsers probes returned `degraded` on Dev W8,
  * Dev W9 AND production (likely an API-role gap — see
- * docs/getusers-investigation.md). NOT promoted, NOT allowlisted; the
+ * docs/archive/getusers-investigation.md). NOT promoted, NOT allowlisted; the
  * shell keeps returning a structured capability_unavailable. Never faked.
  */
 const UNVERIFIED_READS: readonly (readonly [action: string, capability: string])[] = [

@@ -26,7 +26,7 @@
  *
  * Data is COMPLETE; projection/redaction happens later at the output boundary
  * (the canonical layer never decides who sees what). See
- * docs/PHASE_B_GOVERNANCE.md §2/§3.
+ * docs/design/governance.md §2/§3.
  *
  * READ-ONLY. PURE. Never calls WHMCS, never registers a tool.
  */

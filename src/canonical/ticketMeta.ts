@@ -20,7 +20,7 @@
  *
  * WHMCS shapes are loosely typed and vary by build (numeric strings, single
  * object vs array, numeric-keyed wrappers). Parsed defensively with _shared.
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, isRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

@@ -84,7 +84,7 @@ export const WRITE_SCOPES = [
   // mapper/validation are correct, but it can only EXECUTE on an install whose
   // API role explicitly permits `mergeticket`. Stays defined + deny-by-default;
   // an operator must confirm API permission before enabling it. See
-  // docs/write-capability-probe-runbook.md.
+  // docs/runbooks/write-capability-probe.md.
   'ticket:merge',
 ] as const;
 

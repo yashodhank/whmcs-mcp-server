@@ -4,7 +4,7 @@
  * Each mapToCanonical*() returns Canonical<T> = { entity, data, classes }:
  *   - data: a COMPLETE typed canonical object (no fields dropped — completeness
  *     is the governance contract; projection/redaction happens later at the
- *     output boundary, see docs/PHASE_B_GOVERNANCE.md §2/§4).
+ *     output boundary, see docs/design/governance.md §2/§4).
  *   - classes: a FieldClassMap covering EVERY path in `data` (dot paths; array
  *     elements use `[]`). An unmapped path is RESTRICTED downstream.
  *

@@ -6,7 +6,7 @@
  * value) and returns a fresh plain object every call. Applied exactly
  * once, last, at tool output (wired by B5).
  *
- * Algorithm (per docs/PHASE_B_GOVERNANCE.md §3–§4):
+ * Algorithm (per docs/design/governance.md §3–§4):
  *  1. Env gate first. If `contract.envRestrictions` is non-empty and does
  *     not include `env`, throw `ProjectionEnvError` BEFORE touching any
  *     field. This is how `none_local_only` / `debug_local` are hard-

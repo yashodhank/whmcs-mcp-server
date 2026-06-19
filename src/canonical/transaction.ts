@@ -2,7 +2,7 @@
  * Canonical mapper — WHMCS GetTransactions row → Canonical<CanonicalTransaction>.
  * Also exposes mapToCanonicalTransactions for the transactions.transaction
  * wrapper (numeric-keyed / single-object / empty). COMPLETE; projection later.
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

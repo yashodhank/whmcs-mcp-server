@@ -18,7 +18,7 @@ Common files to inspect when host behavior differs:
 - Kilo global config: `~/.config/kilo/kilo.jsonc`
 - Project MCP env files: `.env`, `.env.local`, `.env.<profile>`
 - Cursor sample config in this repo: `cursor-mcp-config.json`
-- Server docs/runbooks: `README.md`, `docs/testing-readonly.md`, `docs/capability-probe-runbook.md`
+- Server docs/runbooks: `README.md`, `docs/runbooks/testing-readonly.md`, `docs/runbooks/capability-probe.md`
 
 Use this map to compare effective configuration between hosts before debugging code.
 

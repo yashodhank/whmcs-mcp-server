@@ -763,6 +763,8 @@ flowchart TD
 
 ## Environment Variables Summary
 
+> **Authoritative env-var reference:** see `README.md` (Configuration section) and [`docs/reference/agent-context.md`](docs/reference/agent-context.md). The table below is the original build-spec snapshot.
+
 | Variable             | Required | Default     | Description                   |
 | -------------------- | -------- | ----------- | ----------------------------- |
 | `WHMCS_API_URL`      | Yes      | -           | WHMCS API base URL            |

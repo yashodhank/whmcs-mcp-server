@@ -20,7 +20,7 @@
  *   - *id / *_id (id-ish)                        → business.identifier
  *   - note|message|text|comment|announcement     → untrusted.free_text
  *   - everything else (aggregate counter)        → public.safe
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical, FieldClass } from '../governance/types.js';
 import { asRecord, isRecord, ClassMapBuilder } from './_shared.js';

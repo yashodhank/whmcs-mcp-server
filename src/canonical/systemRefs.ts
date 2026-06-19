@@ -18,7 +18,7 @@
  * WHMCS shapes are loosely typed (numeric strings, single-object-instead-of-array,
  * nested singular wrappers), so every value is narrowed defensively via the
  * _shared helpers and dynamic lists are collapsed into typed arrays so the
- * classmap is COMPLETE and stable. See docs/PHASE_B_GOVERNANCE.md §2/§3.
+ * classmap is COMPLETE and stable. See docs/design/governance.md §2/§3.
  *
  * Field classification:
  *   GetCurrencies

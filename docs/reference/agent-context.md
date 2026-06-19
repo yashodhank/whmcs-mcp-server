@@ -71,4 +71,4 @@ read-only + audited; mutations flow through a tiered governance model.
 ## Roadmap
 See approved plan + backlog in `~/.claude/plans/flickering-pondering-feather.md`
 (Phase 0 governance rebalance → A reads → B composites → accounting → C write
-migration). DECISIONS.md records posture choices.
+migration). `docs/design/decisions.md` records posture choices.

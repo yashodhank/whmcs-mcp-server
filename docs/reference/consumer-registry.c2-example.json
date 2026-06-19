@@ -1,0 +1,25 @@
+[
+  {
+    "_comment": "SYNTHETIC DEV EXAMPLE ONLY — do NOT use in production. Token hashes below are PLACEHOLDERS. Generate a real one with: RAW=$(openssl rand -hex 32); printf '%s' \"$RAW\" | shasum -a 256 | cut -d' ' -f1  — store the RAW token in your secret manager, put only the sha256 hash here (or, preferably, in MCP_CONSUMER_REGISTRY via the deployment env). This file demonstrates a DEV consumer granted a representative subset of Track C2 write scopes (one low, one medium, one high). It is env-restricted to local/staging and is INERT until MCP_WRITE_EXECUTION_AUTHORIZED arms the matching WHMCS action on a non-prod leg (see docs/runbooks/write-capability-probe.md). Keep it client-agnostic.",
+    "id": "c2_dev_writer",
+    "token_sha256": "REPLACE_WITH_SHA256_OF_A_RANDOM_DEV_TOKEN_0000000000000000000000",
+    "allowedScopes": ["read"],
+    "defaultContract": "ops_operator",
+    "allowedContracts": ["ops_operator"],
+    "allowedActions": [
+      "get_client_details",
+      "get_service_details",
+      "get_ticket_thread",
+      "get_invoice",
+      "list_client_services"
+    ],
+    "writeCapability": "execution_allowed",
+    "allowedWriteScopes": [
+      "ticket:note",
+      "client:contact:add",
+      "billing:quote:accept"
+    ],
+    "envRestrictions": ["local", "staging"],
+    "anonymous": false
+  }
+]

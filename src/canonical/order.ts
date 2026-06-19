@@ -1,7 +1,7 @@
 /**
  * Canonical mapper — WHMCS GetOrders order row → Canonical<CanonicalOrder>.
  * Unwraps orders.order + lineitems.lineitem. COMPLETE; projection happens at
- * the output boundary. See docs/PHASE_B_GOVERNANCE.md §3.
+ * the output boundary. See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

@@ -2,7 +2,7 @@
  * Canonical mapper — WHMCS GetClientsProducts product row →
  * Canonical<CanonicalService>. Unwraps products.product + customfields.
  * COMPLETE; credentials are classified secret.credential (dropped at the
- * projection boundary in every prod contract). See PHASE_B_GOVERNANCE.md §3.
+ * projection boundary in every prod contract). See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

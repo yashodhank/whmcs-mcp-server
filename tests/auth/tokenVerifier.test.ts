@@ -1,6 +1,6 @@
 /**
  * Unit tests for the OAuth 2.1 access-token verifier
- * (src/auth/tokenVerifier.ts, Component 2 of docs/OAUTH_DESIGN.md).
+ * (src/auth/tokenVerifier.ts, Component 2 of docs/design/oauth.md).
  *
  * Fully self-contained / NO NETWORK: we generate an RS256 keypair with
  * `jose.generateKeyPair`, sign JWTs with `jose.SignJWT`, and inject a LOCAL

@@ -9,12 +9,12 @@
 > keystone invariant, verified by `tests/write/executionGate.test.ts`.
 > **No production action is ungated by this document.** Ungating any production
 > action is a separate, explicitly-authorized decision (currently **NO-GO** —
-> see `docs/phase-i-controlled-writes-recommendation.md`). This file is the
+> see `docs/design/controlled-writes-phase-i.md`). This file is the
 > design-of-record AND the accurate description of what is built; when the code
 > and this doc disagree, the code wins and this doc must be corrected.
 >
 > Naming: "Phase F" is the design; "Phase G+" is the shipped implementation and
-> the tiered-friction governance decided in `docs/DECISIONS.md` (2026-06-03).
+> the tiered-friction governance decided in `docs/design/decisions.md` (2026-06-03).
 > They share this document.
 
 ## 0. Principles
@@ -24,7 +24,7 @@
   human approval + monetary caps all line up. Default `MCP_MODE=read_only`
   blocks all execution on its own.
 - **Risk-proportionate friction (tiered).** Friction matches risk, it is not
-  uniform (DECISIONS.md 2026-06-03). LOW/MEDIUM scopes are *audit-gated*: they
+  uniform (decisions.md 2026-06-03). LOW/MEDIUM scopes are *audit-gated*: they
   execute once the consumer is `execution_allowed` and the universal safety
   gates pass (kill switch off, not read_only, intent approved, no replay, action
   not permanently blocked) — no per-action allowlist required. HIGH-RISK scopes
@@ -238,10 +238,10 @@ authorization should be *granted*, not the order in which code is written:
 6. **Service / domain / payment writes** — last; highest risk; per-action human
    approval + caps + post-verify + compensation runbook required. Money/
    destructive shapes should be capability-probed on a dev WHMCS first (see
-   `docs/write-capability-probe-runbook.md`).
+   `docs/runbooks/write-capability-probe.md`).
 
 Today, **zero** production actions are ungated; the active recommendation
-(`docs/phase-i-controlled-writes-recommendation.md`) is NO-GO pending a Phase H.1
+(`docs/design/controlled-writes-phase-i.md`) is NO-GO pending a Phase H.1
 authoritative-projection re-pilot, after which `client_note:write` alone is the
 first candidate.
 
@@ -250,7 +250,7 @@ first candidate.
 Recorded so future reviewers don't re-litigate settled tradeoffs, and so genuine
 debt is tracked:
 
-- **Deliberate (do not "simplify" away):** tiered-friction (DECISIONS.md
+- **Deliberate (do not "simplify" away):** tiered-friction (decisions.md
   2026-06-03); the dual `PROD_NEVER_EXECUTABLE` action-set *and* scope-set
   (needed because scopes share actions); action-OR-scope allowlist grants;
   `scope` in the idempotency material; in-memory `IntentStore` (re-drafted on

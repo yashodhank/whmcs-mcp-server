@@ -2,7 +2,7 @@
  * Canonical mapper — WHMCS GetActivityLog row → Canonical<CanonicalActivity>.
  * Also exposes mapToCanonicalActivities for the activity.entry wrapper
  * (numeric-keyed / single-object / empty). COMPLETE; projection later.
- * See docs/PHASE_B_GOVERNANCE.md §3 (activity/audit lines → system.audit).
+ * See docs/design/governance.md §3 (activity/audit lines → system.audit).
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

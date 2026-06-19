@@ -20,9 +20,9 @@ MCP host → src/index.ts
   └─ whmcs/WhmcsClient
 ```
 
-**Governance (Phase B, opt-in):** Set `MCP_GOVERNANCE_ENABLED=true` and configure `MCP_CONSUMER_REGISTRY` (SHA-256 of bearer tokens only — never commit raw tokens). When off (default), legacy tool output paths remain for backward compatibility. See [docs/PHASE_B_GOVERNANCE.md](docs/PHASE_B_GOVERNANCE.md).
+**Governance (Phase B, opt-in):** Set `MCP_GOVERNANCE_ENABLED=true` and configure `MCP_CONSUMER_REGISTRY` (SHA-256 of bearer tokens only — never commit raw tokens). When off (default), legacy tool output paths remain for backward compatibility. See [docs/design/governance.md](docs/design/governance.md).
 
-**Controlled writes (Phase F–G+):** Mutations that bypass simple `MCP_MODE=full` use the write-flow tools (`draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent`). Production execution is **deny-by-default** unless explicitly allowlisted (`MCP_PROD_WRITE_AUTHORIZED`, caps, audit path). See [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md) (implemented; sealed by default) and [docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md](docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md).
+**Controlled writes (Phase F–G+):** Mutations that bypass simple `MCP_MODE=full` use the write-flow tools (`draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent`). Production execution is **deny-by-default** unless explicitly allowlisted (`MCP_PROD_WRITE_AUTHORIZED`, caps, audit path). See [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) (implemented; sealed by default) and [docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md](docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md).
 
 ## Tool families (where to edit)
 
@@ -61,7 +61,7 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `MCP_MODE` | `read_only` (default), `simulate`, `full` — legacy direct mutators. |
 | `MCP_ACCESS_MODE` | `admin` or scoped `client` + `MCP_ALLOWED_CLIENT_IDS`. |
 | `MCP_GOVERNANCE_ENABLED` | Opt-in projection boundary. |
-| `MCP_CONSUMER_REGISTRY` | JSON array with `token_sha256` — see [docs/consumer-registry.example.md](docs/consumer-registry.example.md). |
+| `MCP_CONSUMER_REGISTRY` | JSON array with `token_sha256` — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md). |
 | `MCP_CLIENT_CUSTOM_FIELD_LABELS` | `id:label` pairs for stable custom-field names in client output. |
 | `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. |
 
@@ -77,7 +77,7 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `scripts/mcp-exposure-audit.mjs` | Exposure audit harness. |
 | `scripts/whmcs-ip-updater/` | Optional API IP allowlist updater (ops). |
 
-Local dual-WHMCS stack: [docs/local-whmcs-testing.md](docs/local-whmcs-testing.md). Operator troubleshooting: [docs/ai-agent-local-runbook.md](docs/ai-agent-local-runbook.md).
+Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md). Operator troubleshooting: [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md).
 
 ## Safety rules for agents editing this repo
 
@@ -85,7 +85,7 @@ Local dual-WHMCS stack: [docs/local-whmcs-testing.md](docs/local-whmcs-testing.m
 2. **Preserve stdio contract** — no `console.log` on stdout; use `Logger` → stderr.
 3. **Minimal diffs** — match existing patterns in the tool module you touch.
 4. **Tests** — add/adjust Vitest for behavior changes; run `npm run typecheck && npm test` before PR.
-5. **WHMCS 9** — invoice immutability and credit/debit notes: read [docs/whmcs9-credit-debit-notes.md](docs/whmcs9-credit-debit-notes.md) before billing/write changes.
+5. **WHMCS 9** — invoice immutability and credit/debit notes: read [docs/reference/whmcs9-credit-debit-notes.md](docs/reference/whmcs9-credit-debit-notes.md) before billing/write changes.
 6. **Do not commit** `.cursor/hooks/state/` or other IDE-local paths.
 
 ## Documentation map
@@ -93,11 +93,12 @@ Local dual-WHMCS stack: [docs/local-whmcs-testing.md](docs/local-whmcs-testing.m
 | Doc | When to read |
 |-----|----------------|
 | [README.md](README.md) | Install, MCP config, tool catalog summary |
-| [docs/PHASE_B_GOVERNANCE.md](docs/PHASE_B_GOVERNANCE.md) | Consumer contracts & projection |
-| [docs/capability-probe-runbook.md](docs/capability-probe-runbook.md) | Promoting verified capabilities |
-| [docs/phase-i-controlled-writes-recommendation.md](docs/phase-i-controlled-writes-recommendation.md) | Production write GO/NO-GO |
-| [docs/whmcs-mcp-production-test-program.md](docs/whmcs-mcp-production-test-program.md) | Reliability / RCA test program |
-| [docs/cursor-skills.md](docs/cursor-skills.md) | Recommended Cursor skills |
+| [docs/README.md](docs/README.md) | Full doc-map index (design / runbooks / reference / archive) |
+| [docs/design/governance.md](docs/design/governance.md) | Consumer contracts & projection |
+| [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md) | Promoting verified capabilities |
+| [docs/design/controlled-writes-phase-i.md](docs/design/controlled-writes-phase-i.md) | Production write GO/NO-GO |
+| [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program |
+| [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md) | Recommended Cursor skills |
 | [examples/README.md](examples/README.md) | `structuredContent` integration patterns |
 
 ## Cursor / rules

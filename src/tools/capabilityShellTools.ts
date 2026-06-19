@@ -3,7 +3,7 @@
  *
  * These five WHMCS actions (GetTransactions/GetStats/GetUsers/GetToDoItems/
  * GetAutomationLog) are intentionally NOT in the read allowlist and are
- * B4-seeded `unverified`. Per docs/PHASE_B_GOVERNANCE.md §6 and the user
+ * B4-seeded `unverified`. Per docs/design/governance.md §6 and the user
  * spec we register honest *capability shells*: schema-validated, governed
  * tools that consult the B4 capability registry and return a structured
  * `capability_unavailable` status. They NEVER call WHMCS, NEVER fake data,
