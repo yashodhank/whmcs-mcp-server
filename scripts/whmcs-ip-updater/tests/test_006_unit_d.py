@@ -47,6 +47,7 @@ def _make_cfg(tmp_path, **overrides):
         "ssh_user": "whmcs-ip-updater",
         "ssh_port": 22,
         "ssh_key": None,
+        "ssh_known_hosts": None,
         "ssh_timeout": 15,
         "ssh_retries": 1,
         "ssh_retry_backoff_seconds": 0.0,
