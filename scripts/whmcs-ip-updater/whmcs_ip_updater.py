@@ -82,6 +82,7 @@ class AppConfig:
     ssh_user: str
     ssh_port: int
     ssh_key: Optional[str]
+    ssh_known_hosts: Optional[str]
     ssh_timeout: int
     ssh_retries: int
     ssh_retry_backoff_seconds: float
@@ -198,7 +199,14 @@ class SshClient:
             str(self.cfg.ssh_port),
         ]
         if self.cfg.ssh_key:
-            cmd.extend(["-i", self.cfg.ssh_key])
+            cmd.extend(["-i", os.path.expanduser(self.cfg.ssh_key)])
+        if self.cfg.ssh_known_hosts:
+            cmd.extend([
+                "-o",
+                f"UserKnownHostsFile={os.path.expanduser(self.cfg.ssh_known_hosts)}",
+                "-o",
+                "StrictHostKeyChecking=yes",
+            ])
         cmd.append(f"{self.cfg.ssh_user}@{self.cfg.ssh_host}")
         cmd.append(remote_command)
 
@@ -705,6 +713,16 @@ def load_args(argv: Iterable[str]) -> AppConfig:
     parser.add_argument("--ssh-user", required=False, default=os.getenv("WHMCS_SSH_USER", "whmcs-ip-updater"))
     parser.add_argument("--ssh-port", type=int, default=int(os.getenv("WHMCS_SSH_PORT", "22")))
     parser.add_argument("--ssh-key", default=os.getenv("WHMCS_SSH_KEY"))
+    parser.add_argument(
+        "--ssh-known-hosts",
+        default=os.getenv("WHMCS_SSH_KNOWN_HOSTS"),
+        help=(
+            "Path to a known_hosts file for the remote host. When set, ssh uses "
+            "it (UserKnownHostsFile) with StrictHostKeyChecking=yes — useful when "
+            "the audited host key lives outside the default ~/.ssh/known_hosts. "
+            "Defaults to the WHMCS_SSH_KNOWN_HOSTS environment variable."
+        ),
+    )
     parser.add_argument("--ssh-timeout", type=int, default=int(os.getenv("WHMCS_SSH_TIMEOUT", "15")))
     parser.add_argument("--ssh-retries", type=int, default=int(os.getenv("WHMCS_SSH_RETRIES", "3")))
     parser.add_argument("--ssh-retry-backoff-seconds", type=float, default=float(os.getenv("WHMCS_SSH_RETRY_BACKOFF", "1.5")))
@@ -790,6 +808,7 @@ def load_args(argv: Iterable[str]) -> AppConfig:
         ssh_user=ns.ssh_user,
         ssh_port=ns.ssh_port,
         ssh_key=ns.ssh_key,
+        ssh_known_hosts=ns.ssh_known_hosts,
         ssh_timeout=ns.ssh_timeout,
         ssh_retries=ns.ssh_retries,
         ssh_retry_backoff_seconds=ns.ssh_retry_backoff_seconds,
