@@ -29,8 +29,8 @@ import {
   type GovernedToolResult,
 } from '../governance/pipeline.js';
 // Import directly from the source module rather than the canonical barrel:
-// src/canonical/index.ts is owned by another agent and may not yet re-export
-// these mappers. The direct path keeps this tool self-contained.
+// src/canonical/index.ts does not re-export these system-reference mappers;
+// the direct path keeps this tool self-contained.
 import {
   mapToCanonicalCurrencies,
   mapToCanonicalPaymentMethods,
