@@ -269,7 +269,25 @@ export class WhmcsClient {
 
         // Check for WHMCS business error
         if (data.result === 'error') {
-          throw new WhmcsBusinessError(data.message || 'Unknown WHMCS error', undefined, data);
+          let message = data.message || 'Unknown WHMCS error';
+          // Self-diagnosing hint for the most time-expensive failure mode: WHMCS
+          // returns "An admin user is required" (HTTP 200) when an authenticated
+          // request can't establish an admin context — classically because the
+          // request hit /includes/api.php/includes/api.php (WHMCS_API_URL already
+          // contained the API path and it was appended again), but also a
+          // disabled/under-permissioned admin or an IP-allowlist block. Surface
+          // the actionable checks + the resolved endpoint so this is never a
+          // multi-hour debug again.
+          if (/an admin user is required/i.test(message)) {
+            message +=
+              ` — the API request could not establish an admin context. Check, in order: ` +
+              `(1) WHMCS_API_URL is the base origin, NOT the full /includes/api.php endpoint ` +
+              `(resolved endpoint: ${getWhmcsApiEndpoint()}); ` +
+              `(2) the credential's linked admin is active with sufficient role permissions; ` +
+              `(3) the caller IP is in the WHMCS API allowlist. ` +
+              `See docs/runbooks/api-connectivity-troubleshooting.md`;
+          }
+          throw new WhmcsBusinessError(message, undefined, data);
         }
 
         // Normalize response if enabled

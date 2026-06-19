@@ -370,6 +370,17 @@ const configSchema = z
             'WHMCS_API_URL must not target localhost, private, or link-local addresses when MCP_ENV is not local (use MCP_ENV=local for dockerized dev).',
         });
       }
+      // DX: tolerated by resolveWhmcsApiEndpoint(), but warn so the operator fixes
+      // the env — a doubled "/includes/api.php" path historically caused a silent
+      // total-API outage ("An admin user is required" on every call).
+      if (/\/includes\/api\.php\/?$/i.test(parsedUrl.pathname)) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[config] WHMCS_API_URL includes "/includes/api.php"; expected the base origin ' +
+            '(e.g. https://billing.example.com). It will be normalized, but set the base URL to avoid ambiguity. ' +
+            'See docs/runbooks/api-connectivity-troubleshooting.md'
+        );
+      }
     }
 
     if (val.MCP_ACCESS_MODE === 'client' && val.MCP_ALLOWED_CLIENT_IDS.length === 0) {
@@ -413,9 +424,30 @@ export const config = loadConfig();
 /**
  * Get the full WHMCS API endpoint URL
  */
+/**
+ * Normalize a configured WHMCS base URL into the full legacy API endpoint.
+ *
+ * Tolerant by design: operators frequently paste the *full* endpoint
+ * (`https://host/includes/api.php`) or add trailing slashes. Appending the API
+ * path unconditionally then produces `/includes/api.php/includes/api.php`, which
+ * WHMCS serves with HTTP 200 but routes to an admin-session handler — surfacing
+ * the misleading `"An admin user is required"` for every call, before the
+ * credential is ever validated. This accepts either the base origin or the full
+ * endpoint and always returns the correct single-path endpoint. Pure + exported
+ * for testing. See docs/runbooks/api-connectivity-troubleshooting.md.
+ */
+export function resolveWhmcsApiEndpoint(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, ''); // strip whitespace + trailing slashes
+  // Already a full endpoint? Don't append it again (case-insensitive on the path).
+  if (/\/includes\/api\.php$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/includes/api.php`;
+}
+
+/**
+ * Get the full WHMCS API endpoint URL from the active config.
+ */
 export function getWhmcsApiEndpoint(): string {
-  const baseUrl = config.WHMCS_API_URL.replace(/\/$/, ''); // Remove trailing slash
-  return `${baseUrl}/includes/api.php`;
+  return resolveWhmcsApiEndpoint(config.WHMCS_API_URL);
 }
 
 /**
