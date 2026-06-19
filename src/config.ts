@@ -95,6 +95,10 @@ const configSchema = z
     // MCP Server Configuration
     MCP_ENV: z.enum(['local', 'staging', 'production']).default('production'),
     MCP_MODE: z.enum(['read_only', 'simulate', 'full']).default('read_only'),
+    // Boot-time WHMCS connectivity + auth probe. `warn` (default) probes
+    // non-blocking and logs an actionable hint on failure; `strict` exits the
+    // process on failure (catch misconfig at deploy); `off` skips the probe.
+    MCP_STARTUP_HEALTHCHECK: z.enum(['off', 'warn', 'strict']).default('warn'),
     MCP_RATE_LIMIT: z.coerce.number().int().positive().default(10),
     MCP_DEBUG: z.preprocess((val) => val === 'true' || val === '1', z.boolean().default(false)),
     MCP_MAX_PAGE_SIZE: z.coerce.number().int().positive().max(500).default(100),
