@@ -15,9 +15,10 @@ import { stripAuthFromUri } from '../security.js';
 export const WHMCS_COMPAT_9X = `
 # WHMCS 8.13 ↔ 9.x Compatibility
 
-> Scope: this MCP is **read-only**. All read tools/aggregators work on both
-> branches. The items below are forward-looking concerns — primarily for
-> future write tooling (not built here) and for reconciliation consumers.
+> Scope: this MCP is **read-heavy with a sealed-by-default governed
+> write-flow**. All read tools/aggregators work on both branches. The items
+> below apply to the governed write scopes (sealed by default in production)
+> and to reconciliation consumers.
 
 ## Verified facts
 
@@ -48,9 +49,10 @@ export const WHMCS_COMPAT_9X = `
   credit/debit notes. \`get_reconciliation_snapshot\` currently summarises
   invoices and reports transactions as a capability-gated unavailable section;
   credit/debit-note inclusion is a 9.x follow-up gated the same way.
-- **Future write tooling (NOT built here)**: must treat non-draft invoices as
-  immutable on 9.x and issue credit/debit notes instead of editing invoices.
-  Production writes remain **disabled** in this engagement.
+- **Governed write-flow (sealed by default)**: the controlled write-flow and
+  workflow tools draft governed intents; production execution is sealed by
+  default. On 9.x, write paths must treat non-draft invoices as immutable and
+  issue credit/debit notes instead of editing invoices.
 
 ## Guidance
 
