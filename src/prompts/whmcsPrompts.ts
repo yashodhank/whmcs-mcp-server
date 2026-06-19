@@ -219,4 +219,207 @@ Workflow:
    recommend renewals for human action.
 `)
   );
+
+  // ============================================================
+  // 6. dunning_sweep
+  // ============================================================
+  server.registerPrompt(
+    'dunning_sweep',
+    {
+      title: 'Dunning sweep (draft-only AR follow-up)',
+      description:
+        'Find overdue accounts and DRAFT a per-client dunning action (reminder note, optional goodwill credit) — never mutates.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe('Optional WHMCS client id to scope the dunning sweep.'),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are running a dunning sweep over overdue accounts. ${scopeHint(clientid)}
+
+GOVERNANCE — any follow-up here is a mutation. You MUST NOT mutate directly; every proposed
+change MUST be routed through \`draft_write_intent\`. This workflow STOPS at the draft —
+execution is OUT OF SCOPE. Production is sealed by default, so you must not assume any draft
+will be executed. Do not approve or execute any drafted intent here.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_accounts_receivable_aging\`${clientid ? ` for client ${clientid}` : ''} to identify
+   clients carrying a 30+ / 60+ / 90+ days overdue balance. Record the oldest bucket per client.
+2. For EACH overdue client, call \`get_billing_snapshot\` to confirm the current unpaid/overdue
+   total and capture the overdue invoice id(s).
+3. For that same client, call \`get_support_snapshot\` — if an OPEN billing-dispute ticket
+   exists, SKIP the nudge and FLAG the client for human review (do NOT draft anything).
+4. For each remaining overdue client, DRAFT a dunning action via \`draft_write_intent\`:
+   - a reminder note with scope \`client_note:write\` (LOW risk) referencing the overdue
+     invoice id(s) and the oldest aging bucket; and
+   - OPTIONALLY, where policy allows goodwill, a \`billing:credit:add\` DRAFT. This is HIGH
+     risk and sealed in production by default: it only ever proceeds through the full
+     validate -> human approval -> execute ceremony with caps. This prompt STOPS at the
+     draft; do not run that ceremony here.
+
+STRUCTURED OUTPUT:
+  (a) an AR summary by bucket (current / 30 / 60 / 90+ totals);
+  (b) a per-client table of \`{clientid, overdue_total, oldest_bucket, dispute_open?,
+      drafted_intent_ids[]}\`;
+  (c) a "next actions" list.
+Read-only except for the governed drafts above.
+`)
+  );
+
+  // ============================================================
+  // 7. renewal_risk_triage
+  // ============================================================
+  server.registerPrompt(
+    'renewal_risk_triage',
+    {
+      title: 'Renewal risk triage (draft-only)',
+      description:
+        'Rank upcoming service+domain renewals by churn risk and DRAFT reminder tickets for at-risk ones — never auto-renews.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe('Optional WHMCS client id to scope the renewal triage.'),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are triaging upcoming renewals by churn risk. ${scopeHint(clientid)}
+
+GOVERNANCE — NEVER auto-renew and NEVER charge. The ONLY proposed mutation is a
+\`ticket:create\` DRAFT routed through \`draft_write_intent\`. This workflow STOPS at the
+draft; do not approve or execute any intent. Renewals themselves are recommended for human
+action, never drafted. Do NOT draft any renewal/charge scope (registrar renew, service
+upgrade, or any billing write) — those are HIGH-risk money actions and out of scope.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_renewal_snapshot\`${clientid ? ` for client ${clientid}` : ''} to load upcoming
+   service + domain renewals in the window (default next 30 days; you may widen it). Capture
+   \`{client, item, type, due/expiry date, days_remaining, auto_renew?, amount}\`.
+2. For each client with an upcoming renewal, call \`get_risk_snapshot\` and capture risk
+   signals. Classify a renewal as \`at_risk\` if risk flags exist OR auto-renew is off.
+3. For \`at_risk\` clients, call \`get_billing_snapshot\` to confirm whether a payment method
+   or recent paid invoice exists (a missing one raises the priority).
+4. For each \`at_risk\` renewal, DRAFT a reminder ticket via \`draft_write_intent\` with scope
+   \`ticket:create\` (LOW risk), the subject/body referencing the item and due date. Dedup:
+   one ticket per client per renewal window.
+
+STRUCTURED OUTPUT:
+  (a) a ranked table \`{clientid, item, type, days_remaining, auto_renew, risk_flags,
+      payment_on_file?, priority, drafted_ticket_intent_id}\`, sorted soonest-expiry-first
+      then by risk;
+  (b) a "recommend for human action" list of renewals (not drafted — renewals stay a human
+      decision).
+`)
+  );
+
+  // ============================================================
+  // 8. ticket_triage_to_resolution
+  // ============================================================
+  server.registerPrompt(
+    'ticket_triage_to_resolution',
+    {
+      title: 'Ticket triage to resolution (draft-only)',
+      description:
+        'Triage the open-ticket queue, read each thread + account context, and DRAFT a reply/note/status change — never executes.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe(
+            'Optional WHMCS client id to scope the ticket queue to one client.',
+          ),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are triaging the open-ticket queue toward resolution. ${scopeHint(clientid)}
+
+GOVERNANCE — you MUST NOT mutate directly; every change MUST be routed through
+\`draft_write_intent\`. This workflow STOPS at the draft — do not approve or execute any
+intent. Customer-visible replies are HUMAN-GATED: follow the ops-playbook escalation pattern
+and draft a customer reply only after a human has reviewed it; prefer an internal note for
+anything sensitive.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_support_snapshot\`${clientid ? ` for client ${clientid}` : ''} to list OPEN /
+   customer-awaiting tickets${clientid ? '' : ' across the portfolio'}. For each capture
+   \`{ticketid, subject, dept, status, lastreply}\`.
+2. For each open ticket, call \`get_ticket_thread\` (by ticket id) to read the full thread —
+   initial message + replies + internal notes — and understand the ask.
+3. For the ticket's client, call \`get_account_360\` to pull context (services / invoices /
+   risk) that should inform the response.
+4. Decide and DRAFT, via \`draft_write_intent\`, the SMALLEST appropriate action:
+   - an internal \`ticket:note\` (LOW) summarizing findings for a human; and/or
+   - a \`ticket:reply\` (LOW) DRAFTED for human review — per the escalation pattern, draft as
+     an internal/AdminNote first; a customer-visible reply is sent only after human approval;
+     and/or
+   - a \`ticket:status\` change (MEDIUM). Confirm this MEDIUM draft INLINE via the write-flow's
+     own Elicitation (\`elicitInput\`) confirm — do NOT invent a free-text "are you sure"
+     step; rely on the write-flow's elicit prompt.
+
+STRUCTURED OUTPUT:
+  a per-ticket table \`{ticketid, subject, proposed_action, scope, risk, drafted_intent_id,
+  needs_human_review?}\`, plus a short triage summary (counts by proposed action).
+`)
+  );
+
+  // ============================================================
+  // 9. month_end_close
+  // ============================================================
+  server.registerPrompt(
+    'month_end_close',
+    {
+      title: 'Month-end close (with-drafts)',
+      description:
+        'Full month-end CLOSE: reconcile + AR-age + revenue + export, then DRAFT a client_note annotation per flagged discrepancy — never executes.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe('Optional WHMCS client id to scope the close.'),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are running the WITH-DRAFTS month-end close. ${scopeHint(clientid)}
+
+This is the close that leaves an audit trail. For a quick, no-write review use the read-only
+\`month_end_reconciliation\` prompt instead — this prompt extends it with a revenue view, an
+export artifact, and a DRAFTED audit annotation per discrepancy.
+
+GOVERNANCE — the ONLY proposed mutation is a \`client_note:write\` DRAFT annotation, routed
+through \`draft_write_intent\`. This workflow STOPS at the draft — do not approve or execute
+any intent. NEVER draft any billing/money scope: ledger corrections are recommended for human
+action, never drafted; the close only ANNOTATES.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_reconciliation_snapshot\`${clientid ? ` for client ${clientid}` : ''} to get the
+   invoice<->transaction view; capture flagged discrepancies
+   \`{invoice_id, expected, actual, delta, clientid}\`.
+2. Call \`get_accounts_receivable_aging\` to capture AR totals per bucket (current / 30 / 60 /
+   90+).
+3. Call \`get_revenue_report\` to capture the period revenue for the close summary.
+4. Call \`get_reconciliation_export\` to produce the exportable reconciliation dataset — this
+   export is the artifact to file in the finance record.
+5. For EACH flagged discrepancy, DRAFT an audit annotation via \`draft_write_intent\` with
+   scope \`client_note:write\` (LOW), the note body citing the invoice id, expected vs actual,
+   and the delta.
+
+STRUCTURED OUTPUT:
+  (a) close summary — matched count, total flagged, AR by bucket, period revenue, export
+      reference;
+  (b) a discrepancy table \`{invoice_id, clientid, expected, actual, delta,
+      drafted_note_intent_id}\`;
+  (c) a "recommend for human action" corrections list (ledger corrections stay a human
+      decision — not drafted).
+`)
+  );
 }
