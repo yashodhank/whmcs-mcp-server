@@ -36,6 +36,10 @@ const ALL_PROMPTS = [
   'suspend_for_nonpayment',
   'new_client_onboarding',
   'domain_renewal_review',
+  'dunning_sweep',
+  'renewal_risk_triage',
+  'ticket_triage_to_resolution',
+  'month_end_close',
 ];
 
 function firstText(res: ReturnType<PromptCb>): string {
@@ -43,7 +47,7 @@ function firstText(res: ReturnType<PromptCb>): string {
 }
 
 describe('registerWhmcsPrompts', () => {
-  it('registers exactly the five expected prompts', () => {
+  it('registers exactly the expected prompts', () => {
     const { server, prompts } = makeServer();
     registerWhmcsPrompts(server);
     expect(Object.keys(prompts).sort()).toEqual([...ALL_PROMPTS].sort());
@@ -120,6 +124,63 @@ describe('registerWhmcsPrompts', () => {
     expect(text).toContain('get_domain_portfolio_snapshot');
     expect(text).toContain('30');
     expect(text.toLowerCase()).toContain('renewal cost');
+  });
+
+  it('dunning_sweep chains AR aging + billing + support and drafts only', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(prompts.dunning_sweep.cb({ clientid: '7' }));
+    expect(text).toContain('get_accounts_receivable_aging');
+    expect(text).toContain('get_billing_snapshot');
+    expect(text).toContain('get_support_snapshot');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('client_note:write');
+    // governance: it must NOT instruct execution
+    expect(text).not.toContain('execute_write_intent');
+  });
+
+  it('renewal_risk_triage ranks renewals by risk and never auto-renews', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(prompts.renewal_risk_triage.cb({ clientid: '7' }));
+    expect(text).toContain('get_renewal_snapshot');
+    expect(text).toContain('get_risk_snapshot');
+    expect(text).toContain('get_billing_snapshot');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('ticket:create');
+    // governance: never auto-renew / never execute
+    expect(text).not.toContain('domain:renew');
+    expect(text).not.toContain('execute_write_intent');
+  });
+
+  it('ticket_triage_to_resolution chains queue+thread+360 and uses elicitation', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(
+      prompts.ticket_triage_to_resolution.cb({ clientid: '7' }),
+    );
+    expect(text).toContain('get_support_snapshot');
+    expect(text).toContain('get_ticket_thread');
+    expect(text).toContain('get_account_360');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('ticket:status');
+    expect(text.toLowerCase()).toContain('elicit'); // Elicitation convention surfaced
+    // governance
+    expect(text).not.toContain('execute_write_intent');
+  });
+
+  it('month_end_close runs the full close and drafts annotations only', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(prompts.month_end_close.cb({}));
+    expect(text).toContain('get_reconciliation_snapshot');
+    expect(text).toContain('get_accounts_receivable_aging');
+    expect(text).toContain('get_revenue_report');
+    expect(text).toContain('get_reconciliation_export');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('client_note:write');
+    // governance: annotate only, never execute, never touch billing writes
+    expect(text).not.toContain('execute_write_intent');
   });
 
   it('clientid arg flows into the rendered body when supplied', () => {
