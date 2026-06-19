@@ -317,4 +317,56 @@ STRUCTURED OUTPUT:
       decision).
 `)
   );
+
+  // ============================================================
+  // 8. ticket_triage_to_resolution
+  // ============================================================
+  server.registerPrompt(
+    'ticket_triage_to_resolution',
+    {
+      title: 'Ticket triage to resolution (draft-only)',
+      description:
+        'Triage the open-ticket queue, read each thread + account context, and DRAFT a reply/note/status change — never executes.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe(
+            'Optional WHMCS client id to scope the ticket queue to one client.',
+          ),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are triaging the open-ticket queue toward resolution. ${scopeHint(clientid)}
+
+GOVERNANCE — you MUST NOT mutate directly; every change MUST be routed through
+\`draft_write_intent\`. This workflow STOPS at the draft — do not approve or execute any
+intent. Customer-visible replies are HUMAN-GATED: follow the ops-playbook escalation pattern
+and draft a customer reply only after a human has reviewed it; prefer an internal note for
+anything sensitive.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_support_snapshot\`${clientid ? ` for client ${clientid}` : ''} to list OPEN /
+   customer-awaiting tickets${clientid ? '' : ' across the portfolio'}. For each capture
+   \`{ticketid, subject, dept, status, lastreply}\`.
+2. For each open ticket, call \`get_ticket_thread\` (by ticket id) to read the full thread —
+   initial message + replies + internal notes — and understand the ask.
+3. For the ticket's client, call \`get_account_360\` to pull context (services / invoices /
+   risk) that should inform the response.
+4. Decide and DRAFT, via \`draft_write_intent\`, the SMALLEST appropriate action:
+   - an internal \`ticket:note\` (LOW) summarizing findings for a human; and/or
+   - a \`ticket:reply\` (LOW) DRAFTED for human review — per the escalation pattern, draft as
+     an internal/AdminNote first; a customer-visible reply is sent only after human approval;
+     and/or
+   - a \`ticket:status\` change (MEDIUM). Confirm this MEDIUM draft INLINE via the write-flow's
+     own Elicitation (\`elicitInput\`) confirm — do NOT invent a free-text "are you sure"
+     step; rely on the write-flow's elicit prompt.
+
+STRUCTURED OUTPUT:
+  a per-ticket table \`{ticketid, subject, proposed_action, scope, risk, drafted_intent_id,
+  needs_human_review?}\`, plus a short triage summary (counts by proposed action).
+`)
+  );
 }

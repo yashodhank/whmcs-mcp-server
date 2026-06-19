@@ -38,6 +38,7 @@ const ALL_PROMPTS = [
   'domain_renewal_review',
   'dunning_sweep',
   'renewal_risk_triage',
+  'ticket_triage_to_resolution',
 ];
 
 function firstText(res: ReturnType<PromptCb>): string {
@@ -148,6 +149,22 @@ describe('registerWhmcsPrompts', () => {
     expect(text).toContain('ticket:create');
     // governance: never auto-renew / never execute
     expect(text).not.toContain('domain:renew');
+    expect(text).not.toContain('execute_write_intent');
+  });
+
+  it('ticket_triage_to_resolution chains queue+thread+360 and uses elicitation', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(
+      prompts.ticket_triage_to_resolution.cb({ clientid: '7' }),
+    );
+    expect(text).toContain('get_support_snapshot');
+    expect(text).toContain('get_ticket_thread');
+    expect(text).toContain('get_account_360');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('ticket:status');
+    expect(text.toLowerCase()).toContain('elicit'); // Elicitation convention surfaced
+    // governance
     expect(text).not.toContain('execute_write_intent');
   });
 
