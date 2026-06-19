@@ -357,7 +357,14 @@ export const PROD_NEVER_EXECUTABLE_SCOPES: ReadonlySet<string> = new Set<string>
 
 /** Recorded human approval for a high-risk (money) production action. */
 export interface HumanApprovalRecord {
+  /** Free-form approver label (caller-supplied; audit annotation only). */
   readonly approver: string;
+  /**
+   * The AUTHENTICATED consumer id that recorded this approval. Identity-bound,
+   * server-derived (never caller-supplied). Used to enforce separation of
+   * duties: for high-risk intents the approver must differ from the drafter.
+   */
+  readonly approver_consumer_id: string;
   readonly at: string;
 }
 
@@ -412,6 +419,13 @@ export interface ExecutionRequest {
    * Sourced from `MCP_WRITE_STRICT_SCOPES`. Default-empty here.
    */
   readonly strictScopes?: readonly string[];
+  /**
+   * Separation-of-duties lever. Default false ⇒ the distinct-approver rule is
+   * enforced for HIGH-RISK intents ONLY (always). When true, it is ALSO enforced
+   * for low/medium intents that carry an approval record. Sourced from
+   * MCP_WRITE_REQUIRE_DISTINCT_APPROVER. This can only TIGHTEN; it never loosens.
+   */
+  readonly requireDistinctApprover?: boolean;
 }
 
 export type ExecutionDeniedReason =
@@ -431,10 +445,12 @@ export type ExecutionDeniedReason =
   // Risk-tier policy.
   | 'human_approval_required'
   | 'amount_cap_exceeded'
+  | 'self_approval_forbidden'
   // Execution-stage (emitted by the write-flow, not the pure gate).
   | 'audit_write_failed'
   | 'verification_failed'
   | 'precondition_mismatch'
+  | 'scope_not_allowed' // SCOPE-3: consumer's write-scope grant revoked after approval
   | 'halt_after_target'
   | 'target_amount_cap_exceeded'
   | 'target_output_assertion_failed';

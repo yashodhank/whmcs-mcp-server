@@ -212,6 +212,16 @@ const configSchema = z
           .filter(Boolean),
       z.array(z.string()).default(['billing:invoice:create'])
     ),
+    // Separation-of-duties lever. Default TRUE ⇒ high-risk intents can never be
+    // self-approved (drafter ≠ approver), and low/medium intents that carry an
+    // approval record must also be distinctly approved. High-risk distinctness
+    // is ALWAYS enforced by the gate regardless of this flag; this flag extends
+    // the rule to low/medium approvals. Set false ONLY for single-operator dev
+    // setups where a second consumer is impractical.
+    MCP_WRITE_REQUIRE_DISTINCT_APPROVER: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(true)
+    ),
     // Empty ⇒ pure in-memory (legacy). A non-empty prod allowlist REQUIRES a
     // durable audit path (enforced below) so a production mutation is never
     // unauditable.

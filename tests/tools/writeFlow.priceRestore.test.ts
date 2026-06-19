@@ -47,7 +47,11 @@ function harness(): Harness {
 }
 
 const CAPS = { perAction: 20000, daily: 50000 };
-const APPROVAL = { approver: 'ops', at: new Date().toISOString() };
+const APPROVAL = {
+  approver: 'ops',
+  approver_consumer_id: 'pr-approver',
+  at: new Date().toISOString(),
+};
 
 describe('executePriceRestoreBatch — Phase 1 (snapshot + precondition)', () => {
   let h: Harness;
@@ -334,6 +338,7 @@ describe('executePriceRestoreBatch — Phase 2', () => {
 import { createHash } from 'node:crypto';
 
 const RAW_TOKEN = 'PRICE-RESTORE-E2E-SYNTHETIC';
+const APPROVER_TOKEN = 'PRICE-RESTORE-E2E-APPROVER-SYNTHETIC';
 const sha = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 
 beforeEach(() => {
@@ -346,6 +351,20 @@ beforeEach(() => {
       allowedContracts: ['ops_operator'],
       allowedActions: [],
       writeCapability: 'execution_allowed',
+      allowedWriteScopes: ['service:price_restore'],
+      envRestrictions: [],
+      anonymous: false,
+    },
+    {
+      // Distinct approver (plan 011 separation of duties). price_restore is
+      // always high-risk, so the drafter cannot self-approve the batch.
+      id: 'pr-approver',
+      token_sha256: sha(APPROVER_TOKEN),
+      allowedScopes: ['read'],
+      defaultContract: 'ops_operator',
+      allowedContracts: ['ops_operator'],
+      allowedActions: [],
+      writeCapability: 'approval_required',
       allowedWriteScopes: ['service:price_restore'],
       envRestrictions: [],
       anonymous: false,
@@ -433,11 +452,13 @@ describe('service:price_restore end-to-end via registered handlers', () => {
     expect(wouldCall.whmcs_params).toHaveLength(3);
 
     await handlers.validate_write_intent({ intent_id: id, ...tok });
+    // Distinct approver (separation of duties): price_restore is high-risk, so
+    // the drafter (pr-test) cannot self-approve; pr-approver signs off instead.
     await handlers.approve_write_intent({
       intent_id: id,
       approver: 'op',
       decision: 'approved',
-      ...tok,
+      auth_token: APPROVER_TOKEN,
     });
     const e = await handlers.execute_write_intent({ intent_id: id, ...tok });
     const execBody = JSON.parse(e.content[0].text) as Record<string, unknown>;

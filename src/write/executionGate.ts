@@ -42,7 +42,10 @@
  *      UpdateClientProduct) are gated independently. See `allowlistAuthorizes`.
  *   8. risk==='high':
  *        no humanApproval                    → human_approval_required
+ *        approver == drafter                 → self_approval_forbidden
  *        amount/day over caps (default 0)    → amount_cap_exceeded
+ *      risk low/medium (requireDistinctApprover + approval present):
+ *        approver == drafter                 → self_approval_forbidden
  *
  * The read-only WhmcsClient.mutate() MODE_RESTRICTED check is an independent
  * backstop beneath this gate.
@@ -183,6 +186,11 @@ export function defaultExecutionAuthorizer(
     if (req.humanApproval === undefined) {
       return deny('human_approval_required');
     }
+    // Separation of duties: a high-risk intent can never be self-approved. The
+    // approving consumer must differ from the drafting consumer.
+    if (req.humanApproval.approver_consumer_id === req.intent.consumer_id) {
+      return deny('self_approval_forbidden');
+    }
     const rawCaps = req.caps ?? ZERO_CAPS;
     // Defensive coercion: a non-finite / missing / negative cap is treated as
     // ZERO (deny), never as "unbounded". A malformed caps object must never
@@ -199,6 +207,13 @@ export function defaultExecutionAuthorizer(
     }
     if (daily <= 0 || amt.dayTotal + amt.amount > daily) {
       return deny('amount_cap_exceeded');
+    }
+  }
+  // Low/medium: enforce distinct approver only when the operator opted in AND an
+  // approval record exists (low/medium need no approval, so absence is allowed).
+  else if (req.requireDistinctApprover === true && req.humanApproval !== undefined) {
+    if (req.humanApproval.approver_consumer_id === req.intent.consumer_id) {
+      return deny('self_approval_forbidden');
     }
   }
   // medium / low: allowed once allowlisted (medium caps are a future, optional

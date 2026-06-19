@@ -305,7 +305,11 @@ describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
       prodReq({
         intent,
         prodAuthorizedActions: [intent.action],
-        humanApproval: { approver: 'ops@securiace', at: new Date().toISOString() },
+        humanApproval: {
+          approver: 'ops@securiace',
+          approver_consumer_id: 'c2',
+          at: new Date().toISOString(),
+        },
         amountContext: { amount: 50, dayTotal: 0 },
         // caps omitted ⇒ default { 0, 0 }
       }),
@@ -320,7 +324,7 @@ describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
       prodReq({
         intent,
         prodAuthorizedActions: [intent.action],
-        humanApproval: { approver: 'ops', at: 'now' },
+        humanApproval: { approver: 'ops', approver_consumer_id: 'c2', at: 'now' },
         caps: { perAction: 100, daily: 1000 },
         // amountContext omitted
       }),
@@ -335,7 +339,7 @@ describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
       prodReq({
         intent,
         prodAuthorizedActions: [intent.action],
-        humanApproval: { approver: 'ops', at: 'now' },
+        humanApproval: { approver: 'ops', approver_consumer_id: 'c2', at: 'now' },
         amountContext: { amount: 250, dayTotal: 0 },
         caps: { perAction: 100, daily: 1000 },
       }),
@@ -350,7 +354,7 @@ describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
       prodReq({
         intent,
         prodAuthorizedActions: [intent.action],
-        humanApproval: { approver: 'ops', at: 'now' },
+        humanApproval: { approver: 'ops', approver_consumer_id: 'c2', at: 'now' },
         amountContext: { amount: 80, dayTotal: 950 },
         caps: { perAction: 100, daily: 1000 },
       }),
@@ -365,7 +369,7 @@ describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
       prodReq({
         intent,
         prodAuthorizedActions: [intent.action],
-        humanApproval: { approver: 'ops', at: 'now' },
+        humanApproval: { approver: 'ops', approver_consumer_id: 'c2', at: 'now' },
         amountContext: { amount: 80, dayTotal: 100 },
         caps: { perAction: 100, daily: 1000 },
       }),
@@ -386,6 +390,81 @@ describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
       () => false
     );
     expect(d).toEqual({ allowed: false, reason: 'human_approval_required' });
+  });
+
+  it('self_approval_forbidden when the high-risk approver equals the drafter', () => {
+    const intent = approvedHighRiskIntent(); // consumer_id 'c1'
+    const d = defaultExecutionAuthorizer(
+      prodReq({
+        intent,
+        prodAuthorizedActions: [intent.action],
+        // approver_consumer_id === intent.consumer_id ('c1') ⇒ self-approval.
+        humanApproval: { approver: 'c1-operator', approver_consumer_id: 'c1', at: 'now' },
+        amountContext: { amount: 50, dayTotal: 0 },
+        caps: { perAction: 100, daily: 1000 },
+      }),
+      () => false
+    );
+    expect(d).toEqual({ allowed: false, reason: 'self_approval_forbidden' });
+  });
+
+  it('self_approval_forbidden is checked AFTER approval-present and BEFORE caps', () => {
+    const intent = approvedHighRiskIntent();
+    const d = defaultExecutionAuthorizer(
+      prodReq({
+        intent,
+        prodAuthorizedActions: [intent.action],
+        // same-id approval + amount way over caps ⇒ self_approval wins over caps.
+        humanApproval: { approver: 'c1-operator', approver_consumer_id: 'c1', at: 'now' },
+        amountContext: { amount: 999999, dayTotal: 0 },
+        caps: { perAction: 1, daily: 1 },
+      }),
+      () => false
+    );
+    expect(d).toEqual({ allowed: false, reason: 'self_approval_forbidden' });
+  });
+});
+
+describe('defaultExecutionAuthorizer — separation of duties (low/medium)', () => {
+  it('requireDistinctApprover=true + same-id approval on a medium intent ⇒ self_approval_forbidden', () => {
+    const intent = approvedScopeIntent('service:domain_rename', {
+      serviceid: 1,
+      domain: 'a.example.com',
+    }); // medium risk, consumer_id 'c1'
+    const d = defaultExecutionAuthorizer(
+      prodReq({
+        intent,
+        requireDistinctApprover: true,
+        humanApproval: { approver: 'c1-operator', approver_consumer_id: 'c1', at: 'now' },
+      }),
+      () => false
+    );
+    expect(d).toEqual({ allowed: false, reason: 'self_approval_forbidden' });
+  });
+
+  it('requireDistinctApprover=true + distinct approval on a medium intent ⇒ allowed', () => {
+    const intent = approvedScopeIntent('service:domain_rename', {
+      serviceid: 1,
+      domain: 'a.example.com',
+    });
+    const d = defaultExecutionAuthorizer(
+      prodReq({
+        intent,
+        requireDistinctApprover: true,
+        humanApproval: { approver: 'ops', approver_consumer_id: 'c2', at: 'now' },
+      }),
+      () => false
+    );
+    expect(d).toEqual({ allowed: true });
+  });
+
+  it('requireDistinctApprover omitted (default) + no approval on a medium intent ⇒ allowed', () => {
+    const intent = approvedScopeIntent('service:domain_rename', {
+      serviceid: 1,
+      domain: 'a.example.com',
+    });
+    const d = defaultExecutionAuthorizer(prodReq({ intent }), () => false);
+    expect(d).toEqual({ allowed: true });
   });
 });
 

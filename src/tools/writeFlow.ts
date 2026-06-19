@@ -925,8 +925,15 @@ export function registerWriteFlowTools(
         return err('consumer not permitted to approve write intents', { writeCapability: cap });
       const intent = store.get(p.intent_id as string);
       if (!intent) return err('intent not found', { intent_id: p.intent_id });
-      if (intent.consumer_id !== res.profile.id)
-        return err('intent does not belong to this consumer');
+      // Separation of duties: the approver need NOT be the drafter (it must, for
+      // high-risk, be a DISTINCT consumer — enforced at execute time). The
+      // approver must still be independently authorized for the intent's scope.
+      const scopeOk = assertWriteScopeAllowed(res.profile, intent.scope);
+      if (!scopeOk.ok)
+        return err('approver not authorized for this write scope', {
+          scope: intent.scope,
+          reason: scopeOk.reason,
+        });
       if (intent.state !== 'validated')
         return err(`intent must be validated before approval (state=${intent.state})`);
       const approved = p.decision === 'approved';
@@ -936,6 +943,7 @@ export function registerWriteFlowTools(
         // (money) actions. A rejection clears any prior approval record.
         approvals.set(intent.intent_id, {
           approver: String(p.approver),
+          approver_consumer_id: res.profile.id, // server-derived, identity-bound
           at: new Date().toISOString(),
         });
       } else {
@@ -975,6 +983,23 @@ export function registerWriteFlowTools(
         return out(
           toToolResult(intent, 'execute', {
             execution: { attempted: false, blocked_reason: 'intent_not_approved' },
+          })
+        );
+      }
+      // SCOPE-3: re-check the consumer's CURRENT write-scope grant at execute time.
+      // allowedWriteScopes is enforced at draft time, but a scope can be revoked
+      // (env/registry change, future TTL-reload — issue #56) within the intent's
+      // 15-minute TTL after approval. Re-asserting here — before BOTH the batch and
+      // single-call branches — blocks an approved intent whose scope is no longer
+      // granted, instead of mutating WHMCS. Mirrors the decision.allowed===false
+      // handling below.
+      const scopeGate = assertWriteScopeAllowed(res.profile, intent.scope);
+      if (!scopeGate.ok) {
+        const next = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', next, 'scope_not_allowed'));
+        return out(
+          toToolResult(next, 'execute', {
+            execution: { attempted: false, blocked_reason: 'scope_not_allowed' },
           })
         );
       }
@@ -1019,6 +1044,19 @@ export function registerWriteFlowTools(
           return out(
             toToolResult(blocked, 'execute', {
               execution: { attempted: false, blocked_reason: 'human_approval_required' },
+            })
+          );
+        }
+        // Separation of duties (parity with the gate's step-8 high-risk rule):
+        // price_restore is always high-risk, so it can never be self-approved.
+        // The batch path uses preAuthorizeIntent (steps 1–7) and never invokes
+        // the gate's step 8, so the distinctness check must be enforced here.
+        if (approval.approver_consumer_id === intent.consumer_id) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          audit.append(auditEvent('intent.execution_blocked', blocked, 'self_approval_forbidden'));
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: { attempted: false, blocked_reason: 'self_approval_forbidden' },
             })
           );
         }
@@ -1089,6 +1127,7 @@ export function registerWriteFlowTools(
           prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
           strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
           strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+          requireDistinctApprover: config.MCP_WRITE_REQUIRE_DISTINCT_APPROVER,
           humanApproval: approvals.get(intent.intent_id),
           amountContext,
           caps: {
