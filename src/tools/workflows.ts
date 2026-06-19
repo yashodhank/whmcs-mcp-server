@@ -40,6 +40,8 @@ import {
   type WorkflowDraftResult,
 } from './writeFlow.js';
 import { reconcile, type ReconTransaction, type InvoiceLite } from './aggregators.js';
+import { ToolProgress, type ProgressExtra } from './progress.js';
+import { deriveToolMeta } from './meta.js';
 
 /** Loose WHMCS API row / container object. */
 type WhmcsRow = Record<string, unknown>;
@@ -148,9 +150,11 @@ function err(message: string, extra?: Record<string, unknown>) {
 }
 
 function out(payload: Record<string, unknown>) {
+  const _meta = deriveToolMeta(payload);
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
     structuredContent: payload,
+    ...(_meta ? { _meta } : {}),
   };
 }
 
@@ -177,12 +181,16 @@ function register(
   inputShape: z.ZodRawShape,
   logger: Logger,
   rl: RateLimiter,
+  // The 2nd arg is the SDK `RequestHandlerExtra` (narrowed to `ProgressExtra`),
+  // forwarded so a `run` callback can emit MCP progress notifications during a
+  // long portfolio fan-out + draft loop. OPTIONAL and backward compatible.
   run: (
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    extra?: ProgressExtra
   ) => Promise<Record<string, unknown> | ReturnType<typeof err>>
 ): void {
   if (!isToolAllowed(name)) return;
-  const handler: Handler = (async (params: Record<string, unknown>) => {
+  const handler: Handler = (async (params: Record<string, unknown>, extra?: ProgressExtra) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
@@ -200,7 +208,7 @@ function register(
         }
         throw e;
       }
-      const r = await run(params);
+      const r = await run(params, extra);
       log.logToolResult(name, true, Date.now() - t0);
       return r;
     } catch (e) {
@@ -287,8 +295,9 @@ export function registerWorkflowTools(
     },
     logger,
     rl,
-    async (p) => {
+    async (p, extra) => {
       const result = baseResult('dunning_sweep');
+      const progress = new ToolProgress(0, extra);
       const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
       const minDays = num(p, 'overdue_min_days') ?? DUNNING_DEFAULT_MIN_DAYS;
       const limit = num(p, 'limit') ?? DEFAULT_LIMIT;
@@ -355,6 +364,7 @@ export function registerWorkflowTools(
       const groups = [...byClient.values()]
         .sort((a, b) => b.oldest_days - a.oldest_days)
         .slice(0, limit);
+      progress.setTotal(groups.length);
 
       for (const g of groups) {
         const candidate: Record<string, unknown> = {
@@ -364,6 +374,7 @@ export function registerWorkflowTools(
           overdue_invoice_ids: g.invoice_ids,
           drafted_intent_ids: [] as string[],
         };
+        progress.step(`client ${g.clientid}`);
         // LOW-risk reminder note referencing the overdue invoice id(s).
         const noteId = draftOrSkip(
           {
@@ -406,6 +417,7 @@ export function registerWorkflowTools(
         }
         result.candidates.push(candidate);
       }
+      progress.finish();
       return out(result);
     }
   );
@@ -423,8 +435,9 @@ export function registerWorkflowTools(
     },
     logger,
     rl,
-    async (p) => {
+    async (p, extra) => {
       const result = baseResult('renewal_risk_triage');
+      const progress = new ToolProgress(0, extra);
       const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
       const horizon = num(p, 'horizon_days') ?? RENEWAL_DEFAULT_HORIZON_DAYS;
       const limit = num(p, 'limit') ?? DEFAULT_LIMIT;
@@ -508,8 +521,10 @@ export function registerWorkflowTools(
           return (a.days_remaining ?? 9999) - (b.days_remaining ?? 9999);
         })
         .slice(0, limit);
+      progress.setTotal(ranked.length);
 
       for (const r of ranked) {
+        progress.step(`${r.type} ${String(r.id ?? '')}`);
         const candidate: Record<string, unknown> = {
           clientid: r.clientid,
           type: r.type,
@@ -546,6 +561,7 @@ export function registerWorkflowTools(
         }
         result.candidates.push(candidate);
       }
+      progress.finish();
       return out(result);
     }
   );
@@ -563,8 +579,9 @@ export function registerWorkflowTools(
     },
     logger,
     rl,
-    async (p) => {
+    async (p, extra) => {
       const result = baseResult('ticket_triage_to_resolution');
+      const progress = new ToolProgress(0, extra);
       const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
       const limit = num(p, 'limit') ?? TICKET_DEFAULT_LIMIT;
       const deptid = num(p, 'deptid');
@@ -584,9 +601,11 @@ export function registerWorkflowTools(
       );
 
       const selected = tickets.slice(0, limit);
+      progress.setTotal(selected.length);
       for (const t of selected) {
         const ticketid = num(t, 'id');
         if (ticketid === undefined) continue;
+        progress.step(`ticket ${ticketid}`);
         const subject = str(t, 'subject') ?? '';
         const status = str(t, 'status') ?? '';
         const clientid = num(t, 'userid') ?? num(t, 'clientid');
@@ -657,6 +676,7 @@ export function registerWorkflowTools(
         candidate.needs_human_review = true;
         result.candidates.push(candidate);
       }
+      progress.finish();
       return out(result);
     }
   );
@@ -674,8 +694,9 @@ export function registerWorkflowTools(
     },
     logger,
     rl,
-    async (p) => {
+    async (p, extra) => {
       const result = baseResult('month_end_close');
+      const progress = new ToolProgress(0, extra);
       const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
       const windowDays = num(p, 'window_days') ?? CLOSE_DEFAULT_WINDOW_DAYS;
       const limit = num(p, 'limit') ?? DEFAULT_LIMIT;
@@ -765,7 +786,10 @@ export function registerWorkflowTools(
         total_flagged: discrepancies.length,
       };
 
-      for (const d of discrepancies.slice(0, limit)) {
+      const flagged = discrepancies.slice(0, limit);
+      progress.setTotal(flagged.length);
+      for (const d of flagged) {
+        progress.step(`flag ${d.kind}`);
         const candidate: Record<string, unknown> = {
           kind: d.kind,
           invoiceid: d.invoiceid,
@@ -801,6 +825,7 @@ export function registerWorkflowTools(
         result.candidates.push(candidate);
       }
 
+      progress.finish();
       return out({ ...result, close_summary });
     }
   );
