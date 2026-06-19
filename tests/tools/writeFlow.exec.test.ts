@@ -55,6 +55,7 @@ vi.mock('../../src/config.js', () => ({
 }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {} }));
 import { registerWriteFlowTools } from '../../src/tools/writeFlow.js';
+import { __resetRegistryCacheForTests } from '../../src/governance/pipeline.js';
 
 interface Res {
   content: { text: string }[];
@@ -230,5 +231,75 @@ describe('Phase G — dev/staging gated execution', () => {
     expect(rec(ep.execution).attempted).toBe(true);
     expect(rec(ep.intent).state).toBe('failed');
     expect(fail).toHaveBeenCalledTimes(1);
+  });
+
+  it('SCOPE-3: scope revoked after approval ⇒ execution_blocked scope_not_allowed, mutate never called', async () => {
+    // Draft+validate+approve with the scope GRANTED (all other gates green), so
+    // the intent reaches the approved state exactly like the happy path.
+    const { h, mutate } = harness();
+    const id = await approved(
+      h,
+      'ticket:reply',
+      { ticketid: 7, message: 'reply before revocation' },
+      'exec-revoke-1'
+    );
+    // Revoke ticket:reply from devexec's CURRENT registry (same consumer_id so
+    // the ownership check still passes), then force a registry re-resolve. This
+    // simulates a scope grant pulled within the intent's TTL after approval.
+    process.env.MCP_CONSUMER_REGISTRY = JSON.stringify([
+      {
+        id: 'devexec',
+        token_sha256: sha(RAW),
+        allowedScopes: ['read'],
+        defaultContract: 'ops_operator',
+        allowedContracts: ['ops_operator'],
+        allowedActions: [],
+        writeCapability: 'execution_allowed',
+        envRestrictions: [],
+        anonymous: false,
+        allowedWriteScopes: ['billing:credit:add'], // ticket:reply REVOKED
+      },
+      {
+        id: 'devapprover',
+        token_sha256: sha(APPROVER_RAW),
+        allowedScopes: ['read'],
+        defaultContract: 'ops_operator',
+        allowedContracts: ['ops_operator'],
+        allowedActions: [],
+        writeCapability: 'approval_required',
+        envRestrictions: [],
+        anonymous: false,
+        allowedWriteScopes: ['ticket:reply', 'billing:credit:add'],
+      },
+    ]);
+    __resetRegistryCacheForTests();
+
+    const e = await h.execute_write_intent({ intent_id: id, ...tok });
+    const ep = J(e);
+    expect(ep.executed).toBe(false);
+    expect(rec(ep.execution).attempted).toBe(false);
+    expect(rec(ep.execution).blocked_reason).toBe('scope_not_allowed');
+    expect(rec(ep.intent).state).toBe('execution_blocked');
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('SCOPE-3 regression: scope STILL granted at execute time ⇒ executes, mutate called once', async () => {
+    // Explicit proof the new execute-time re-check does NOT block a still-granted
+    // scope (devexec retains ticket:reply for the whole flow). setupEach restores
+    // process.env after the revoke test, but the pipeline registry cache is NOT
+    // auto-reset — clear it so this test reads the restored (granted) registry.
+    __resetRegistryCacheForTests();
+    const { h, mutate } = harness();
+    const id = await approved(
+      h,
+      'ticket:reply',
+      { ticketid: 8, message: 'still granted' },
+      'exec-still-granted-1'
+    );
+    const e = await h.execute_write_intent({ intent_id: id, ...tok });
+    const ep = J(e);
+    expect(ep.executed).toBe(true);
+    expect(rec(ep.execution).blocked_reason).toBeUndefined();
+    expect(mutate).toHaveBeenCalledTimes(1);
   });
 });

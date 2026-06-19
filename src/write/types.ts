@@ -450,6 +450,7 @@ export type ExecutionDeniedReason =
   | 'audit_write_failed'
   | 'verification_failed'
   | 'precondition_mismatch'
+  | 'scope_not_allowed' // SCOPE-3: consumer's write-scope grant revoked after approval
   | 'halt_after_target'
   | 'target_amount_cap_exceeded'
   | 'target_output_assertion_failed';

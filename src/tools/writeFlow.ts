@@ -986,6 +986,23 @@ export function registerWriteFlowTools(
           })
         );
       }
+      // SCOPE-3: re-check the consumer's CURRENT write-scope grant at execute time.
+      // allowedWriteScopes is enforced at draft time, but a scope can be revoked
+      // (env/registry change, future TTL-reload — issue #56) within the intent's
+      // 15-minute TTL after approval. Re-asserting here — before BOTH the batch and
+      // single-call branches — blocks an approved intent whose scope is no longer
+      // granted, instead of mutating WHMCS. Mirrors the decision.allowed===false
+      // handling below.
+      const scopeGate = assertWriteScopeAllowed(res.profile, intent.scope);
+      if (!scopeGate.ok) {
+        const next = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', next, 'scope_not_allowed'));
+        return out(
+          toToolResult(next, 'execute', {
+            execution: { attempted: false, blocked_reason: 'scope_not_allowed' },
+          })
+        );
+      }
       // Batch scope dispatch — service:price_restore uses its own two-phase helper.
       // The helper performs its own per-target authorization (idempotency,
       // per-action + daily caps, scope-output assertion, fail-closed durable
