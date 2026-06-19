@@ -39,6 +39,7 @@ const ALL_PROMPTS = [
   'dunning_sweep',
   'renewal_risk_triage',
   'ticket_triage_to_resolution',
+  'month_end_close',
 ];
 
 function firstText(res: ReturnType<PromptCb>): string {
@@ -165,6 +166,20 @@ describe('registerWhmcsPrompts', () => {
     expect(text).toContain('ticket:status');
     expect(text.toLowerCase()).toContain('elicit'); // Elicitation convention surfaced
     // governance
+    expect(text).not.toContain('execute_write_intent');
+  });
+
+  it('month_end_close runs the full close and drafts annotations only', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(prompts.month_end_close.cb({}));
+    expect(text).toContain('get_reconciliation_snapshot');
+    expect(text).toContain('get_accounts_receivable_aging');
+    expect(text).toContain('get_revenue_report');
+    expect(text).toContain('get_reconciliation_export');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('client_note:write');
+    // governance: annotate only, never execute, never touch billing writes
     expect(text).not.toContain('execute_write_intent');
   });
 

@@ -369,4 +369,57 @@ STRUCTURED OUTPUT:
   needs_human_review?}\`, plus a short triage summary (counts by proposed action).
 `)
   );
+
+  // ============================================================
+  // 9. month_end_close
+  // ============================================================
+  server.registerPrompt(
+    'month_end_close',
+    {
+      title: 'Month-end close (with-drafts)',
+      description:
+        'Full month-end CLOSE: reconcile + AR-age + revenue + export, then DRAFT a client_note annotation per flagged discrepancy — never executes.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe('Optional WHMCS client id to scope the close.'),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are running the WITH-DRAFTS month-end close. ${scopeHint(clientid)}
+
+This is the close that leaves an audit trail. For a quick, no-write review use the read-only
+\`month_end_reconciliation\` prompt instead — this prompt extends it with a revenue view, an
+export artifact, and a DRAFTED audit annotation per discrepancy.
+
+GOVERNANCE — the ONLY proposed mutation is a \`client_note:write\` DRAFT annotation, routed
+through \`draft_write_intent\`. This workflow STOPS at the draft — do not approve or execute
+any intent. NEVER draft any billing/money scope: ledger corrections are recommended for human
+action, never drafted; the close only ANNOTATES.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_reconciliation_snapshot\`${clientid ? ` for client ${clientid}` : ''} to get the
+   invoice<->transaction view; capture flagged discrepancies
+   \`{invoice_id, expected, actual, delta, clientid}\`.
+2. Call \`get_accounts_receivable_aging\` to capture AR totals per bucket (current / 30 / 60 /
+   90+).
+3. Call \`get_revenue_report\` to capture the period revenue for the close summary.
+4. Call \`get_reconciliation_export\` to produce the exportable reconciliation dataset — this
+   export is the artifact to file in the finance record.
+5. For EACH flagged discrepancy, DRAFT an audit annotation via \`draft_write_intent\` with
+   scope \`client_note:write\` (LOW), the note body citing the invoice id, expected vs actual,
+   and the delta.
+
+STRUCTURED OUTPUT:
+  (a) close summary — matched count, total flagged, AR by bucket, period revenue, export
+      reference;
+  (b) a discrepancy table \`{invoice_id, clientid, expected, actual, delta,
+      drafted_note_intent_id}\`;
+  (c) a "recommend for human action" corrections list (ledger corrections stay a human
+      decision — not drafted).
+`)
+  );
 }
