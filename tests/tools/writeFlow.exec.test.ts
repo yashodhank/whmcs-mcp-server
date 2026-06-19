@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const RAW = 'EXAMPLE-devexec-SYNTHETIC';
+const APPROVER_RAW = 'EXAMPLE-devapprover-SYNTHETIC';
 beforeAll(() => {
   process.env.MCP_CONSUMER_REGISTRY = JSON.stringify([
     {
@@ -24,11 +25,32 @@ beforeAll(() => {
       anonymous: false,
       allowedWriteScopes: ['ticket:reply', 'billing:credit:add'],
     },
+    {
+      // Distinct approver for separation-of-duties (plan 011). Drafts/approves
+      // but does not execute; MUST be authorized for the scopes it approves.
+      id: 'devapprover',
+      token_sha256: sha(APPROVER_RAW),
+      allowedScopes: ['read'],
+      defaultContract: 'ops_operator',
+      allowedContracts: ['ops_operator'],
+      allowedActions: [],
+      writeCapability: 'approval_required',
+      envRestrictions: [],
+      anonymous: false,
+      allowedWriteScopes: ['ticket:reply', 'billing:credit:add'],
+    },
   ]);
   process.env.MCP_WRITE_EXECUTION_AUTHORIZED = 'AddTicketReply,AddCredit';
 });
 vi.mock('../../src/config.js', () => ({
-  config: { MCP_MODE: 'full', MCP_ENV: 'local', MCP_MAX_PAGE_SIZE: 100 },
+  config: {
+    MCP_MODE: 'full',
+    MCP_ENV: 'local',
+    MCP_MAX_PAGE_SIZE: 100,
+    // Separation-of-duties flag — high-risk distinctness is enforced by the gate
+    // regardless; set true here to also exercise low/medium when relevant.
+    MCP_WRITE_REQUIRE_DISTINCT_APPROVER: true,
+  },
   isToolAllowed: () => true,
 }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {} }));
@@ -65,12 +87,16 @@ function harness() {
   return { h, mutate, read };
 }
 const tok = { auth_token: RAW };
+const approverTok = { auth_token: APPROVER_RAW };
 
 async function approved(
   h: Record<string, (a: Record<string, unknown>) => Promise<Res>>,
   scope: string,
   params: Record<string, unknown>,
-  nk: string
+  nk: string,
+  // The token used to APPROVE. Defaults to a DISTINCT approver (devapprover) so
+  // separation of duties is satisfied; pass `tok` to force self-approval.
+  approveTok: { auth_token: string } = approverTok
 ) {
   const d = await h.draft_write_intent({
     scope,
@@ -81,7 +107,12 @@ async function approved(
   });
   const id = rec(J(d).intent).intent_id as string;
   await h.validate_write_intent({ intent_id: id, ...tok });
-  await h.approve_write_intent({ intent_id: id, approver: 'op', decision: 'approved', ...tok });
+  await h.approve_write_intent({
+    intent_id: id,
+    approver: 'op',
+    decision: 'approved',
+    ...approveTok,
+  });
   return id;
 }
 
@@ -131,6 +162,26 @@ describe('Phase G — dev/staging gated execution', () => {
     for (const call of mutate.mock.calls) {
       expect(call[1]).not.toHaveProperty('amountin');
     }
+  });
+
+  it('billing:credit:add self-approved by the drafter ⇒ blocked self_approval_forbidden, mutate never called', async () => {
+    // Separation of duties (plan 011): devexec drafts/validates AND approves its
+    // OWN high-risk intent. The gate's step-8 distinctness rule must reject this
+    // BEFORE the caps check, so blocked_reason is self_approval_forbidden.
+    const { h, mutate } = harness();
+    const id = await approved(
+      h,
+      'billing:credit:add',
+      { clientid: 1, amount: '5.00', description: 'self-approve attempt' },
+      'exec-credit-self-1',
+      tok // self-approve with the SAME (drafter) token
+    );
+    const e = await h.execute_write_intent({ intent_id: id, ...tok });
+    const ep = J(e);
+    expect(ep.executed).toBe(false);
+    expect(rec(ep.execution).blocked_reason).toBe('self_approval_forbidden');
+    expect(rec(ep.intent).state).toBe('execution_blocked');
+    expect(mutate).not.toHaveBeenCalled();
   });
 
   it('idempotency replay: re-executing the same intent is blocked, mutate not called twice', async () => {
