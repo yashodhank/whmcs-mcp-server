@@ -25,7 +25,7 @@ globs:
 
 1. Find the right module (`listTools.ts`, `aggregators.ts`, `writeFlow.ts`, legacy `billing.ts`, etc.).
 2. Check governance path: `applyGovernanceOrLegacy` / `governedToolResult` when `MCP_GOVERNANCE_ENABLED`.
-3. For mutations: prefer write-flow (`draft_write_intent` … `execute_write_intent`) over ad-hoc `whmcs.mutate` unless explicitly legacy.
+3. For mutations: prefer the governed write-flow (`draft_write_intent` … `execute_write_intent`, or the one-call `write`) over ad-hoc `whmcs.mutate` unless explicitly legacy. The engine is tiered (low/medium audit-gated, high-risk allowlist + approval + caps) and sealed by default (`MCP_MODE=read_only`, empty `MCP_PROD_WRITE_AUTHORIZED`).
 4. Run `npm run typecheck && npm test` after edits.
 
 ## Contributor docs
