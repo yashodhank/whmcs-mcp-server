@@ -119,9 +119,16 @@ admin-session handler. Stamped against `1275532`. Advisor plans (not yet execute
 | 022 | Harden `WHMCS_API_URL` → endpoint resolution (tolerant `resolveWhmcsApiEndpoint` + startup warn + edge-case tests) | P1 | S | DONE — applied + verified |
 | 023 | API-connectivity troubleshooting runbook + `AGENTS.md`/`.cursorrules` check-first rule | P1 | S | DONE — applied + verified |
 
-Enhancement beyond the plans: `WhmcsClient` now self-diagnoses — it enriches the
-`"An admin user is required"` business error with the resolved endpoint + ordered
-checks + a runbook pointer (`tests/whmcs/whmcsClientAdminHint.test.ts`).
+Enhancements beyond the plans:
+- `WhmcsClient` self-diagnoses — enriches the `"An admin user is required"` business
+  error with the resolved endpoint + ordered checks + a runbook pointer
+  (`tests/whmcs/whmcsClientAdminHint.test.ts`).
+- **Boot-time connectivity self-check** (`src/whmcs/healthCheck.ts`,
+  `MCP_STARTUP_HEALTHCHECK=off|warn|strict`, default `warn`): probes
+  `GetAdminDetails` at startup and logs a **classified** failure hint
+  (url-doubling / auth / dns / unreachable / ip-allowlist). `warn` is
+  non-blocking (zero startup latency); `strict` exits the process. Pure
+  classifier unit-tested in `tests/whmcs/healthCheck.test.ts`.
 
 Independent of each other; 022 is the code fix, 023 is docs/rules. Neither
 depends on the other. Recommended: execute both. The deployment env value was

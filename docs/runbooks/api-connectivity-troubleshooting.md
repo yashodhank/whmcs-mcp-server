@@ -41,6 +41,11 @@ Fix: set `WHMCS_API_URL=https://BASE` (no path) and restart the MCP server.
 > forms so a full-URL value can no longer double, and config load warns when the
 > env contains the path. This runbook still applies to older deployments and to
 > manual curl debugging.
+>
+> Boot-time guard: `MCP_STARTUP_HEALTHCHECK` (default `warn`) probes
+> `GetAdminDetails` at startup and logs a classified hint (URL shape / auth /
+> DNS / unreachable / IP-allowlist) — so a misconfig is visible in the server log
+> at boot. Set it to `strict` to refuse to start on a failed probe.
 
 ### 2. Tell credential failure apart from URL failure
 - **No credentials** in the request → WHMCS returns `"Authentication Failed"`.
