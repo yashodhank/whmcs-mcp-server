@@ -22,7 +22,7 @@ describe('actionPolicy', () => {
   // Track 5 — GetUsers defense-in-depth: NOT allowlisted (probes returned
   // degraded on Dev W8/W9 + prod). The read-path guard must reject it so it
   // can never reach WHMCS even if some caller tries. See
-  // docs/getusers-investigation.md.
+  // docs/archive/getusers-investigation.md.
   it('blocks GetUsers — NOT in the read allowlist (deny by default)', () => {
     expect(() => { assertReadAction('GetUsers'); }).toThrow(WriteActionError);
   });

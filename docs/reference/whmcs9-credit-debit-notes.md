@@ -34,7 +34,7 @@ free-text memo). It therefore maps to the **existing `'transaction'`
 entity**. This is an explicit, documented assumption — not a verified WHMCS
 fact — and it keeps the frozen union untouched.
 
-### Field classification (PHASE_B_GOVERNANCE §3)
+### Field classification (governance.md §3)
 
 | Field | Class |
 |---|---|
@@ -51,7 +51,7 @@ an unmapped path is treated RESTRICTED downstream).
 
 There is no probed evidence on this deployment that a WHMCS action returning
 credit/debit notes exists, is allowlisted, or is authorized. Per
-PHASE_B_GOVERNANCE §6 the action is therefore **`unverified`**:
+governance.md §6 the action is therefore **`unverified`**:
 
 - It must be promoted to `supported` / `unsupported` / `not_authorized`
   **only by a real read-only capability probe**, cached by the capability

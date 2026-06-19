@@ -10,13 +10,13 @@
  *
  * READ-ONLY. PURE. This file never calls WHMCS, never registers a tool, and
  * does NOT assert the read action is supported — promotion is the capability
- * registry's job (docs/whmcs9-credit-debit-notes.md, PHASE_B_GOVERNANCE §6).
+ * registry's job (docs/reference/whmcs9-credit-debit-notes.md, docs/design/governance.md §6).
  *
  * Canonical-entity assumption: the frozen CanonicalEntity union
  * (governance/types.ts) is NOT extended. A credit/debit note is a financial
  * ledger record (same governance shape as a transaction: identifiers +
  * amount + reference + free-text memo), so it maps to the EXISTING
- * 'transaction' entity. See docs/PHASE_B_GOVERNANCE.md §3.
+ * 'transaction' entity. See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

@@ -19,7 +19,7 @@
  * classmap is COMPLETE and stable (dynamic keys would otherwise be unmappable).
  *
  * Canonical entity: the frozen CanonicalEntity union is extended with
- * 'tldPricing' (a reference-data entity). See docs/PHASE_B_GOVERNANCE.md §2/§3.
+ * 'tldPricing' (a reference-data entity). See docs/design/governance.md §2/§3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, bool, listOf, ClassMapBuilder } from './_shared.js';

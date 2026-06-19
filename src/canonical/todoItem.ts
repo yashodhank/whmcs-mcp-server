@@ -11,7 +11,7 @@
  * record; the closest frozen entity is 'activity' (an admin/audit-shaped
  * record). The admin-typed `title`/`description` are untrusted free text;
  * `id`/`adminid` are identifiers; `date`/`duedate`/`status` are public.safe.
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

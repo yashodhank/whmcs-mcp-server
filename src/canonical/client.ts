@@ -6,7 +6,7 @@
  * BOTH: nested wins when present, falling back to root. Data is COMPLETE;
  * projection/redaction happens later at the output boundary (not here).
  *
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { resolveClientCustomFieldLabel } from '../clientCustomFieldLabels.js';

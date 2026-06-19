@@ -7,7 +7,7 @@
  * Unwraps quotes.quote (array / numeric-keyed object / single object / empty)
  * and lineitems.lineitem with the same defensive _shared helpers as the other
  * B1 mappers. Data is COMPLETE; projection/redaction happens at the output
- * boundary. See docs/PHASE_B_GOVERNANCE.md §3.
+ * boundary. See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

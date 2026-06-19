@@ -32,4 +32,4 @@ globs:
 
 - Quick orientation: [AGENTS.md](../../AGENTS.md)
 - Full spec (legacy): [AGENT.md](../../AGENT.md)
-- Ops runbook: [docs/ai-agent-local-runbook.md](../../docs/ai-agent-local-runbook.md)
+- Ops runbook: [docs/runbooks/ai-agent-local.md](../../docs/runbooks/ai-agent-local.md)

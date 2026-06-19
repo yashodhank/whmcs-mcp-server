@@ -59,7 +59,7 @@ an unclear safety classification: STOP and ask.
 `src/governance/capabilities.ts` (`UNVERIFIED_READS`). They return a structured
 `capability_unavailable` payload instead of fabricating data. Promotion to
 `SUPPORTED_READS` is a deliberate reviewed change after a real probe returns
-`supported` on the target install (see `docs/capability-probe-runbook.md`).
+`supported` on the target install (see `docs/runbooks/capability-probe.md`).
 
 ## Architecture — the governed write path (tiered friction)
 
@@ -161,7 +161,7 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 - `npm run build` must succeed.
 - **Local dev WHMCS** (disposable, dockerized, dual-version): WHMCS 8.13 @
   `http://localhost:8813` and 9.0 @ `http://localhost:8890`. See
-  `docs/local-whmcs-testing.md`. One replicated API credential authenticates
+  `docs/runbooks/local-whmcs-testing.md`. One replicated API credential authenticates
   both legs. NEVER point write execution at production (`my.securiace.com`).
 - **Probe/test harnesses** (dev-only, localhost-guarded):
   - `npm run mcp:write-probe` — zero-mutation reachability probe (calls each
@@ -196,7 +196,7 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 ## Workflow conventions
 
 - Branch off `main`; small, reviewed PRs; squash-merge when green.
-- Keep docs current: `docs/CHANGELOG_AI.md` (newest first), `docs/DECISIONS.md`,
+- Keep docs current: `docs/archive/changelog-ai.md` (newest first), `docs/design/decisions.md`,
   the capability-probe runbooks.
 - Match surrounding code style (comment density, naming, idiom). Strict mappers
   and per-scope validators are heavily commented on purpose — keep that.
@@ -215,12 +215,12 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 - Governance: `src/governance/{types,contracts,projection,consumers,pipeline}.ts`
 - Auth/transport: `src/auth/*`, `src/http/httpServer.ts`
 - Registration entry: `src/index.ts`
-- Docs: `docs/{AGENT_CONTEXT,DECISIONS,CHANGELOG_AI,OAUTH_DESIGN,MCP_ADOPTION,
-  capability-probe-runbook,write-capability-probe-runbook,local-whmcs-testing}.md`
+- Docs: `docs/reference/agent-context.md`, `docs/design/{decisions,changelog-ai,oauth,mcp-adoption}.md`,
+  `docs/runbooks/{capability-probe,write-capability-probe,local-whmcs-testing}.md`
 
 ## First steps for you
 
-1. Read `docs/AGENT_CONTEXT.md` and `docs/DECISIONS.md` for current state and
+1. Read `docs/reference/agent-context.md` and `docs/design/decisions.md` for current state and
    rationale, then `src/write/types.ts` + `src/governance/projection.ts` to
    internalize the two core seams.
 2. Run `npm install && npm run build && npm test` to confirm a green baseline.

@@ -6,7 +6,7 @@
  * validate against the EXISTING consumer registry via `resolveConsumer(...,
  * { allowAnon: false })` BEFORE any bytes reach the SDK transport. This is a
  * thin, in-house bridge — NOT an OAuth2.1 authorization server. Full
- * OAuth2.1/PRM/CIMD is a documented follow-up (docs/MCP_ADOPTION.md #9).
+ * OAuth2.1/PRM/CIMD is a documented follow-up (docs/design/mcp-adoption.md #9).
  *
  * Two gates, both fail-closed, evaluated per request:
  *  1. Origin (DNS-rebinding guard, spec). If the request carries an `Origin`

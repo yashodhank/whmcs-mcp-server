@@ -1,6 +1,6 @@
 /**
  * OAuth 2.1 Protected Resource Metadata (RFC 9728 / SEP-985) — component 1 of
- * the OAuth resource-server design (see docs/OAUTH_DESIGN.md).
+ * the OAuth resource-server design (see docs/design/oauth.md).
  *
  * This server is an OAuth 2.1 *resource server*: it does not issue tokens, it
  * validates bearer tokens and advertises where the *authorization server* (AS)
