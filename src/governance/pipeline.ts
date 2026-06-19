@@ -297,17 +297,42 @@ export function auditTraceEnabled(): boolean {
   return process.env.MCP_AUDIT_TRACE === '1';
 }
 
+/**
+ * Short-TTL for the consumer registry cache. Re-reading from `process.env`
+ * after this interval means a credential/permission rotation in the
+ * environment is picked up without a full process restart (important for
+ * long-running HTTP-transport processes). Default 60 s — overridable via
+ * `MCP_REGISTRY_CACHE_TTL_MS` for deployments that need faster rotation.
+ *
+ * The TTL is read ONCE at module load so it is stable for the process
+ * lifetime; change it via env before startup.
+ */
+export const REGISTRY_CACHE_TTL_MS: number = (() => {
+  const raw = process.env.MCP_REGISTRY_CACHE_TTL_MS;
+  if (raw !== undefined && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 60_000;
+})();
+
 let cachedRegistry: ConsumerProfile[] | null = null;
+let cachedAt: number | null = null;
 
 /** Lazily load + cache the consumer registry from env (B3 owns parsing). */
 export function getConsumerRegistry(): ConsumerProfile[] {
-  cachedRegistry ??= loadConsumerRegistry(process.env);
+  const now = Date.now();
+  if (cachedRegistry === null || cachedAt === null || now - cachedAt > REGISTRY_CACHE_TTL_MS) {
+    cachedRegistry = loadConsumerRegistry(process.env);
+    cachedAt = now;
+  }
   return cachedRegistry;
 }
 
-/** Test-only: clear the memoized registry. */
+/** Test-only: clear the memoized registry (and its timestamp). */
 export function __resetRegistryCacheForTests(): void {
   cachedRegistry = null;
+  cachedAt = null;
 }
 
 export interface GovernedToolResult {
