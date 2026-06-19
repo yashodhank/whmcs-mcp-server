@@ -262,6 +262,7 @@ cp .env.example .env
 | `MCP_GOVERNANCE_ENABLED` | `false` | Opt-in consumer-aware projection for reads (see [docs/design/governance.md](docs/design/governance.md)) |
 | `MCP_ALLOW_ANON_LLM` | `false` | Allow anonymous `llm_safe_summary` fallback when governance is on |
 | `MCP_CONSUMER_REGISTRY` | (empty) | JSON consumer registry (`token_sha256` only — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md)) |
+| `MCP_CONSUMER_REGISTRY_FILE` | (empty) | Path to the registry JSON; takes precedence over `MCP_CONSUMER_REGISTRY`. Control plane for live rotation (re-read past the cache TTL, no restart). Must be owner-only (`chmod 600`); fails closed on bad/lax/missing file |
 | `MCP_PROD_WRITE_AUTHORIZED` | (empty) | Comma-separated WHMCS actions allowed for production write execution |
 | `MCP_WRITE_EXECUTION_AUTHORIZED` | (empty) | Non-prod runtime write allowlist |
 | `MCP_WRITE_KILL_SWITCH` | `false` | Emergency block on controlled writes |

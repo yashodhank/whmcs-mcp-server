@@ -55,6 +55,18 @@ Resources do **not** use `auth_token` query params; scope is process + `MCP_ACCE
 
 Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`, `WHMCS_SECRET`.
 
+> **`WHMCS_API_URL` must be the base origin** (`https://host`) — the client appends
+> `/includes/api.php`. Setting the full endpoint doubles the path and WHMCS returns
+> `"An admin user is required"` on every call. If you see that error, do NOT start
+> with credentials/admins/roles/IP — run the URL-shape check in
+> [docs/runbooks/api-connectivity-troubleshooting.md](docs/runbooks/api-connectivity-troubleshooting.md) §1 first (2-minute fix).
+>
+> **WHMCS API 403** is one of: (1) edge/WAF/proxy or a stuck keep-alive socket
+> (curl / a *fresh* process from the same IP works) — fix server-side, or reconnect
+> the MCP for fresh sockets; the IP auto-heal can't; (2) IP not in `APIAllowedIPs`
+> (the only case auto-heal fixes); (3) permission/role ACL. The client surfaces a
+> classified hint; see the runbook's "403 Forbidden — three distinct causes".
+
 | Variable | Notes |
 |----------|--------|
 | `MCP_ENV` | Layers `.env.<profile>`; `WHMCS_API_URL` must be HTTPS unless `WHMCS_ALLOW_HTTP=true` (local stack only). |
