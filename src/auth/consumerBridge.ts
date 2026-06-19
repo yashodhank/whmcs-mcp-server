@@ -1,5 +1,5 @@
 /**
- * OAuth → ConsumerProfile bridge (OAUTH_DESIGN.md, component 5).
+ * OAuth → ConsumerProfile bridge (docs/design/oauth.md, component 5).
  *
  * The HTTP transport's validated bearer token populates `extra.authInfo`
  * (SDK). This module maps that token's *claims* to an existing

@@ -1,6 +1,6 @@
 /**
  * OAuth 2.1 scope vocabulary + enforcement helpers — component 4 of the OAuth
- * resource-server design (see docs/OAUTH_DESIGN.md).
+ * resource-server design (see docs/design/oauth.md).
  *
  * This module defines the small, coarse OAuth scope vocabulary the resource
  * server advertises (PRM `scopes_supported`) and that access tokens carry, and

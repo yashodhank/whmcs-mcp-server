@@ -6,7 +6,7 @@
  * instead of arrays, nested singular wrappers). NO `any` is used anywhere:
  * every value is narrowed from `unknown` before use.
  *
- * See docs/PHASE_B_GOVERNANCE.md §2/§3 and src/governance/types.ts (frozen).
+ * See docs/design/governance.md §2/§3 and src/governance/types.ts (frozen).
  */
 
 import { normalizeToArray } from '../whmcs/normalizers.js';

@@ -65,7 +65,7 @@ only when all of the above hold.
   - WHMCS 9: <http://localhost:8890>
   - WHMCS 8: <http://localhost:8813>
   - Bring-up / seeding / reset commands live in
-    `docs/local-whmcs-testing.md`.
+    `docs/runbooks/local-whmcs-testing.md`.
 - **Money scopes really move money on dev too.** `UpgradeProduct`
   (`service:upgrade`) raises an upgrade order + charge; `AcceptQuote`
   (`billing:quote:accept`) raises an invoice. Probe these **only** against
@@ -84,7 +84,7 @@ run; record evidence in the PR.
 
 ### (a) Bring up the dev WHMCS
 
-Follow `docs/local-whmcs-testing.md`. Typical fresh path:
+Follow `docs/runbooks/local-whmcs-testing.md`. Typical fresh path:
 
 ```bash
 npm run whmcs:test:up          # both legs

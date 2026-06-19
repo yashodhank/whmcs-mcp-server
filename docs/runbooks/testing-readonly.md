@@ -43,5 +43,5 @@ Short runbook for manually verifying that the WHMCS MCP server’s read-only too
 
 - [README – Verifying read-only in Cursor](../README.md#verifying-read-only-in-cursor)
 - [README – Integration tests and 403 / unreachable API](../README.md#integration-tests-and-403--unreachable-api)
-- [docs/ai-agent-local-runbook.md](ai-agent-local-runbook.md)
-- [docs/cursor-skills.md](cursor-skills.md)
+- [docs/runbooks/ai-agent-local.md](ai-agent-local.md)
+- [docs/reference/cursor-skills.md](../reference/cursor-skills.md)

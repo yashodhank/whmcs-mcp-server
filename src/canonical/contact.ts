@@ -30,7 +30,7 @@
  * single object; numbers/booleans arrive as strings) — parsed defensively with
  * the shared _shared helpers.
  *
- * See docs/PHASE_B_GOVERNANCE.md §2/§3.
+ * See docs/design/governance.md §2/§3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, bool, listOf, ClassMapBuilder } from './_shared.js';

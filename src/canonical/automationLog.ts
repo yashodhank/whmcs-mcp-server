@@ -13,7 +13,7 @@
  * operational/audit record → closest frozen entity is 'activity'. The cron
  * `output` line is operational/audit text → system.audit; name/status/times
  * are public.safe; id is a business.identifier.
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

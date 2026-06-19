@@ -2,7 +2,7 @@
  * Canonical mapper — WHMCS GetInvoice → Canonical<CanonicalInvoice>.
  * Unwraps items.item / transactions.transaction (numeric-keyed, single-object,
  * empty {}/[]). Data is COMPLETE; projection happens at the output boundary.
- * See docs/PHASE_B_GOVERNANCE.md §3.
+ * See docs/design/governance.md §3.
  */
 import type { Canonical } from '../governance/types.js';
 import { asRecord, str, num, listOf, ClassMapBuilder } from './_shared.js';

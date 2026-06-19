@@ -6,7 +6,7 @@
  * per-class visibility decision is encoded; `project()` (projection.ts)
  * is the pure function that applies them at the output boundary.
  *
- * Source of truth: docs/PHASE_B_GOVERNANCE.md §4 (FROZEN). Each policy
+ * Source of truth: docs/design/governance.md §4 (FROZEN). Each policy
  * MUST have an entry for every member of FIELD_CLASSES — enforced at
  * compile time by `ContractPolicy = Record<FieldClass, ProjectionAction>`.
  *

@@ -251,7 +251,7 @@ const configSchema = z
     // pre-HTTP server (StdioServerTransport). `http` starts a node:http server
     // running the SDK StreamableHTTPServerTransport, with bearer-token auth
     // bridged to the EXISTING consumer registry (same tokens as stdio). Full
-    // OAuth2.1/PRM is a documented follow-up (see docs/MCP_ADOPTION.md #9).
+    // OAuth2.1/PRM is a documented follow-up (see docs/design/mcp-adoption.md #9).
     MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
     // Bind address + port for the HTTP transport. Localhost by default so the
     // server is not exposed off-box unless explicitly reconfigured.

@@ -1,5 +1,5 @@
 /**
- * OAuth → ConsumerProfile bridge tests (OAUTH_DESIGN.md component 5).
+ * OAuth → ConsumerProfile bridge tests (docs/design/oauth.md component 5).
  *
  * Proves the deny-by-default mapping from verified OAuth claims to a registry
  * ConsumerProfile, plus granted-scope extraction. Synthetic data only; pure,

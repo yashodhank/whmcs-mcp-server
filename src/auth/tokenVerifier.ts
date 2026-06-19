@@ -1,5 +1,5 @@
 /**
- * OAuth 2.1 access-token verifier (Component 2 of docs/OAUTH_DESIGN.md).
+ * OAuth 2.1 access-token verifier (Component 2 of docs/design/oauth.md).
  *
  * Validates RFC 9068 JWT access tokens issued by a configured authorization
  * server (AS) and presented to this MCP resource server (RS) over the HTTP
