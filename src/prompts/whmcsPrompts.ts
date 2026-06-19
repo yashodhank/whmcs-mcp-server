@@ -219,4 +219,54 @@ Workflow:
    recommend renewals for human action.
 `)
   );
+
+  // ============================================================
+  // 6. dunning_sweep
+  // ============================================================
+  server.registerPrompt(
+    'dunning_sweep',
+    {
+      title: 'Dunning sweep (draft-only AR follow-up)',
+      description:
+        'Find overdue accounts and DRAFT a per-client dunning action (reminder note, optional goodwill credit) — never mutates.',
+      argsSchema: {
+        clientid: z
+          .string()
+          .optional()
+          .describe('Optional WHMCS client id to scope the dunning sweep.'),
+      },
+    },
+    ({ clientid }) =>
+      userMessage(`
+You are running a dunning sweep over overdue accounts. ${scopeHint(clientid)}
+
+GOVERNANCE — any follow-up here is a mutation. You MUST NOT mutate directly; every proposed
+change MUST be routed through \`draft_write_intent\`. This workflow STOPS at the draft —
+execution is OUT OF SCOPE. Production is sealed by default, so you must not assume any draft
+will be executed. Do not approve or execute any drafted intent here.
+
+Workflow, one step at a time, citing the tool you used at each step:
+
+1. Call \`get_accounts_receivable_aging\`${clientid ? ` for client ${clientid}` : ''} to identify
+   clients carrying a 30+ / 60+ / 90+ days overdue balance. Record the oldest bucket per client.
+2. For EACH overdue client, call \`get_billing_snapshot\` to confirm the current unpaid/overdue
+   total and capture the overdue invoice id(s).
+3. For that same client, call \`get_support_snapshot\` — if an OPEN billing-dispute ticket
+   exists, SKIP the nudge and FLAG the client for human review (do NOT draft anything).
+4. For each remaining overdue client, DRAFT a dunning action via \`draft_write_intent\`:
+   - a reminder note with scope \`client_note:write\` (LOW risk) referencing the overdue
+     invoice id(s) and the oldest aging bucket; and
+   - OPTIONALLY, where policy allows goodwill, a \`billing:credit:add\` DRAFT. This is HIGH
+     risk and sealed in production by default: it only ever proceeds through the full
+     validate -> human approval -> execute ceremony with caps. This prompt STOPS at the
+     draft; do not run that ceremony here.
+
+STRUCTURED OUTPUT:
+  (a) an AR summary by bucket (current / 30 / 60 / 90+ totals);
+  (b) a per-client table of \`{clientid, overdue_total, oldest_bucket, dispute_open?,
+      drafted_intent_ids[]}\`;
+  (c) a "next actions" list.
+Read-only except for the governed drafts above.
+`)
+  );
 }

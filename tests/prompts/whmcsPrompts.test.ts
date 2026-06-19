@@ -36,6 +36,7 @@ const ALL_PROMPTS = [
   'suspend_for_nonpayment',
   'new_client_onboarding',
   'domain_renewal_review',
+  'dunning_sweep',
 ];
 
 function firstText(res: ReturnType<PromptCb>): string {
@@ -43,7 +44,7 @@ function firstText(res: ReturnType<PromptCb>): string {
 }
 
 describe('registerWhmcsPrompts', () => {
-  it('registers exactly the five expected prompts', () => {
+  it('registers exactly the expected prompts', () => {
     const { server, prompts } = makeServer();
     registerWhmcsPrompts(server);
     expect(Object.keys(prompts).sort()).toEqual([...ALL_PROMPTS].sort());
@@ -120,6 +121,19 @@ describe('registerWhmcsPrompts', () => {
     expect(text).toContain('get_domain_portfolio_snapshot');
     expect(text).toContain('30');
     expect(text.toLowerCase()).toContain('renewal cost');
+  });
+
+  it('dunning_sweep chains AR aging + billing + support and drafts only', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(prompts.dunning_sweep.cb({ clientid: '7' }));
+    expect(text).toContain('get_accounts_receivable_aging');
+    expect(text).toContain('get_billing_snapshot');
+    expect(text).toContain('get_support_snapshot');
+    expect(text).toContain('draft_write_intent');
+    expect(text).toContain('client_note:write');
+    // governance: it must NOT instruct execution
+    expect(text).not.toContain('execute_write_intent');
   });
 
   it('clientid arg flows into the rendered body when supplied', () => {
