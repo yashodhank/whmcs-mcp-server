@@ -33,6 +33,7 @@ import { registerTicketThreadTool } from './tools/ticketThreadTool.js';
 import { registerAggregatorTools } from './tools/aggregators.js';
 import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
 import { registerWriteFlowTools } from './tools/writeFlow.js';
+import { registerWorkflowTools } from './tools/workflows.js';
 
 // Resource registrations
 import { registerResources } from './resources/index.js';
@@ -94,6 +95,7 @@ export function buildServer(deps: {
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
   registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
   registerWriteFlowTools(server, whmcsClient, logger, rateLimiter);
+  registerWorkflowTools(server, whmcsClient, logger, rateLimiter);
 
   // Register resources
   logger.info('Registering MCP resources...');
