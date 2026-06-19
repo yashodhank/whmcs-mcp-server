@@ -7,9 +7,11 @@
 
     <key>ProgramArguments</key>
     <array>
-      <string>/usr/bin/env</string>
-      <string>python3</string>
-      <string>/ABSOLUTE/PATH/TO/whmcs_ip_updater.py</string>
+      <!-- run-oneshot.sh sources .env.production, bridges credential key names
+           (WHMCS_IDENTIFIER/WHMCS_SECRET -> WHMCS_API_IDENTIFIER/WHMCS_API_SECRET),
+           then execs whmcs_ip_updater.py.  See launchd/run-oneshot.sh for details.
+           chmod 700 the script after copying it to the production machine. -->
+      <string>/ABSOLUTE/PATH/TO/launchd/run-oneshot.sh</string>
       <string>oneshot</string>
       <string>--ssh-host</string>
       <string>195.7.4.219</string>
@@ -17,13 +19,17 @@
       <string>whmcs-ip-updater</string>
       <string>--ssh-key</string>
       <string>/ABSOLUTE/PATH/TO/id_ed25519_whmcs_updater</string>
+      <string>--whmcs-root</string>
+      <string>/ABSOLUTE/PATH/TO/whmcs/root</string>
       <string>--ipv6-policy</string>
       <string>only-if-detected</string>
       <string>--state-file</string>
       <string>/Users/REPLACE/.local/state/whmcs-ip-updater/state.json</string>
       <string>--reason</string>
       <string>launchd scheduled refresh</string>
-      <string>--validate-api-after-update</string>
+      <!-- Validation is now ENABLED: run-oneshot.sh delivers credentials so
+           run_test_api can call WHMCS after each update.
+           No --no-validate-api-after-update flag here. -->
     </array>
 
     <key>StartInterval</key>

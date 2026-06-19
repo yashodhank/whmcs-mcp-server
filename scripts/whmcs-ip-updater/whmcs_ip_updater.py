@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import random
+import re
 import signal
 import subprocess
 import sys
@@ -103,6 +104,7 @@ class AppConfig:
     whmcs_api_identifier: Optional[str]
     whmcs_api_secret: Optional[str]
     test_api_timeout: int
+    test_api_action: str
     validate_api_after_update: bool
     json_output: bool
     provider_timeout: int
@@ -318,6 +320,50 @@ def emit_event(logger: logging.Logger, event: str, **fields: Any) -> None:
     logger.info(json.dumps(payload, sort_keys=True))
 
 
+def notify_failure(logger: logging.Logger, event: str, **fields: Any) -> None:
+    """Best-effort failure notifier: appends a structured JSON line to the MCP audit
+    log and optionally POSTs to a webhook.  Never raises — any error is swallowed so
+    alerting failure never blocks the updater.
+
+    Env vars consumed (read at call time so they work with the launchd wrapper):
+      MCP_WRITE_AUDIT_PATH          — path to append structured failure events
+      WHMCS_IP_UPDATER_ALERT_WEBHOOK — URL to POST a JSON failure payload to
+    """
+    try:
+        record = {"event": event, "ts": int(time.time()), **fields}
+        record_line = json.dumps(record, sort_keys=True) + "\n"
+
+        audit_path = os.getenv("MCP_WRITE_AUDIT_PATH")
+        if audit_path:
+            try:
+                with open(audit_path, "a", encoding="utf-8") as fh:
+                    fh.write(record_line)
+            except Exception as exc:  # noqa: BLE001
+                emit_event(logger, "notifier_audit_write_error", error=str(exc))
+
+        webhook = os.getenv("WHMCS_IP_UPDATER_ALERT_WEBHOOK")
+        if webhook:
+            try:
+                body = json.dumps(record, sort_keys=True).encode("utf-8")
+                req = urllib.request.Request(
+                    webhook,
+                    data=body,
+                    headers={"Content-Type": "application/json", "User-Agent": "whmcs-ip-updater/1.0"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as _resp:
+                    pass
+            except Exception as exc:  # noqa: BLE001
+                emit_event(logger, "notifier_webhook_error", error=str(exc))
+
+    except Exception as exc:  # noqa: BLE001
+        # Outer safety net: even if the whole notifier errors, never propagate.
+        try:
+            emit_event(logger, "notifier_error", error=str(exc))
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def parse_ip(value: str, version: int) -> Optional[str]:
     text = (value or "").strip()
     try:
@@ -476,7 +522,7 @@ def run_test_api(cfg: AppConfig, logger: logging.Logger) -> Dict[str, Any]:
 
     endpoint = cfg.whmcs_api_url.rstrip("/") + "/includes/api.php"
     payload = {
-        "action": "WhmcsDetails",
+        "action": cfg.test_api_action,
         "identifier": cfg.whmcs_api_identifier,
         "secret": cfg.whmcs_api_secret,
         "responsetype": "json",
@@ -522,6 +568,27 @@ def run_test_api_local(cfg: AppConfig, ssh: SshClient) -> Dict[str, Any]:
         "message": "WHMCS local API validation succeeded",
         "details": data,
     }
+
+
+# Regex mirrors the reactive heal in ipAllowlistHeal.ts / WhmcsClient.ts.
+_INVALID_IP_RE = re.compile(r"invalid\s+ip\s+([0-9a-fA-F:.]+)", re.IGNORECASE)
+
+
+def _extract_reported_ip(error_message: str) -> Optional[str]:
+    """Extract the IP address from a 'Invalid IP <X>' WHMCS error message.
+
+    Returns the IP string if the message matches and the IP is a valid public
+    address (v4 or v6); returns None otherwise.
+    """
+    m = _INVALID_IP_RE.search(error_message)
+    if not m:
+        return None
+    candidate = m.group(1)
+    # Accept valid public IPv4 or IPv6; reject loopback/private/link-local.
+    for version in (4, 6):
+        if parse_ip(candidate, version):
+            return candidate
+    return None
 
 
 def do_dry_run(cfg: AppConfig, ssh: SshClient, logger: logging.Logger) -> Dict[str, Any]:
@@ -588,6 +655,7 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
         event_name = "no_change" if action == "no_change" else "update_applied"
 
         api_validation = None
+        corrective_update: Optional[Dict[str, Any]] = None
         if cfg.validate_api_after_update and action != "no_change":
             try:
                 local_result = run_test_api_local(cfg, ssh)
@@ -598,6 +666,15 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
                     mode="local",
                     error=str(exc),
                 )
+                try:
+                    notify_failure(
+                        logger,
+                        "updated_but_api_validation_failed",
+                        mode="local",
+                        error=str(exc),
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 api_validation = {"result": "error", "mode": "local", "message": str(exc)}
             else:
                 api_validation = {"local": local_result}
@@ -605,13 +682,81 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
                     try:
                         api_validation["external"] = run_test_api(cfg, logger)
                     except Exception as exc:  # noqa: BLE001
+                        error_msg = str(exc)
                         emit_event(
                             logger,
                             "updated_but_api_validation_failed",
                             mode="external",
-                            error=str(exc),
+                            error=error_msg,
                         )
-                        api_validation["external"] = {"result": "error", "mode": "external", "message": str(exc)}
+                        try:
+                            notify_failure(
+                                logger,
+                                "updated_but_api_validation_failed",
+                                mode="external",
+                                error=error_msg,
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        api_validation["external"] = {"result": "error", "mode": "external", "message": error_msg}
+
+                        # Probe-and-correct: if the WHMCS API reports an
+                        # authoritative IP different from the one we just set,
+                        # re-run the update targeting that exact IP (once).
+                        # Mirrors the reactive heal regex in ipAllowlistHeal.ts.
+                        reported_ip = _extract_reported_ip(error_msg)
+                        if reported_ip is not None:
+                            emit_event(
+                                logger,
+                                "probe_correct_attempt",
+                                reported_ip=reported_ip,
+                                consensus_targets=targets,
+                            )
+                            try:
+                                v4 = reported_ip if "." in reported_ip else None
+                                v6 = reported_ip if ":" in reported_ip else None
+                                corrective_targets: Dict[str, str] = {}
+                                if v4:
+                                    corrective_targets["ipv4"] = v4
+                                if v6:
+                                    corrective_targets["ipv6"] = v6
+                                if corrective_targets:
+                                    corrective_payload = {
+                                        "whmcs_root": cfg.whmcs_root,
+                                        "reason": f"{cfg.reason} [probe-correct reported={reported_ip}]",
+                                        **corrective_targets,
+                                    }
+                                    corrective_response = ssh.call("update", corrective_payload)
+                                    corrective_update = corrective_response.get("data", {})
+                                    emit_event(
+                                        logger,
+                                        "probe_correct_applied",
+                                        reported_ip=reported_ip,
+                                        corrective_action=corrective_update.get("action"),
+                                    )
+                                    # Re-validate after the corrective update.
+                                    try:
+                                        api_validation["external_after_correction"] = run_test_api(cfg, logger)
+                                    except Exception as exc2:  # noqa: BLE001
+                                        emit_event(
+                                            logger,
+                                            "updated_but_api_validation_failed",
+                                            mode="external_after_correction",
+                                            error=str(exc2),
+                                        )
+                                        api_validation["external_after_correction"] = {
+                                            "result": "error",
+                                            "mode": "external_after_correction",
+                                            "message": str(exc2),
+                                        }
+                            except Exception as exc3:  # noqa: BLE001
+                                emit_event(
+                                    logger,
+                                    "probe_correct_failed",
+                                    reported_ip=reported_ip,
+                                    error=str(exc3),
+                                )
+                                api_validation["probe_correct_error"] = str(exc3)
 
         state["last_success_timestamp"] = int(time.time())
         state["last_ipv4"] = targets.get("ipv4")
@@ -629,6 +774,7 @@ def do_oneshot(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_sto
             "detected": detection,
             "targets": targets,
             "update": response.get("data", {}),
+            "corrective_update": corrective_update,
             "api_validation": api_validation,
         }
 
@@ -668,6 +814,15 @@ def daemon_loop(cfg: AppConfig, ssh: SshClient, logger: logging.Logger, state_st
                 failure_count=failure_count,
                 cooldown_seconds=cfg.circuit_breaker_cooldown_seconds,
             )
+            try:
+                notify_failure(
+                    logger,
+                    "circuit_breaker_open",
+                    failure_count=failure_count,
+                    cooldown_seconds=cfg.circuit_breaker_cooldown_seconds,
+                )
+            except Exception:  # noqa: BLE001
+                pass  # notify_failure is best-effort; never block the daemon
             time.sleep(cfg.circuit_breaker_cooldown_seconds)
             if STOP_REQUESTED:
                 break
@@ -778,6 +933,14 @@ def load_args(argv: Iterable[str]) -> AppConfig:
     parser.add_argument("--whmcs-api-identifier", default=os.getenv("WHMCS_API_IDENTIFIER"))
     parser.add_argument("--whmcs-api-secret", default=os.getenv("WHMCS_API_SECRET"))
     parser.add_argument("--test-api-timeout", type=int, default=int(os.getenv("WHMCS_TEST_API_TIMEOUT", "15")))
+    parser.add_argument(
+        "--test-api-action",
+        default=os.getenv("WHMCS_TEST_API_ACTION", "GetStaffOnline"),
+        help=(
+            "WHMCS API action used for post-update validation (default: GetStaffOnline). "
+            "Override via WHMCS_TEST_API_ACTION env var if your role does not permit GetStaffOnline."
+        ),
+    )
     parser.add_argument("--validate-api-after-update", action=argparse.BooleanOptionalAction, default=True)
 
     parser.add_argument("--json-output", action="store_true")
@@ -845,6 +1008,7 @@ def load_args(argv: Iterable[str]) -> AppConfig:
         whmcs_api_identifier=ns.whmcs_api_identifier,
         whmcs_api_secret=ns.whmcs_api_secret,
         test_api_timeout=ns.test_api_timeout,
+        test_api_action=ns.test_api_action,
         validate_api_after_update=ns.validate_api_after_update,
         json_output=ns.json_output,
         provider_timeout=ns.provider_timeout,
