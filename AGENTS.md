@@ -22,7 +22,7 @@ MCP host → src/index.ts
 
 **Governance (Phase B, opt-in):** Set `MCP_GOVERNANCE_ENABLED=true` and configure `MCP_CONSUMER_REGISTRY` (SHA-256 of bearer tokens only — never commit raw tokens). When off (default), legacy tool output paths remain for backward compatibility. See [docs/PHASE_B_GOVERNANCE.md](docs/PHASE_B_GOVERNANCE.md).
 
-**Controlled writes (Phase F–G+):** Mutations that bypass simple `MCP_MODE=full` use the write-flow tools (`draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent`). Production execution is **deny-by-default** unless explicitly allowlisted (`MCP_PROD_WRITE_AUTHORIZED`, caps, audit path). See [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md) and [docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md](docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md).
+**Controlled writes (Phase F–G+):** Mutations that bypass simple `MCP_MODE=full` use the write-flow tools (`draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent`). Production execution is **deny-by-default** unless explicitly allowlisted (`MCP_PROD_WRITE_AUTHORIZED`, caps, audit path). See [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md) (implemented; sealed by default) and [docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md](docs/superpowers/specs/2026-05-19-whmcs-prod-write-RUNBOOK.md).
 
 ## Tool families (where to edit)
 

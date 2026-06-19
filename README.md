@@ -11,7 +11,7 @@ For agent/contributor orientation (architecture, governance, write-flow, doc map
   - **Governed list & reporting** — per-client lists (`list_client_*`), global `list_invoices` / `list_services`, `get_activity_log`
   - **Aggregators** — `get_account_360`, `get_billing_snapshot`, `get_support_snapshot`, `get_renewal_snapshot`
   - **Capability & probes** — `get_capability_matrix`, `get_stats`, transactions, automation log, todo items (`list_users` remains unverified — see [docs/getusers-investigation.md](docs/getusers-investigation.md))
-  - **Controlled write-flow** — `draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent` → `get_write_intent` (production deny-by-default; scopes include e.g. `service:price_restore`, `service:domain_rename`)
+  - **Controlled write-flow** — `draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent` → `get_write_intent`, plus a one-call `write` (tiered: low/medium scopes auto-approve, high-risk routes to the explicit ceremony). Sealed by default (`MCP_MODE=read_only`, empty `MCP_PROD_WRITE_AUTHORIZED`); scopes include e.g. `service:price_restore`, `service:domain_rename`
 
 - **7 MCP resources** for passive context:
   - Client summary and activity log
@@ -181,8 +181,11 @@ cp .env.example .env
 | `MCP_PROD_WRITE_AUTHORIZED` | (empty) | Comma-separated WHMCS actions allowed for production write execution |
 | `MCP_WRITE_EXECUTION_AUTHORIZED` | (empty) | Non-prod runtime write allowlist |
 | `MCP_WRITE_KILL_SWITCH` | `false` | Emergency block on controlled writes |
+| `MCP_WRITE_STRICT_ALLOWLIST` | `false` | Enforce the write allowlist for **all** tiers (legacy posture); default enforces it for high-risk scopes only (low/medium are audit-gated) |
+| `MCP_WRITE_STRICT_SCOPES` | `billing:invoice:create` | Comma-separated scopes that always require the write allowlist even if low/medium risk |
 | `MCP_WRITE_AUDIT_PATH` | (empty) | Durable audit log path (required when prod writes are allowlisted) |
 | `MCP_WRITE_IDEMPOTENCY_PATH` | (empty) | Durable idempotency store path |
+| `MCP_WRITE_DAY_AMOUNTS_PATH` | (empty) | Durable daily-cap tally path; set alongside `MCP_PROD_HIGH_RISK_DAILY_CAP` so a restart cannot reset the daily cap |
 | `MCP_PROD_HIGH_RISK_PER_ACTION_CAP` | `0` | Per-action cap for high-risk write scopes |
 | `MCP_PROD_HIGH_RISK_DAILY_CAP` | `0` | Daily aggregate cap for high-risk writes |
 | `WHMCS_ACCESS_KEY`   | (empty)     | Optional WHMCS API access key (for IP restricted setups) |
@@ -274,11 +277,12 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
 
 ### Controlled write-flow (Phase F–G+)
 
-These tools perform **no WHMCS mutation** until `execute_write_intent` passes the execution gate (and `MCP_MODE` / authorizer allowlists permit the underlying action):
+These tools perform **no WHMCS mutation** until execution passes the execution gate (and `MCP_MODE` / authorizer allowlists permit the underlying action):
 
 - `draft_write_intent`, `validate_write_intent`, `approve_write_intent`, `execute_write_intent`, `get_write_intent`
+- `write` — one-call tiered shortcut: draft → validate → (auto-approve for low/medium) → execute in a single call; **high-risk** scopes are validated then returned for the explicit `approve_write_intent` → `execute_write_intent` ceremony (never auto-executed). Same governance as the multi-step flow.
 
-Scopes are consumer-gated and environment-sealed by default in production. See [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md).
+The engine uses **tiered friction**: low/medium scopes are audit-gated; high-risk scopes keep the full gate (per-environment allowlist + human approval + monetary caps). It is **sealed by default** — default `MCP_MODE=read_only` plus an empty `MCP_PROD_WRITE_AUTHORIZED` means production write behaviour is byte-identical to absolute deny. Scopes are consumer-gated; see [docs/phase-f-controlled-write-automation.md](docs/phase-f-controlled-write-automation.md).
 
 ## Authentication & Access Modes
 

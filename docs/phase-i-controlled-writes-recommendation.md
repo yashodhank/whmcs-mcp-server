@@ -1,8 +1,10 @@
 # Phase I — Production-Grade Controlled Writes: Recommendation (DECISION + PLAN ONLY)
 
-> **Status: recommendation + plan. NOT implemented. No write code, no
-> mutation tool, no production write path is created or enabled by this
-> document. Production execution remains hard-gated by Phase G.**
+> **Status: recommendation + decision. This document neither adds write code
+> nor creates/enables any production write path.** The Phase F/G write
+> machinery already exists in `src/write/*` and `src/tools/writeFlow.ts` and is
+> sealed by default; this document only records the production go/no-go decision
+> for *ungating* it. Production execution remains sealed by default per Phase G+.
 
 ## 0. TL;DR
 
@@ -106,10 +108,13 @@ project's deny-by-default, evidence-before-assertion posture. Today:
 
 The Phase F machinery (draft→validate→approve→execute→verify, idempotency,
 per-consumer write scopes, write-specific allowlist, audit) and the
-Phase G absolute production hard-gate
-(`src/write/executionGate.ts`: `env === 'production'` ⇒
-`production_execution_forbidden`, checked first) are **sound and should
-remain unchanged** until the prerequisite below is met.
+Phase G+ deny-by-default **tiered** execution gate
+(`src/write/executionGate.ts`) are **sound and should remain unchanged** until
+the prerequisite below is met. In the default posture `MCP_MODE=read_only`
+blocks all execution; for HIGH-RISK scopes an empty `MCP_PROD_WRITE_AUTHORIZED`
+yields `action_not_prod_authorized` — the keystone that seals production
+money/destruction. (The legacy `production_execution_forbidden` reason is
+retained in the enum but no longer emitted.)
 
 ## 4. Prerequisite — Phase H.1 (small, separately reviewed, read-only)
 

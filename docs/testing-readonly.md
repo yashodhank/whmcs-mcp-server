@@ -30,7 +30,7 @@ Short runbook for manually verifying that the WHMCS MCP server’s read-only too
 
 - **Tools**: Responses are JSON with expected shape (e.g. `clients`, `products`, `invoiceid`, or `error`) and no stack traces.
 - **Resources**: Markdown or JSON; URIs in responses do **not** contain `?token=...` (SEC-002).
-- **Read-only mode**: Write tools (e.g. `mark_invoice_paid`) return a clear “not available in read_only mode” style error.
+- **Read-only mode**: Mutations are blocked. The legacy direct-write tools (e.g. `mark_invoice_paid`) are **retired from the default surface** — they are not registered unless `MCP_ENABLE_LEGACY_WRITE_TOOLS=true`, and even then return a clear “not available in read_only mode” style error. The governed write-flow (`draft_write_intent` … `execute_write_intent`, or the one-call `write`) is the supported mutation path and stays sealed in `read_only` mode (default).
 
 ## If You Get 403 or Auth Errors
 
