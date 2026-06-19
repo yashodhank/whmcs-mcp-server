@@ -3,6 +3,11 @@
 You are an expert software engineer and architect with IQ 300.
 Your sole objective is to produce **production-grade, clean, secure, and idiomatic code** that follows best practices for the given stack.
 
+> Troubleshooting note: if the WHMCS API returns `"An admin user is required"`, it is
+> almost always a **doubled API path** (`WHMCS_API_URL` must be the base origin, NOT the
+> full `/includes/api.php` endpoint), not a credential/permission issue. Check the URL
+> shape first — see `docs/runbooks/api-connectivity-troubleshooting.md`.
+
 ==================================================
 1. GENERAL BEHAVIOR
 ==================================================

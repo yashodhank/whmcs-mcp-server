@@ -107,6 +107,27 @@ Brainstorm decisions worth recording:
 - **007 review fix**: the executor's batch path used a `getMap()` shim that bypassed persistence; fixed to `getTotal()`/`add()` so both single-call and batch paths are durable, and removed the shim.
 - The 3rd structural flag (in-memory IntentStore) was deliberately NOT changed — it's by design (15-min TTL, re-drafted).
 
+## API-outage hardening (2026-06-19, `improve`)
+
+From the live `"An admin user is required"` total-API-outage RCA. Root cause was
+a **doubled `/includes/api.php`** path (full-URL `WHMCS_API_URL` + the client
+appending the path again) — WHMCS 200s the doubled path but routes it to an
+admin-session handler. Stamped against `1275532`. Advisor plans (not yet executed).
+
+| Plan | Title | Priority | Effort | Status |
+|------|-------|----------|--------|--------|
+| 022 | Harden `WHMCS_API_URL` → endpoint resolution (tolerant `resolveWhmcsApiEndpoint` + startup warn + edge-case tests) | P1 | S | DONE — applied + verified |
+| 023 | API-connectivity troubleshooting runbook + `AGENTS.md`/`.cursorrules` check-first rule | P1 | S | DONE — applied + verified |
+
+Enhancement beyond the plans: `WhmcsClient` now self-diagnoses — it enriches the
+`"An admin user is required"` business error with the resolved endpoint + ordered
+checks + a runbook pointer (`tests/whmcs/whmcsClientAdminHint.test.ts`).
+
+Independent of each other; 022 is the code fix, 023 is docs/rules. Neither
+depends on the other. Recommended: execute both. The deployment env value was
+already corrected live (`WHMCS_API_URL=https://my.securiace.com`); 022 prevents
+recurrence in code.
+
 ## Low-priority backlog disposition (2026-06-19)
 
 Audited the open low-priority notes across `plans/` + `docs/design/` and decided
