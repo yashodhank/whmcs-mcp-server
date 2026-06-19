@@ -43,6 +43,13 @@ Installer behavior:
 ssh -i /path/to/private_key whmcs-ip-updater@195.7.4.219 verify
 ```
 
+## Host key verification
+
+All remote modes use `ssh` with `StrictHostKeyChecking`. If the audited host key
+lives outside the default `~/.ssh/known_hosts`, pass `--ssh-known-hosts <file>`
+(or set `WHMCS_SSH_KNOWN_HOSTS`); the path may use `~`. This avoids per-machine
+`~/.ssh/config` edits and makes the auto-heal portable across machines.
+
 ## Local Commands
 
 ```bash
