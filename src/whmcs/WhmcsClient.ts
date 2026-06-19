@@ -118,7 +118,7 @@ function extractWhmcsError(error: unknown): { message?: string; reportedIp?: str
     return {};
   }
   // e.g. "Invalid IP 117.217.28.213" or an IPv6 form.
-  const match = message.match(/invalid\s+ip\s+([0-9a-fA-F:.]+)/i);
+  const match = /invalid\s+ip\s+([0-9a-fA-F:.]+)/i.exec(message);
   return { message, reportedIp: match?.[1] };
 }
 

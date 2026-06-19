@@ -14,7 +14,7 @@ vi.mock('../../src/config.js', () => ({
 // axios: post() is a controllable spy; isAxiosError detects our fake errors.
 const post = vi.fn();
 vi.mock('axios', () => {
-  const isAxiosError = (e: any) => !!(e && e.isAxiosError);
+  const isAxiosError = (e: any) => !!(e?.isAxiosError);
   const create = vi.fn(() => ({ post }));
   return { default: { create, isAxiosError }, create, isAxiosError };
 });

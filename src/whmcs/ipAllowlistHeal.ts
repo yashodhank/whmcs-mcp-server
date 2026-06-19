@@ -108,7 +108,7 @@ function runUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string):
       logger.warn(
         'IP allowlist heal aborted: updater script not found (set WHMCS_IP_UPDATER_SCRIPT to scripts/whmcs-ip-updater/whmcs_ip_updater.py)'
       );
-      return resolve(false);
+      resolve(false); return;
     }
 
     // The updater reads its own SSH/WHMCS_ROOT env (WHMCS_SSH_HOST, WHMCS_SSH_USER,
@@ -154,10 +154,10 @@ function runUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string):
       finish(false);
     }, config.WHMCS_AUTO_IP_HEAL_TIMEOUT_MS);
 
-    child.stdout?.on('data', (d) => {
+    child.stdout.on('data', (d) => {
       stdout += String(d);
     });
-    child.stderr?.on('data', (d) => {
+    child.stderr.on('data', (d) => {
       stderr += String(d);
     });
     child.on('error', (e) => {
@@ -171,7 +171,7 @@ function runUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string):
       let action: string | undefined;
       try {
         const parsed = JSON.parse(stdout) as { action?: string; data?: { action?: string } };
-        action = parsed?.data?.action ?? parsed?.action;
+        action = parsed.data?.action ?? parsed.action;
       } catch {
         /* updater output was not JSON (e.g. an early error) */
       }
