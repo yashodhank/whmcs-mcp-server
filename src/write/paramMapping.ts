@@ -395,9 +395,7 @@ export function mapDomainNameserversParams(
  * scope deliberately omits it — no card data flows through the write-flow).
  * Any extra input key is dropped (defense in depth).
  */
-export function mapPaymentCaptureParams(
-  params: Record<string, unknown>
-): Record<string, unknown> {
+export function mapPaymentCaptureParams(params: Record<string, unknown>): Record<string, unknown> {
   return { invoiceid: params.invoiceid };
 }
 
@@ -420,9 +418,7 @@ export function mapCreditApplyParams(params: Record<string, unknown>): Record<st
  * any cost / pricing / status override — is dropped (defense in depth so a
  * malformed intent can never leak an unintended field into the live call).
  */
-export function mapDomainRegisterParams(
-  params: Record<string, unknown>
-): Record<string, unknown> {
+export function mapDomainRegisterParams(params: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { domainid: params.domainid };
   for (let i = 1; i <= 5; i++) {
     const v = params[`ns${String(i)}`];
@@ -564,9 +560,7 @@ export function mapServiceUpgradeParams(params: Record<string, unknown>): Record
  * `DomainToggleIdProtect` `{domainid, idprotect}`. STRICT: emits domainid + a
  * normalized boolean idprotect; extras dropped.
  */
-export function mapDomainIdProtectParams(
-  params: Record<string, unknown>
-): Record<string, unknown> {
+export function mapDomainIdProtectParams(params: Record<string, unknown>): Record<string, unknown> {
   return {
     domainid: params.domainid,
     idprotect: params.idprotect === true,

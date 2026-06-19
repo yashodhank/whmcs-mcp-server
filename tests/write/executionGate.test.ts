@@ -136,7 +136,10 @@ describe('defaultExecutionAuthorizer — keystone invariant (high-risk scope)', 
   // are audit-gated and intentionally execute without an allowlist (see the
   // tiered-friction describe below).
   it('KEYSTONE: no new env ⇒ HIGH-RISK production SEALED', () => {
-    const d = defaultExecutionAuthorizer(prodReq({ intent: approvedHighRiskIntent() }), () => false);
+    const d = defaultExecutionAuthorizer(
+      prodReq({ intent: approvedHighRiskIntent() }),
+      () => false
+    );
     expect(d).toEqual({ allowed: false, reason: 'action_not_prod_authorized' });
   });
 
@@ -283,7 +286,10 @@ describe('defaultExecutionAuthorizer — gate priority & new reasons', () => {
       action: 'UpdateClientProduct', // a non-permanently-blocked action
     };
     const d = defaultExecutionAuthorizer(
-      prodReq({ intent: blockedScope, prodAuthorizedActions: ['service:terminate', 'UpdateClientProduct'] })
+      prodReq({
+        intent: blockedScope,
+        prodAuthorizedActions: ['service:terminate', 'UpdateClientProduct'],
+      })
     );
     expect(d).toEqual({ allowed: false, reason: 'action_permanently_blocked' });
   });
@@ -499,9 +505,9 @@ describe('allowlistAuthorizes — action OR scope semantics', () => {
     );
   });
   it('matches on the write scope (NARROW grant)', () => {
-    expect(allowlistAuthorizes(['service:domain_rename'], 'UpdateClientProduct', 'service:domain_rename')).toBe(
-      true
-    );
+    expect(
+      allowlistAuthorizes(['service:domain_rename'], 'UpdateClientProduct', 'service:domain_rename')
+    ).toBe(true);
   });
   it('an empty allowlist matches nothing (sealed)', () => {
     expect(allowlistAuthorizes([], 'UpdateClientProduct', 'service:domain_rename')).toBe(false);
@@ -553,12 +559,18 @@ describe('preAuthorizeIntent — independent gating of UpdateClientProduct scope
   it('same separation holds on the non-prod runtime allowlist', () => {
     expect(
       preAuthorizeIntent(
-        fullyOpenReq({ intent: domainRename(), runtimeAuthorizedActions: ['service:domain_rename'] })
+        fullyOpenReq({
+          intent: domainRename(),
+          runtimeAuthorizedActions: ['service:domain_rename'],
+        })
       )
     ).toEqual({ allowed: true });
     expect(
       preAuthorizeIntent(
-        fullyOpenReq({ intent: priceRestore(), runtimeAuthorizedActions: ['service:domain_rename'] })
+        fullyOpenReq({
+          intent: priceRestore(),
+          runtimeAuthorizedActions: ['service:domain_rename'],
+        })
       )
     ).toEqual({ allowed: false, reason: 'action_not_runtime_authorized' });
   });

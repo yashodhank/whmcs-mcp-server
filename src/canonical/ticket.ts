@@ -44,21 +44,17 @@ export interface CanonicalTicket {
   notes: CanonicalTicketNote[];
 }
 
-export function mapToCanonicalTicket(
-  raw: unknown
-): Canonical<CanonicalTicket> {
+export function mapToCanonicalTicket(raw: unknown): Canonical<CanonicalTicket> {
   const src = asRecord(raw);
 
-  const replies: CanonicalTicketReply[] = listOf(src.replies, 'reply').map(
-    (r) => ({
-      replyId: num(r, 'replyid') ?? num(r, 'id') ?? null,
-      name: str(r, 'name') ?? null,
-      email: str(r, 'email') ?? null,
-      admin: str(r, 'admin') ?? null,
-      message: str(r, 'message') ?? null,
-      date: str(r, 'date') ?? null,
-    })
-  );
+  const replies: CanonicalTicketReply[] = listOf(src.replies, 'reply').map((r) => ({
+    replyId: num(r, 'replyid') ?? num(r, 'id') ?? null,
+    name: str(r, 'name') ?? null,
+    email: str(r, 'email') ?? null,
+    admin: str(r, 'admin') ?? null,
+    message: str(r, 'message') ?? null,
+    date: str(r, 'date') ?? null,
+  }));
 
   const notes: CanonicalTicketNote[] = listOf(src.notes, 'note').map((n) => ({
     noteId: num(n, 'noteid') ?? num(n, 'id') ?? null,
@@ -98,10 +94,7 @@ export function mapToCanonicalTicket(
     // and reply `name` above STAY pii.name (real people).
     .set('departmentName', 'business.label')
     .set('service', 'business.label')
-    .many(
-      ['status', 'priority', 'date', 'lastReply'],
-      'public.safe'
-    )
+    .many(['status', 'priority', 'date', 'lastReply'], 'public.safe')
     .set('subject', 'untrusted.free_text')
     .set('message', 'untrusted.free_text')
     .set('replies', 'untrusted.free_text')

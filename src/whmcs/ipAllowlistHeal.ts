@@ -107,7 +107,8 @@ function runUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string):
       logger.warn(
         'IP allowlist heal aborted: updater script not found (set WHMCS_IP_UPDATER_SCRIPT to scripts/whmcs-ip-updater/whmcs_ip_updater.py)'
       );
-      resolve(false); return;
+      resolve(false);
+      return;
     }
 
     // The updater reads its own SSH/WHMCS_ROOT env (WHMCS_SSH_HOST, WHMCS_SSH_USER,

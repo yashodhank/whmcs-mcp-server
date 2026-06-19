@@ -1,6 +1,6 @@
 /**
  * Rate Limiter and Idempotency module for WHMCS MCP Server
- * 
+ *
  * Provides:
  * - Token bucket rate limiting for WHMCS API calls
  * - Idempotency cache for high-risk operations
@@ -61,7 +61,9 @@ export class RateLimiter {
     this.logger = logger;
 
     // Periodically clean up old cache entries (store interval ID for cleanup)
-    this.cleanupIntervalId = setInterval(() => { this.cleanupCache(); }, DEFAULT_CLEANUP_INTERVAL_MS);
+    this.cleanupIntervalId = setInterval(() => {
+      this.cleanupCache();
+    }, DEFAULT_CLEANUP_INTERVAL_MS);
   }
 
   /**
@@ -84,7 +86,7 @@ export class RateLimiter {
     const now = Date.now();
     const elapsed = (now - this.lastRefill) / 1000; // seconds
     const newTokens = elapsed * this.refillRate;
-    
+
     this.tokens = Math.min(this.maxTokens, this.tokens + newTokens);
     this.lastRefill = now;
   }
@@ -95,7 +97,7 @@ export class RateLimiter {
    */
   tryConsume(): boolean {
     this.refill();
-    
+
     if (this.tokens < 1) {
       this.logger.warn('Rate limit exceeded', {
         availableTokens: this.tokens,
@@ -103,7 +105,7 @@ export class RateLimiter {
       });
       return false;
     }
-    
+
     this.tokens -= 1;
     return true;
   }
@@ -135,10 +137,7 @@ export class RateLimiter {
    * Generate an idempotency key for a tool call
    * Key is based on: tool_name + primary_id + time_bucket
    */
-  generateIdempotencyKey(
-    toolName: string,
-    primaryId: string | number
-  ): string {
+  generateIdempotencyKey(toolName: string, primaryId: string | number): string {
     // Time bucket: floor to nearest window
     const timeBucket = Math.floor(Date.now() / this.idempotencyWindowMs);
     return `${toolName}:${primaryId}:${timeBucket}`;
@@ -150,18 +149,18 @@ export class RateLimiter {
    */
   getCachedResult(key: string): unknown {
     const cached = this.idempotencyCache.get(key);
-    
+
     if (!cached) {
       return undefined;
     }
-    
+
     // Check if cache is still valid
     const age = Date.now() - cached.timestamp;
     if (age > this.idempotencyWindowMs) {
       this.idempotencyCache.delete(key);
       return undefined;
     }
-    
+
     this.logger.info('Returning cached result (idempotency)', { key });
     return cached.result;
   }
@@ -187,13 +186,13 @@ export class RateLimiter {
         maxSize: MAX_CACHE_SIZE,
       });
     }
-    
+
     this.idempotencyCache.set(key, {
       key,
       result,
       timestamp: Date.now(),
     });
-    
+
     this.logger.debug('Cached result for idempotency', { key });
   }
 
@@ -203,14 +202,14 @@ export class RateLimiter {
   private cleanupCache(): void {
     const now = Date.now();
     let cleaned = 0;
-    
+
     for (const [key, cached] of this.idempotencyCache) {
       if (now - cached.timestamp > this.idempotencyWindowMs) {
         this.idempotencyCache.delete(key);
         cleaned++;
       }
     }
-    
+
     if (cleaned > 0) {
       this.logger.debug('Cleaned up idempotency cache', { entriesRemoved: cleaned });
     }
@@ -223,14 +222,14 @@ export class RateLimiter {
     if (this.idempotencyCache.size === 0) {
       return { size: 0, oldestEntryAgeMs: null };
     }
-    
+
     let oldest = Date.now();
     for (const cached of this.idempotencyCache.values()) {
       if (cached.timestamp < oldest) {
         oldest = cached.timestamp;
       }
     }
-    
+
     return {
       size: this.idempotencyCache.size,
       oldestEntryAgeMs: Date.now() - oldest,

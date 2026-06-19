@@ -19,20 +19,12 @@
  * registry's job).
  */
 import { z } from 'zod';
-import {
-  McpServer,
-  type ToolCallback,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
-import {
-  ensureToolAuth,
-  isClientMode,
-  ensureClientAllowed,
-  AUTH_SHAPE,
-} from '../security.js';
+import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
 import {
   applyGovernanceOrLegacy,
@@ -42,10 +34,7 @@ import {
 } from '../governance/pipeline.js';
 // Import directly from the module (not the barrel): the canonical barrel
 // (index.ts) does not re-export these pay-method and credit mappers.
-import {
-  mapToCanonicalPayMethods,
-  mapToCanonicalCredits,
-} from '../canonical/payMethod.js';
+import { mapToCanonicalPayMethods, mapToCanonicalCredits } from '../canonical/payMethod.js';
 
 const TOOL_VERSION = 'v1';
 
@@ -93,24 +82,18 @@ export function registerBillingReadTools(
       contract: z
         .string()
         .optional()
-        .describe(
-          'Requested data contract (honoured only if the resolved consumer permits it)'
-        ),
+        .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
 
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      rawParams: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof schema> & {
         auth_token?: string;
       };
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -121,10 +104,9 @@ export function registerBillingReadTools(
         log.logToolCall('get_pay_methods', params, false);
         if (!rl.tryConsume()) throw new RateLimitError();
 
-        const result = await whmcs.read<Record<string, unknown>>(
-          'GetPayMethods',
-          { clientid: params.clientid }
-        );
+        const result = await whmcs.read<Record<string, unknown>>('GetPayMethods', {
+          clientid: params.clientid,
+        });
         // Ensure the canonical clientId is anchored to the requested client
         // even if WHMCS omits it from the response body.
         const canonical = mapToCanonicalPayMethods({
@@ -137,8 +119,7 @@ export function registerBillingReadTools(
         return applyGovernanceOrLegacy({
           enabled: governanceEnabled(),
           legacy: { entity: canonical.entity, data: canonical.data },
-          govern: () =>
-            governedToolResult({ canonical, authToken, requestedContract }),
+          govern: () => governedToolResult({ canonical, authToken, requestedContract }),
         });
       } catch (e) {
         log.logToolResult(
@@ -168,32 +149,22 @@ export function registerBillingReadTools(
   /* ─────────────────────────────  get_credits  ─────────────────────────── */
   if (isToolAllowed('get_credits')) {
     const schema = z.object({
-      clientid: z
-        .number()
-        .int()
-        .positive()
-        .describe('WHMCS client id whose credit ledger to read'),
+      clientid: z.number().int().positive().describe('WHMCS client id whose credit ledger to read'),
       contract: z
         .string()
         .optional()
-        .describe(
-          'Requested data contract (honoured only if the resolved consumer permits it)'
-        ),
+        .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
 
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      rawParams: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof schema> & {
         auth_token?: string;
       };
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -217,8 +188,7 @@ export function registerBillingReadTools(
         return applyGovernanceOrLegacy({
           enabled: governanceEnabled(),
           legacy: { entity: canonical.entity, data: canonical.data },
-          govern: () =>
-            governedToolResult({ canonical, authToken, requestedContract }),
+          govern: () => governedToolResult({ canonical, authToken, requestedContract }),
         });
       } catch (e) {
         log.logToolResult(

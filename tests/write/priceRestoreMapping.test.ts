@@ -45,30 +45,30 @@ describe('intentToWhmcsParams dispatcher: service:price_restore defensive case',
 
 describe('assertPriceRestoreOutput (defense-in-depth)', () => {
   it('passes when output is exactly { serviceid, <recurring-field> }', () => {
-    expect(() =>
-      { assertPriceRestoreOutput({ serviceid: 555, [PRICE_RESTORE_RECURRING_FIELD]: 31350 }); }
-    ).not.toThrow();
+    expect(() => {
+      assertPriceRestoreOutput({ serviceid: 555, [PRICE_RESTORE_RECURRING_FIELD]: 31350 });
+    }).not.toThrow();
   });
 
   it('throws on any extra key (e.g., a leak of domainstatus)', () => {
-    expect(() =>
-      { assertPriceRestoreOutput({
+    expect(() => {
+      assertPriceRestoreOutput({
         serviceid: 555,
         [PRICE_RESTORE_RECURRING_FIELD]: 31350,
         domainstatus: 'Terminated',
-      }); }
-    ).toThrow(PriceRestoreOutputAssertionError);
+      });
+    }).toThrow(PriceRestoreOutputAssertionError);
   });
 
   it('throws on missing serviceid', () => {
-    expect(() =>
-      { assertPriceRestoreOutput({ [PRICE_RESTORE_RECURRING_FIELD]: 31350 }); }
-    ).toThrow(PriceRestoreOutputAssertionError);
+    expect(() => {
+      assertPriceRestoreOutput({ [PRICE_RESTORE_RECURRING_FIELD]: 31350 });
+    }).toThrow(PriceRestoreOutputAssertionError);
   });
 
   it('throws on missing recurring-amount field', () => {
-    expect(() => { assertPriceRestoreOutput({ serviceid: 555 }); }).toThrow(
-      PriceRestoreOutputAssertionError
-    );
+    expect(() => {
+      assertPriceRestoreOutput({ serviceid: 555 });
+    }).toThrow(PriceRestoreOutputAssertionError);
   });
 });

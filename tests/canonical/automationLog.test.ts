@@ -94,9 +94,7 @@ describe('mapToCanonicalAutomationLogEntries (list / wrapper / numeric-keyed)', 
   });
 
   it('handles empty {} and [] without throwing', () => {
-    expect(mapToCanonicalAutomationLogEntries({ automationlog: {} })).toEqual(
-      []
-    );
+    expect(mapToCanonicalAutomationLogEntries({ automationlog: {} })).toEqual([]);
     expect(mapToCanonicalAutomationLogEntries({})).toEqual([]);
     expect(mapToCanonicalAutomationLogEntries([])).toEqual([]);
     expect(mapToCanonicalAutomationLogEntries(null)).toEqual([]);

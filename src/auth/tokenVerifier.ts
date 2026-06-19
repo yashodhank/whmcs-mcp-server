@@ -65,9 +65,7 @@ export interface VerifiedClaims {
   [k: string]: unknown;
 }
 
-export type VerifyResult =
-  | { ok: true; claims: VerifiedClaims }
-  | { ok: false; reason: string };
+export type VerifyResult = { ok: true; claims: VerifiedClaims } | { ok: false; reason: string };
 
 export interface TokenVerifier {
   verify(token: string): Promise<VerifyResult>;

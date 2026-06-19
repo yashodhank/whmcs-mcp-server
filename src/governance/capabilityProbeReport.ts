@@ -133,8 +133,7 @@ function responseIsError(value: unknown): { isError: boolean; message: string } 
     (value as { result: unknown }).result === 'error'
   ) {
     const msg =
-      'message' in value &&
-      typeof (value as { message: unknown }).message === 'string'
+      'message' in value && typeof (value as { message: unknown }).message === 'string'
         ? (value as { message: string }).message
         : '';
     return { isError: true, message: msg };
@@ -158,9 +157,7 @@ function responseIsSuccess(value: unknown): boolean {
  * Returns a short classification `evidence` string only — never the message
  * body itself (the message could echo PII).
  */
-function classifyMessage(
-  message: string
-): { status: ProbeResult['status']; evidence: string } {
+function classifyMessage(message: string): { status: ProbeResult['status']; evidence: string } {
   const lower = message.toLowerCase();
   if (ACCESS_DENIED_PATTERNS.some((p) => lower.includes(p))) {
     return {
@@ -196,10 +193,7 @@ function classifyMessage(
  * PURE: no WHMCS, no I/O, no allowlist read/write. Never returns the raw
  * response body — only a short classification `evidence` string.
  */
-export function classifyProbeOutcome(
-  action: string,
-  outcome: ProbeOutcome
-): ProbeResult {
+export function classifyProbeOutcome(action: string, outcome: ProbeOutcome): ProbeResult {
   const capability = capabilityFor(action);
 
   // A returned response wins when present (success or structured error).
@@ -230,9 +224,7 @@ export function classifyProbeOutcome(
   // No response: a thrown error, or a structured result:'error' payload.
   if (outcome.error !== undefined) {
     const structured = responseIsError(outcome.error);
-    const message = structured.isError
-      ? structured.message
-      : extractErrorMessage(outcome.error);
+    const message = structured.isError ? structured.message : extractErrorMessage(outcome.error);
     const c = classifyMessage(message);
     return { action, capability, status: c.status, evidence: c.evidence };
   }
@@ -266,9 +258,7 @@ export interface ProbeReport {
  * ONLY {action, capability, status, evidence} per result plus counts — never
  * a raw WHMCS response body.
  */
-export function buildProbeReport(
-  results: readonly ProbeResult[]
-): ProbeReport {
+export function buildProbeReport(results: readonly ProbeResult[]): ProbeReport {
   const summary: {
     total: number;
     supported: number;

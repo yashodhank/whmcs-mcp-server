@@ -148,15 +148,15 @@ describe('Write Operations (SKIPPED - Requires MCP_TEST_WRITE_MODE=true)', () =>
   describe.skip('Client Creation', () => {
     /**
      * SKIPPED: create_client test
-     * 
+     *
      * Why skipped: Creates a real client in the production database.
-     * 
+     *
      * Rollback procedure:
      * 1. Store the created clientid
-     * 2. Use DeleteClient API action (admin only) 
+     * 2. Use DeleteClient API action (admin only)
      * 3. Note: WHMCS does not have a pure API for client deletion
      *    Manual cleanup may be required
-     * 
+     *
      * To run: Set MCP_TEST_WRITE_MODE=true
      */
     it('should create a test client', () => {
@@ -168,74 +168,74 @@ describe('Write Operations (SKIPPED - Requires MCP_TEST_WRITE_MODE=true)', () =>
       expect(true).toBe(true); /* placeholder when write tests are skipped */
     });
   });
-  
+
   describe.skip('Invoice Operations', () => {
     /**
      * SKIPPED: Billing tests
-     * 
+     *
      * Why skipped: May affect real financial records.
-     * 
+     *
      * Rollback procedure:
      * - Created invoices can be cancelled via UpdateInvoice status='Cancelled'
      * - Transactions cannot be easily deleted
-     * 
+     *
      * To run: Set MCP_TEST_WRITE_MODE=true
      */
     it('should not test invoice creation on production', () => {
       expect(true).toBe(true); /* placeholder when write tests are skipped */
     });
   });
-  
+
   describe.skip('Service Operations', () => {
     /**
      * SKIPPED: suspend_service, unsuspend_service, terminate_service
-     * 
-     * Why skipped: 
+     *
+     * Why skipped:
      * - These operations affect real customer services
      * - terminate_service is IRREVERSIBLE
-     * 
+     *
      * Rollback procedure:
      * - suspend → unsuspend (reversible)
      * - terminate → NO ROLLBACK POSSIBLE
-     * 
+     *
      * To run: NEVER run on production. Use staging only.
      */
     it('should not test service termination on production', () => {
       expect(true).toBe(true); /* placeholder when write tests are skipped */
     });
   });
-  
+
   describe.skip('Order Operations', () => {
     /**
      * SKIPPED: accept_order
-     * 
+     *
      * Why skipped:
      * - May trigger provisioning on external servers
      * - May send emails to customers
      * - May charge payment methods
-     * 
+     *
      * Rollback procedure:
      * - Cancel order (may not undo provisioning)
-     * 
+     *
      * To run: Set MCP_TEST_WRITE_MODE=true (staging only)
      */
     it('should not test order acceptance on production', () => {
       expect(true).toBe(true); /* placeholder when write tests are skipped */
     });
   });
-  
+
   describe.skip('Ticket Operations', () => {
     /**
      * SKIPPED: create_ticket, reply_ticket
-     * 
+     *
      * Why skipped:
      * - May send notifications to customers
      * - Creates visible records in support system
-     * 
+     *
      * Rollback procedure:
      * - Close ticket with status
      * - Delete ticket via admin panel (not API)
-     * 
+     *
      * To run: Set MCP_TEST_WRITE_MODE=true with test department
      */
     it('should not test ticket creation on production', () => {

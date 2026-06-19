@@ -59,10 +59,7 @@ const CLASSES = new ClassMapBuilder()
   .many(['firstName', 'lastName'], 'pii.name')
   .set('email', 'pii.email')
   .set('phoneNumber', 'pii.phone')
-  .many(
-    ['address1', 'address2', 'city', 'state', 'postcode', 'country'],
-    'pii.address'
-  )
+  .many(['address1', 'address2', 'city', 'state', 'postcode', 'country'], 'pii.address')
   // Company is a display label for an operator/console, not a person's PII.
   .set('companyName', 'business.label')
   // Sub-account flag + the comma-separated permission list are non-sensitive
@@ -91,15 +88,11 @@ function mapOne(src: Record<string, unknown>): CanonicalContact {
   };
 }
 
-export function mapToCanonicalContact(
-  raw: unknown
-): Canonical<CanonicalContact> {
+export function mapToCanonicalContact(raw: unknown): Canonical<CanonicalContact> {
   return { entity: 'client', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalContacts(
-  raw: unknown
-): Canonical<CanonicalContact>[] {
+export function mapToCanonicalContacts(raw: unknown): Canonical<CanonicalContact>[] {
   const src = asRecord(raw);
   // GetContacts nests under contacts.contact (defensive: single object too).
   // Some builds flatten to a top-level `contact` key — accept that too, but

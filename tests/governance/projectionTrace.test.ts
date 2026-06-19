@@ -16,14 +16,8 @@ import {
   ProjectionEnvError,
 } from '../../src/governance/types.js';
 import { CONTRACTS } from '../../src/governance/contracts.js';
-import {
-  project,
-  projectWithTrace,
-} from '../../src/governance/projection.js';
-import {
-  UNMAPPED,
-  type AuditTraceRecord,
-} from '../../src/governance/auditTrace.js';
+import { project, projectWithTrace } from '../../src/governance/projection.js';
+import { UNMAPPED, type AuditTraceRecord } from '../../src/governance/auditTrace.js';
 
 interface SynthEntity {
   clientid: number;
@@ -68,29 +62,18 @@ const ctx = {
   tool: 'get_client_details',
 };
 
-const find = (t: AuditTraceRecord[], src: string) =>
-  t.find((r) => r.source_path === src);
+const find = (t: AuditTraceRecord[], src: string) => t.find((r) => r.source_path === src);
 
 describe('projectWithTrace decision correctness', () => {
   it('byte-identical data vs project()', () => {
     const c = fixture();
     const plain = project(c, CONTRACTS.llm_safe_summary, 'production');
-    const { data } = projectWithTrace(
-      c,
-      CONTRACTS.llm_safe_summary,
-      'production',
-      ctx
-    );
+    const { data } = projectWithTrace(c, CONTRACTS.llm_safe_summary, 'production', ctx);
     expect(JSON.stringify(data)).toBe(JSON.stringify(plain));
   });
 
   it('allow → emit, present', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.llm_safe_summary,
-      'production',
-      ctx
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.llm_safe_summary, 'production', ctx);
     const r = find(trace, 'clientid');
     expect(r?.projection_decision).toBe('emit');
     expect(r?.value_state).toBe('present');
@@ -100,12 +83,7 @@ describe('projectWithTrace decision correctness', () => {
   });
 
   it('drop (secret) → omit, omitted', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.llm_safe_summary,
-      'production',
-      ctx
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.llm_safe_summary, 'production', ctx);
     const r = find(trace, 'password');
     expect(r?.projection_decision).toBe('omit');
     expect(r?.value_state).toBe('omitted');
@@ -114,12 +92,7 @@ describe('projectWithTrace decision correctness', () => {
   });
 
   it('mask (pii.email) → mask, masked', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.llm_safe_summary,
-      'production',
-      ctx
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.llm_safe_summary, 'production', ctx);
     const r = find(trace, 'email');
     expect(r?.projection_decision).toBe('mask');
     expect(r?.value_state).toBe('masked');
@@ -127,26 +100,17 @@ describe('projectWithTrace decision correctness', () => {
   });
 
   it('summarize (untrusted) → emit, present', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.llm_safe_summary,
-      'production',
-      ctx
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.llm_safe_summary, 'production', ctx);
     const r = find(trace, 'ticketBody');
     expect(r?.projection_decision).toBe('emit');
-    expect(r?.rule_id).toBe(
-      'llm_safe_summary:untrusted.free_text->summarize'
-    );
+    expect(r?.rule_id).toBe('llm_safe_summary:untrusted.free_text->summarize');
   });
 
   it('wrap_untrusted (ops) → wrap_untrusted', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.ops_operator,
-      'production',
-      { ...ctx, contract: 'ops_operator' }
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.ops_operator, 'production', {
+      ...ctx,
+      contract: 'ops_operator',
+    });
     const r = find(trace, 'ticketBody');
     expect(r?.projection_decision).toBe('wrap_untrusted');
     expect(r?.value_state).toBe('present');
@@ -177,12 +141,10 @@ describe('projectWithTrace decision correctness', () => {
   it('env-forbidden → single deny record, env_forbidden, throws', () => {
     let trace: AuditTraceRecord[] | undefined;
     expect(() => {
-      const r = projectWithTrace(
-        fixture(),
-        CONTRACTS.none_local_only,
-        'production',
-        { ...ctx, contract: 'none_local_only' }
-      );
+      const r = projectWithTrace(fixture(), CONTRACTS.none_local_only, 'production', {
+        ...ctx,
+        contract: 'none_local_only',
+      });
       trace = r.trace;
     }).toThrow(ProjectionEnvError);
     // The throw means no result returned.
@@ -205,12 +167,10 @@ describe('projectWithTrace decision correctness', () => {
   });
 
   it('no field VALUE ever appears in any trace record', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.none_local_only,
-      'local',
-      { ...ctx, contract: 'none_local_only' }
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.none_local_only, 'local', {
+      ...ctx,
+      contract: 'none_local_only',
+    });
     const blob = JSON.stringify(trace);
     expect(blob).not.toContain(RAW_EMAIL);
     expect(blob).not.toContain(RAW_PW);
@@ -221,12 +181,7 @@ describe('projectWithTrace decision correctness', () => {
   });
 
   it('every record carries the shared context fields', () => {
-    const { trace } = projectWithTrace(
-      fixture(),
-      CONTRACTS.llm_safe_summary,
-      'production',
-      ctx
-    );
+    const { trace } = projectWithTrace(fixture(), CONTRACTS.llm_safe_summary, 'production', ctx);
     for (const r of trace) {
       expect(r.consumer_id).toBe('llm_chat');
       expect(r.contract).toBe('llm_safe_summary');

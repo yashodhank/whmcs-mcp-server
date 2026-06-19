@@ -1,6 +1,6 @@
 /**
  * Logging module for WHMCS MCP Server
- * 
+ *
  * CRITICAL: All logs go to stderr ONLY
  * stdout is reserved for JSON-RPC protocol communication
  */
@@ -180,11 +180,7 @@ export class Logger {
   /**
    * Log a tool invocation
    */
-  logToolCall(
-    toolName: string,
-    inputs: Record<string, unknown>,
-    isMutating: boolean
-  ): void {
+  logToolCall(toolName: string, inputs: Record<string, unknown>, isMutating: boolean): void {
     this.info(`Tool invoked: ${toolName}`, {
       toolName,
       inputs,
@@ -195,12 +191,7 @@ export class Logger {
   /**
    * Log a tool result
    */
-  logToolResult(
-    toolName: string,
-    success: boolean,
-    executionTimeMs: number,
-    error?: string
-  ): void {
+  logToolResult(toolName: string, success: boolean, executionTimeMs: number, error?: string): void {
     const level = success ? 'info' : 'error';
     this.log(level, `Tool completed: ${toolName}`, {
       toolName,
@@ -213,11 +204,7 @@ export class Logger {
   /**
    * Log a WHMCS API call
    */
-  logWhmcsCall(
-    action: string,
-    params: Record<string, unknown>,
-    isMutating: boolean
-  ): void {
+  logWhmcsCall(action: string, params: Record<string, unknown>, isMutating: boolean): void {
     this.debug(`WHMCS API call: ${action}`, {
       whmcsAction: action,
       params,

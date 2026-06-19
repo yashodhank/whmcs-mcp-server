@@ -28,20 +28,10 @@ import type { FieldClass } from './types.js';
 export const UNMAPPED = 'unmapped' as const;
 
 /** The real, authoritative decision the projector took for one path. */
-export type ProjectionDecision =
-  | 'emit'
-  | 'mask'
-  | 'omit'
-  | 'wrap_untrusted'
-  | 'deny';
+export type ProjectionDecision = 'emit' | 'mask' | 'omit' | 'wrap_untrusted' | 'deny';
 
 /** State of the source value WITHOUT ever carrying the value itself. */
-export type TraceValueState =
-  | 'present'
-  | 'null'
-  | 'missing'
-  | 'masked'
-  | 'omitted';
+export type TraceValueState = 'present' | 'null' | 'missing' | 'masked' | 'omitted';
 
 export interface AuditTraceRecord {
   /**

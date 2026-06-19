@@ -188,20 +188,14 @@ function maskValue(cls: FieldClass, value: unknown): unknown {
     case 'secret.credential':
       return maskSecret(value);
     case 'pii.custom_field':
-      return typeof value === 'string'
-        ? `${value.slice(0, 1)}***`
-        : DROP;
+      return typeof value === 'string' ? `${value.slice(0, 1)}***` : DROP;
     default:
       // Any other class under a `mask` action: conservative — drop.
       return DROP;
   }
 }
 
-function applyAction(
-  cls: FieldClass,
-  contract: DataContract,
-  value: unknown
-): unknown {
+function applyAction(cls: FieldClass, contract: DataContract, value: unknown): unknown {
   const action = contract.policy[cls];
   switch (action) {
     case 'allow':
@@ -261,10 +255,7 @@ interface ProjectNodeCtx {
 }
 
 /** Does `path` have an explicit class in the classmap? */
-function classFor(
-  canonical: Canonical<unknown>,
-  path: string
-): FieldClass | undefined {
+function classFor(canonical: Canonical<unknown>, path: string): FieldClass | undefined {
   return Object.prototype.hasOwnProperty.call(canonical.classes, path)
     ? canonical.classes[path]
     : undefined;
@@ -292,11 +283,7 @@ function pushTrace(
  * `pathClass` is the class explicitly set on THIS path (if any). Leaves
  * without a class drop; containers without a class are transparent (recurse).
  */
-function projectNode(
-  ctx: ProjectNodeCtx,
-  path: string,
-  value: unknown
-): unknown {
+function projectNode(ctx: ProjectNodeCtx, path: string, value: unknown): unknown {
   const pathClass = classFor(ctx.canonical, path);
 
   // ── Container nodes (objects / arrays) ───────────────────────────────────
@@ -386,10 +373,7 @@ export const project: ProjectFn = <T>(
   env: ProjectionEnv
 ): Record<string, unknown> => {
   // 1. Env gate FIRST — before any field (incl. secrets) is read.
-  if (
-    contract.envRestrictions.length > 0 &&
-    !contract.envRestrictions.includes(env)
-  ) {
+  if (contract.envRestrictions.length > 0 && !contract.envRestrictions.includes(env)) {
     throw new ProjectionEnvError(contract.name, env);
   }
 
@@ -431,8 +415,7 @@ function decisionFor(
     return { decision: 'wrap_untrusted', value_state: 'present' };
   }
   // allow / summarize (both emit) — distinguish a literal null payload.
-  const value_state: TraceValueState =
-    projected === null ? 'null' : 'present';
+  const value_state: TraceValueState = projected === null ? 'null' : 'present';
   return { decision: 'emit', value_state };
 }
 
@@ -486,10 +469,7 @@ export function projectWithTrace(
   const throwOnEnv = opts.throwOnEnv !== false;
 
   // 1. Env gate FIRST — before any field (incl. secrets) is read.
-  if (
-    contract.envRestrictions.length > 0 &&
-    !contract.envRestrictions.includes(env)
-  ) {
+  if (contract.envRestrictions.length > 0 && !contract.envRestrictions.includes(env)) {
     if (throwOnEnv) {
       throw new ProjectionEnvError(contract.name, env);
     }

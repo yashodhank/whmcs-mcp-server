@@ -112,11 +112,13 @@ interface WhmcsClientDetails {
  * Removes potentially dangerous characters while preserving legitimate input
  */
 function sanitizeTextInput(input: string): string {
-  return input
-    .replaceAll(/[<>]/g, '') // Remove HTML-like angle brackets
-    // eslint-disable-next-line no-control-regex -- strip ASCII control chars from user input
-    .replaceAll(/[\x00-\x1F\x7F]/g, '')
-    .trim();
+  return (
+    input
+      .replaceAll(/[<>]/g, '') // Remove HTML-like angle brackets
+      // eslint-disable-next-line no-control-regex -- strip ASCII control chars from user input
+      .replaceAll(/[\x00-\x1F\x7F]/g, '')
+      .trim()
+  );
 }
 
 /**
@@ -867,8 +869,7 @@ export function registerClientTools(
                 type: 'text' as const,
                 text: JSON.stringify({
                   isError: true,
-                  error:
-                    'Confirmation required. Re-submit with confirm=true to apply the update.',
+                  error: 'Confirmation required. Re-submit with confirm=true to apply the update.',
                   clientid: params.clientid,
                   fields_to_update: previewFields,
                 }),

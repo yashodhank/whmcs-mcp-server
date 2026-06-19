@@ -67,7 +67,10 @@ const WRITE_FLOW_TOOLS = new Set([
 /** Compute the OAuth scope a tools/call requires (coarse boundary gate; the
  *  in-house authorizer still does fine-grained per-scope/tier enforcement). */
 function requiredScopeForCall(body: unknown): string {
-  const b = body as { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+  const b = body as {
+    method?: string;
+    params?: { name?: string; arguments?: Record<string, unknown> };
+  };
   if (b.method !== 'tools/call') return requiredScopeForRead();
   const name = b.params?.name;
   if (typeof name !== 'string' || !WRITE_FLOW_TOOLS.has(name)) return requiredScopeForRead();
@@ -162,7 +165,9 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   const oauthEnabled = config.MCP_OAUTH_ENABLED;
   let verifier: TokenVerifier | undefined;
   let prmUrl = '';
-  let prmConfig: { resource: string; authorizationServers: string[]; scopesSupported: string[] } | undefined;
+  let prmConfig:
+    | { resource: string; authorizationServers: string[]; scopesSupported: string[] }
+    | undefined;
   if (oauthEnabled) {
     const resource = config.MCP_OAUTH_RESOURCE;
     const audience = config.MCP_OAUTH_AUDIENCE ?? resource;
@@ -462,7 +467,9 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
       lastSeen.clear();
       sessionOwner.clear();
       await new Promise<void>((resolve) => {
-        httpServer.close(() => { resolve(); });
+        httpServer.close(() => {
+          resolve();
+        });
       });
     },
   };

@@ -64,27 +64,19 @@ export const WHMCS_COMPAT_9X = `
 /**
  * Register the WHMCS 8.13/9.x compatibility notes as an MCP resource.
  */
-export function registerCompat9xResource(
-  server: McpServer,
-  logger: Logger
-): void {
+export function registerCompat9xResource(server: McpServer, logger: Logger): void {
   logger.info('Registering WHMCS 8.13/9.x compatibility resource');
 
-   
-  server.resource(
-    'compat-9x',
-    'whmcs://docs/compat-9x',
-    (uri) => {
-      logger.debug('Fetching compat-9x resource');
-      return {
-        contents: [
-          {
-            uri: stripAuthFromUri(uri),
-            mimeType: 'text/markdown',
-            text: WHMCS_COMPAT_9X.trim(),
-          },
-        ],
-      };
-    }
-  );
+  server.resource('compat-9x', 'whmcs://docs/compat-9x', (uri) => {
+    logger.debug('Fetching compat-9x resource');
+    return {
+      contents: [
+        {
+          uri: stripAuthFromUri(uri),
+          mimeType: 'text/markdown',
+          text: WHMCS_COMPAT_9X.trim(),
+        },
+      ],
+    };
+  });
 }

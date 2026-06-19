@@ -96,11 +96,7 @@ export class DayAmountsStore {
       try {
         const rec = JSON.parse(trimmed) as DayAmountsRecord;
         // Drop stale prior-day entries; only today's tally is relevant.
-        if (
-          typeof rec.key === 'string' &&
-          typeof rec.total === 'number' &&
-          rec.date === today
-        ) {
+        if (typeof rec.key === 'string' && typeof rec.total === 'number' && rec.date === today) {
           // Last-write-wins: a later append in the file supersedes an earlier one.
           this.totals.set(rec.key, rec.total);
         }

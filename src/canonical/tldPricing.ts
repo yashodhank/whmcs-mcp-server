@@ -57,19 +57,11 @@ const CLASSES = new ClassMapBuilder()
   .set('registrar', 'business.label')
   .set('prices[].tld', 'business.label')
   .many(
-    [
-      'prices[].register[].period',
-      'prices[].renew[].period',
-      'prices[].transfer[].period',
-    ],
+    ['prices[].register[].period', 'prices[].renew[].period', 'prices[].transfer[].period'],
     'public.safe'
   )
   .many(
-    [
-      'prices[].register[].price',
-      'prices[].renew[].price',
-      'prices[].transfer[].price',
-    ],
+    ['prices[].register[].price', 'prices[].renew[].price', 'prices[].transfer[].price'],
     'financial.amount'
   )
   .many(
@@ -81,10 +73,7 @@ const CLASSES = new ClassMapBuilder()
     'system.status'
   )
   // Empty-array containers collapse to the array path itself — classify them.
-  .many(
-    ['prices', 'prices[].register', 'prices[].renew', 'prices[].transfer'],
-    'public.safe'
-  )
+  .many(['prices', 'prices[].register', 'prices[].renew', 'prices[].transfer'], 'public.safe')
   .build();
 
 /**

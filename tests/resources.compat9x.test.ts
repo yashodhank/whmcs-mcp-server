@@ -5,8 +5,15 @@ import { registerCompat9xResource } from '../src/resources/compat9x.js';
 
 describe('whmcs://docs/compat-9x resource', () => {
   it('registers and serves the 8.13/9.x compatibility markdown', async () => {
-    const resources: Record<string, (uri: URL) => Promise<{ contents: { uri: string; mimeType?: string; text: string }[] }>> = {};
-    const server = { resource: (n: string, _u: string, cb: unknown) => { resources[n] = cb as never; } };
+    const resources: Record<
+      string,
+      (uri: URL) => Promise<{ contents: { uri: string; mimeType?: string; text: string }[] }>
+    > = {};
+    const server = {
+      resource: (n: string, _u: string, cb: unknown) => {
+        resources[n] = cb as never;
+      },
+    };
     const logger = { info: vi.fn(), debug: vi.fn() };
     registerCompat9xResource(server as never, logger as never);
 

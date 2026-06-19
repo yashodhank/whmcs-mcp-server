@@ -21,8 +21,31 @@ describe('mapToCanonicalInvoice', () => {
       balance: '0.00',
       credit: '0.00',
       paymentmethod: 'stripe',
-      items: { item: { '0': { id: 1, type: 'Hosting', relid: 5, description: 'Plan A', amount: '90.00', taxed: 1 } } },
-      transactions: { transaction: [{ id: 9, transid: 'TX-9', date: '2026-01-10', gateway: 'stripe', amount: '100.00', amountin: '100.00', amountout: '0.00' }] },
+      items: {
+        item: {
+          '0': {
+            id: 1,
+            type: 'Hosting',
+            relid: 5,
+            description: 'Plan A',
+            amount: '90.00',
+            taxed: 1,
+          },
+        },
+      },
+      transactions: {
+        transaction: [
+          {
+            id: 9,
+            transid: 'TX-9',
+            date: '2026-01-10',
+            gateway: 'stripe',
+            amount: '100.00',
+            amountin: '100.00',
+            amountout: '0.00',
+          },
+        ],
+      },
     };
     const c = mapToCanonicalInvoice(raw);
     expect(c.entity).toBe('invoice');
@@ -47,7 +70,11 @@ describe('mapToCanonicalInvoice', () => {
   });
 
   it('handles a single (non-array) item object', () => {
-    const raw = { invoiceid: 2, items: { item: { id: 7, description: 'solo', amount: '1.00' } }, transactions: {} };
+    const raw = {
+      invoiceid: 2,
+      items: { item: { id: 7, description: 'solo', amount: '1.00' } },
+      transactions: {},
+    };
     const c = mapToCanonicalInvoice(raw);
     expect(c.data.items).toHaveLength(1);
     expect(c.data.items[0].itemId).toBe(7);

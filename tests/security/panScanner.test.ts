@@ -35,11 +35,7 @@ describe('PAN Scanner', () => {
 
     it('should return false for invalid Luhn numbers', () => {
       // Random 16-digit strings that fail Luhn
-      const invalids = [
-        '1234567890123456',
-        '0000000000000001',
-        '9999999999999999',
-      ];
+      const invalids = ['1234567890123456', '0000000000000001', '9999999999999999'];
       for (const bad of invalids) {
         expect(isValidLuhn(bad), `expected ${bad} to fail Luhn`).toBe(false);
       }
@@ -163,9 +159,7 @@ describe('PAN Scanner', () => {
   // -----------------------------------------------------------------
   describe('assertNoPAN', () => {
     it('should throw PANDetectedError when params contain a valid PAN', () => {
-      expect(() =>
-        assertNoPAN({ notes: 'card 4111111111111111' })
-      ).toThrow(PANDetectedError);
+      expect(() => assertNoPAN({ notes: 'card 4111111111111111' })).toThrow(PANDetectedError);
     });
 
     it('should throw with a safe message that does NOT include the PAN', () => {

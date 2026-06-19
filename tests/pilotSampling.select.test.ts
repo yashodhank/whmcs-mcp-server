@@ -59,9 +59,7 @@ interface SelectionResult {
   scanned: number;
   unfilled: string[];
 }
-const selectorModule = (await import(
-  '../scripts/lib/scenarioSelect.mjs'
-)) as {
+const selectorModule = (await import('../scripts/lib/scenarioSelect.mjs')) as {
   selectScenarios: (records: unknown[]) => SelectionResult;
   SCENARIO_BUCKETS: string[];
 };
@@ -98,9 +96,7 @@ describe('scenarioSelect — pure selector', () => {
   it('returns a result with every bucket present and an unfilled list', () => {
     const out = selectScenarios([]);
     expect(out.scanned).toBe(0);
-    expect(Object.keys(out.scenarios).sort()).toEqual(
-      [...SCENARIO_BUCKETS].sort()
-    );
+    expect(Object.keys(out.scenarios).sort()).toEqual([...SCENARIO_BUCKETS].sort());
     // Empty input → every bucket unfilled, clientid null, never faked.
     for (const b of SCENARIO_BUCKETS) {
       expect(out.scenarios[b].clientid).toBeNull();
@@ -188,9 +184,7 @@ describe('scenarioSelect — pure selector', () => {
       rec({ clientid: 21, txns: 9 }),
       rec({ clientid: 70, txns: 2 }),
     ]);
-    expect(out.scenarios.transaction_reconciliation_candidate.clientid).toBe(
-      21
-    );
+    expect(out.scenarios.transaction_reconciliation_candidate.clientid).toBe(21);
   });
 
   it('selects inactive_edge only for non-Active status (Inactive/Closed/Suspended)', () => {
@@ -232,9 +226,7 @@ describe('scenarioSelect — pure selector', () => {
     expect(out.scenarios.renewal_upcoming.clientid).toBe(7);
     expect(out.scenarios.ticket_heavy.clientid).toBe(7);
     expect(out.scenarios.service_domain_heavy.clientid).toBe(7);
-    expect(out.scenarios.transaction_reconciliation_candidate.clientid).toBe(
-      7
-    );
+    expect(out.scenarios.transaction_reconciliation_candidate.clientid).toBe(7);
     // Active but has overdue/tickets → NOT active_normal.
     expect(out.scenarios.active_normal.clientid).toBeNull();
     // Active → NOT inactive_edge.

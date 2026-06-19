@@ -117,20 +117,13 @@ export interface ExposureAuditInput {
 
 /** Classes whose RAW emission under a non-allow policy is high-risk. */
 function isRiskyClass(cls: ClassificationLabel): boolean {
-  return (
-    cls === 'financial.reference' ||
-    cls.startsWith('pii.') ||
-    cls.startsWith('secret.')
-  );
+  return cls === 'financial.reference' || cls.startsWith('pii.') || cls.startsWith('secret.');
 }
 
 /** Policy actions that permit a value to leave the projector. */
 function policyEmits(action: string | undefined): boolean {
   return (
-    action === 'allow' ||
-    action === 'mask' ||
-    action === 'summarize' ||
-    action === 'wrap_untrusted'
+    action === 'allow' || action === 'mask' || action === 'summarize' || action === 'wrap_untrusted'
   );
 }
 
@@ -187,11 +180,7 @@ function buildSample(value: unknown, localShowValues: boolean): ValueSample {
  * that is not a plain walkable object/array (including `null`, primitives,
  * empty objects and empty arrays).
  */
-function collectLeaves(
-  value: unknown,
-  prefix: string,
-  out: Map<string, unknown>
-): void {
+function collectLeaves(value: unknown, prefix: string, out: Map<string, unknown>): void {
   if (Array.isArray(value)) {
     if (value.length === 0) {
       out.set(prefix, value);
@@ -229,14 +218,7 @@ function collectLeaves(
  * `localShowValues: true` ONLY for an operator, local, synthetic-data run.
  */
 export function auditExposure(input: ExposureAuditInput): ExposureAuditReport {
-  const {
-    consumer_id,
-    contract,
-    tool,
-    canonicalClasses,
-    projected,
-    contractPolicy,
-  } = input;
+  const { consumer_id, contract, tool, canonicalClasses, projected, contractPolicy } = input;
   const localShowValues = input.localShowValues === true;
 
   const leaves = new Map<string, unknown>();
@@ -252,10 +234,7 @@ export function auditExposure(input: ExposureAuditInput): ExposureAuditReport {
   const unknownFields: string[] = [];
 
   for (const [path, value] of leaves) {
-    const mapped = Object.prototype.hasOwnProperty.call(
-      canonicalClasses,
-      path
-    )
+    const mapped = Object.prototype.hasOwnProperty.call(canonicalClasses, path)
       ? canonicalClasses[path]
       : undefined;
     const classification: ClassificationLabel = mapped ?? UNKNOWN_CLASS;
@@ -269,8 +248,7 @@ export function auditExposure(input: ExposureAuditInput): ExposureAuditReport {
       valueState = 'present';
     }
 
-    const action =
-      mapped === undefined ? undefined : contractPolicy[mapped];
+    const action = mapped === undefined ? undefined : contractPolicy[mapped];
     const allowed = mapped !== undefined && policyEmits(action);
 
     fields.push({
@@ -292,11 +270,7 @@ export function auditExposure(input: ExposureAuditInput): ExposureAuditReport {
     if (action === 'drop') {
       // Contract said this class must never be emitted, yet it was.
       violations.push(path);
-    } else if (
-      isRiskyClass(classification) &&
-      action !== 'allow' &&
-      valueState === 'present'
-    ) {
+    } else if (isRiskyClass(classification) && action !== 'allow' && valueState === 'present') {
       // A masking/summarizing/dropping contract for a risky class, but a
       // raw (non-masked, non-null) value made it out.
       underMasked.push(path);
@@ -352,12 +326,8 @@ export function auditExposure(input: ExposureAuditInput): ExposureAuditReport {
  *  - the trace-driven `AuthoritativeAuditReport` (already value-free by
  *    construction — returns a deep, stable copy).
  */
-export function redactedReport(
-  report: ExposureAuditReport
-): ExposureAuditReport;
-export function redactedReport(
-  report: AuthoritativeAuditReport
-): AuthoritativeAuditReport;
+export function redactedReport(report: ExposureAuditReport): ExposureAuditReport;
+export function redactedReport(report: AuthoritativeAuditReport): AuthoritativeAuditReport;
 export function redactedReport(
   report: ExposureAuditReport | AuthoritativeAuditReport
 ): ExposureAuditReport | AuthoritativeAuditReport {
@@ -478,20 +448,12 @@ export interface AuditFromTraceMeta {
 function isAuthoritative(
   r: ExposureAuditReport | AuthoritativeAuditReport
 ): r is AuthoritativeAuditReport {
-  return (
-    (r as AuthoritativeAuditReport).classmap_source === 'authoritative'
-  );
+  return (r as AuthoritativeAuditReport).classmap_source === 'authoritative';
 }
 
 /** Risk classes whose RAW (`emit`) trace decision under a non-allow rule leaks. */
-function isRiskyAuthoritative(
-  cls: FieldClass | typeof UNMAPPED
-): boolean {
-  return (
-    cls === 'financial.reference' ||
-    cls.startsWith('pii.') ||
-    cls.startsWith('secret.')
-  );
+function isRiskyAuthoritative(cls: FieldClass | typeof UNMAPPED): boolean {
+  return cls === 'financial.reference' || cls.startsWith('pii.') || cls.startsWith('secret.');
 }
 
 /** Parse the action suffix of a rule_id (`contract:class->action`). */
@@ -524,10 +486,7 @@ export function auditFromTrace(
     // whole-projection refusal — record the field, count nothing emitted.
     const decision = r.projection_decision;
     const action = actionOf(r.rule_id);
-    const wasEmitted =
-      decision === 'emit' ||
-      decision === 'mask' ||
-      decision === 'wrap_untrusted';
+    const wasEmitted = decision === 'emit' || decision === 'mask' || decision === 'wrap_untrusted';
 
     fields.push({
       source_path: r.source_path,

@@ -39,11 +39,7 @@ import {
   type WorkflowDraftRequest,
   type WorkflowDraftResult,
 } from './writeFlow.js';
-import {
-  reconcile,
-  type ReconTransaction,
-  type InvoiceLite,
-} from './aggregators.js';
+import { reconcile, type ReconTransaction, type InvoiceLite } from './aggregators.js';
 
 /** Loose WHMCS API row / container object. */
 type WhmcsRow = Record<string, unknown>;
@@ -82,8 +78,7 @@ const CLOSE_DEFAULT_WINDOW_DAYS = 30;
  * tolerating both wrapped and bare shapes. Mirrors the aggregators' `norm`.
  */
 function norm<T>(container: unknown, singular: string): T[] {
-  const inner =
-    isRecord(container) && singular in container ? container[singular] : container;
+  const inner = isRecord(container) && singular in container ? container[singular] : container;
   return normalizeToArray<T>(inner);
 }
 
@@ -286,7 +281,9 @@ export function registerWorkflowTools(
       goodwill_credit: z
         .boolean()
         .default(false)
-        .describe('When true, ALSO draft an OPTIONAL billing:credit:add (HIGH, sealed) per overdue client.'),
+        .describe(
+          'When true, ALSO draft an OPTIONAL billing:credit:add (HIGH, sealed) per overdue client.'
+        ),
     },
     logger,
     rl,
@@ -299,29 +296,34 @@ export function registerWorkflowTools(
       const today = TODAY();
 
       // Read overdue invoices (Unpaid + Overdue) across the portfolio.
-      const invoices = await safeSection<WhmcsRow[]>('invoices', result.partial_errors, [], async () => {
-        const fetchByStatus = async (status: string): Promise<WhmcsRow[]> =>
-          norm<WhmcsRow>(
-            (
-              await whmcs.read<Record<string, unknown>>('GetInvoices', {
-                status,
-                limitnum: FETCH_LIMIT,
-                orderby: 'duedate',
-                order: 'asc',
-              })
-            ).invoices,
-            'invoice'
-          );
-        const [unpaid, overdue] = await Promise.all([
-          fetchByStatus('Unpaid'),
-          fetchByStatus('Overdue'),
-        ]);
-        const byId = new Map<string, WhmcsRow>();
-        for (const inv of [...unpaid, ...overdue]) {
-          byId.set(String(num(inv, 'id') ?? str(inv, 'id') ?? Math.random()), inv);
+      const invoices = await safeSection<WhmcsRow[]>(
+        'invoices',
+        result.partial_errors,
+        [],
+        async () => {
+          const fetchByStatus = async (status: string): Promise<WhmcsRow[]> =>
+            norm<WhmcsRow>(
+              (
+                await whmcs.read<Record<string, unknown>>('GetInvoices', {
+                  status,
+                  limitnum: FETCH_LIMIT,
+                  orderby: 'duedate',
+                  order: 'asc',
+                })
+              ).invoices,
+              'invoice'
+            );
+          const [unpaid, overdue] = await Promise.all([
+            fetchByStatus('Unpaid'),
+            fetchByStatus('Overdue'),
+          ]);
+          const byId = new Map<string, WhmcsRow>();
+          for (const inv of [...unpaid, ...overdue]) {
+            byId.set(String(num(inv, 'id') ?? str(inv, 'id') ?? Math.random()), inv);
+          }
+          return [...byId.values()];
         }
-        return [...byId.values()];
-      });
+      );
 
       // Filter to genuinely-overdue invoices and group by client.
       interface ClientGroup {
@@ -444,8 +446,11 @@ export function registerWorkflowTools(
 
       await safeSection('services', result.partial_errors, null, async () => {
         const raw = norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetClientsProducts', { limitnum: FETCH_LIMIT }))
-            .products,
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+              limitnum: FETCH_LIMIT,
+            })
+          ).products,
           'product'
         );
         for (const s of raw) {
@@ -468,8 +473,11 @@ export function registerWorkflowTools(
 
       await safeSection('domains', result.partial_errors, null, async () => {
         const raw = norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetClientsDomains', { limitnum: FETCH_LIMIT }))
-            .domains,
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsDomains', {
+              limitnum: FETCH_LIMIT,
+            })
+          ).domains,
           'domain'
         );
         for (const d of raw) {
@@ -561,14 +569,19 @@ export function registerWorkflowTools(
       const limit = num(p, 'limit') ?? TICKET_DEFAULT_LIMIT;
       const deptid = num(p, 'deptid');
 
-      const tickets = await safeSection<WhmcsRow[]>('tickets', result.partial_errors, [], async () => {
-        const readParams: Record<string, unknown> = { status: 'Open', limitnum: FETCH_LIMIT };
-        if (deptid !== undefined) readParams.deptid = deptid;
-        return norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetTickets', readParams)).tickets,
-          'ticket'
-        );
-      });
+      const tickets = await safeSection<WhmcsRow[]>(
+        'tickets',
+        result.partial_errors,
+        [],
+        async () => {
+          const readParams: Record<string, unknown> = { status: 'Open', limitnum: FETCH_LIMIT };
+          if (deptid !== undefined) readParams.deptid = deptid;
+          return norm<WhmcsRow>(
+            (await whmcs.read<Record<string, unknown>>('GetTickets', readParams)).tickets,
+            'ticket'
+          );
+        }
+      );
 
       const selected = tickets.slice(0, limit);
       for (const t of selected) {
@@ -583,8 +596,7 @@ export function registerWorkflowTools(
           `thread:${ticketid}`,
           result.partial_errors,
           {},
-          async () =>
-            asRecord(await whmcs.read<Record<string, unknown>>('GetTicket', { ticketid }))
+          async () => asRecord(await whmcs.read<Record<string, unknown>>('GetTicket', { ticketid }))
         );
         const replyCount = normalizeToArray(
           isRecord(thread.replies) ? thread.replies.reply : thread.replies
@@ -670,14 +682,23 @@ export function registerWorkflowTools(
 
       // Read transactions + invoices (mirror get_reconciliation_snapshot's
       // actions: GetTransactions + GetInvoices).
-      const rawTxns = await safeSection<unknown>('transactions', result.partial_errors, { transactions: [] }, async () =>
-        whmcs.read<Record<string, unknown>>('GetTransactions', { limitnum: FETCH_LIMIT })
+      const rawTxns = await safeSection<unknown>(
+        'transactions',
+        result.partial_errors,
+        { transactions: [] },
+        async () =>
+          whmcs.read<Record<string, unknown>>('GetTransactions', { limitnum: FETCH_LIMIT })
       );
-      const invoiceRows = await safeSection<WhmcsRow[]>('invoices', result.partial_errors, [], async () =>
-        norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetInvoices', { limitnum: FETCH_LIMIT })).invoices,
-          'invoice'
-        )
+      const invoiceRows = await safeSection<WhmcsRow[]>(
+        'invoices',
+        result.partial_errors,
+        [],
+        async () =>
+          norm<WhmcsRow>(
+            (await whmcs.read<Record<string, unknown>>('GetInvoices', { limitnum: FETCH_LIMIT }))
+              .invoices,
+            'invoice'
+          )
       );
 
       // Build the inputs the PURE exported reconcile() expects. The refund

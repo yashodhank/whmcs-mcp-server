@@ -1,6 +1,6 @@
 /**
  * Unit tests for billing tools
- * 
+ *
  * Tests: get_invoice, mark_invoice_paid, record_refund, capture_payment, create_invoice, add_credit, apply_credit
  */
 
@@ -38,9 +38,7 @@ describe('Billing Tools', () => {
 
       const getInvoiceSchema = z
         .object({
-          invoiceid: invoiceIdSchema
-            .or(z.array(invoiceIdSchema).min(1).max(100))
-            .optional(),
+          invoiceid: invoiceIdSchema.or(z.array(invoiceIdSchema).min(1).max(100)).optional(),
           invoiceids: z.array(invoiceIdSchema).min(1).max(100).optional(),
         })
         .superRefine((value, ctx) => {
@@ -67,7 +65,7 @@ describe('Billing Tools', () => {
   describe('mark_invoice_paid', () => {
     it('should validate invoiceid', () => {
       const { z } = require('zod');
-      
+
       const markInvoicePaidSchema = z.object({
         invoiceid: z.number().int().positive('Invoice ID must be positive'),
         gateway: z.string().optional(),
@@ -79,7 +77,9 @@ describe('Billing Tools', () => {
       });
 
       expect(markInvoicePaidSchema.safeParse({ invoiceid: 200 }).success).toBe(true);
-      expect(markInvoicePaidSchema.safeParse({ invoiceid: 200, gateway: 'mailin' }).success).toBe(true);
+      expect(markInvoicePaidSchema.safeParse({ invoiceid: 200, gateway: 'mailin' }).success).toBe(
+        true
+      );
       expect(markInvoicePaidSchema.safeParse({}).success).toBe(false);
     });
 
@@ -115,7 +115,7 @@ describe('Billing Tools', () => {
   describe('record_refund', () => {
     it('should validate refund parameters', () => {
       const { z } = require('zod');
-      
+
       const recordRefundSchema = z.object({
         invoiceid: z.number().int().positive(),
         amount: z.number().positive('Refund amount must be greater than 0'),
@@ -129,7 +129,7 @@ describe('Billing Tools', () => {
       // Valid refund
       const validResult = recordRefundSchema.safeParse({
         invoiceid: 100,
-        amount: 50.00,
+        amount: 50.0,
         refund_type: 'Credit',
       });
       expect(validResult.success).toBe(true);
@@ -161,7 +161,7 @@ describe('Billing Tools', () => {
 
     it('should require confirmation for large refunds', () => {
       const LARGE_REFUND_THRESHOLD = 1000;
-      
+
       function requiresConfirmation(amount: number, confirmed?: boolean): boolean {
         return amount > LARGE_REFUND_THRESHOLD && !confirmed;
       }
@@ -196,7 +196,7 @@ describe('Billing Tools', () => {
   describe('capture_payment', () => {
     it('should validate capture parameters', () => {
       const { z } = require('zod');
-      
+
       const capturePaymentSchema = z.object({
         invoiceid: z.number().int().positive(),
         cvv: z.string().optional(),
@@ -204,15 +204,19 @@ describe('Billing Tools', () => {
       });
 
       // Valid capture
-      expect(capturePaymentSchema.safeParse({
-        invoiceid: 100,
-      }).success).toBe(true);
+      expect(
+        capturePaymentSchema.safeParse({
+          invoiceid: 100,
+        }).success
+      ).toBe(true);
 
       // With CVV
-      expect(capturePaymentSchema.safeParse({
-        invoiceid: 100,
-        cvv: '123',
-      }).success).toBe(true);
+      expect(
+        capturePaymentSchema.safeParse({
+          invoiceid: 100,
+          cvv: '123',
+        }).success
+      ).toBe(true);
 
       // With force
       const forceResult = capturePaymentSchema.safeParse({
@@ -233,16 +237,20 @@ describe('Billing Tools', () => {
   describe('create_invoice', () => {
     it('should validate invoice creation parameters', () => {
       const { z } = require('zod');
-      
+
       const createInvoiceSchema = z.object({
         userid: z.number().int().positive(),
         paymentmethod: z.string().optional(),
         sendinvoice: z.boolean().default(false),
-        items: z.array(z.object({
-          description: z.string(),
-          amount: z.number(),
-          taxed: z.boolean().default(false),
-        })).min(1, 'At least one line item is required'),
+        items: z
+          .array(
+            z.object({
+              description: z.string(),
+              amount: z.number(),
+              taxed: z.boolean().default(false),
+            })
+          )
+          .min(1, 'At least one line item is required'),
       });
 
       // Valid invoice with items
@@ -273,7 +281,7 @@ describe('Billing Tools', () => {
   describe('add_credit', () => {
     it('should validate credit parameters', () => {
       const { z } = require('zod');
-      
+
       const addCreditSchema = z.object({
         clientid: z.number().int().positive(),
         amount: z.number().positive('Amount must be positive'),
@@ -297,37 +305,45 @@ describe('Billing Tools', () => {
       expect(customDesc.data?.description).toBe('Promotional credit');
 
       // Invalid amount
-      expect(addCreditSchema.safeParse({
-        clientid: 123,
-        amount: -10,
-      }).success).toBe(false);
+      expect(
+        addCreditSchema.safeParse({
+          clientid: 123,
+          amount: -10,
+        }).success
+      ).toBe(false);
     });
   });
 
   describe('apply_credit', () => {
     it('should validate apply credit parameters', () => {
       const { z } = require('zod');
-      
+
       const applyCreditSchema = z.object({
         invoiceid: z.number().int().positive(),
         amount: z.number().positive().optional(),
       });
 
       // Valid with specific amount
-      expect(applyCreditSchema.safeParse({
-        invoiceid: 100,
-        amount: 50,
-      }).success).toBe(true);
+      expect(
+        applyCreditSchema.safeParse({
+          invoiceid: 100,
+          amount: 50,
+        }).success
+      ).toBe(true);
 
       // Valid without amount (apply max)
-      expect(applyCreditSchema.safeParse({
-        invoiceid: 100,
-      }).success).toBe(true);
+      expect(
+        applyCreditSchema.safeParse({
+          invoiceid: 100,
+        }).success
+      ).toBe(true);
 
       // Invalid invoiceid
-      expect(applyCreditSchema.safeParse({
-        invoiceid: 0,
-      }).success).toBe(false);
+      expect(
+        applyCreditSchema.safeParse({
+          invoiceid: 0,
+        }).success
+      ).toBe(false);
     });
   });
 });

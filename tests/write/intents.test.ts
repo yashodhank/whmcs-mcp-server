@@ -27,7 +27,7 @@ describe('createDraftIntent', () => {
     expect(intent.action).toBe('AddClientNote');
     expect(intent.risk).toBe('low');
     expect(intent.intent_id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     );
     expect(new Date(intent.created_at).toISOString()).toBe(intent.created_at);
     expect(new Date(intent.expires_at).toISOString()).toBe(intent.expires_at);

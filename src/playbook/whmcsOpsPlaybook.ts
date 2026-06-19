@@ -1,6 +1,6 @@
 /**
  * WHMCS Ops Playbook
- * 
+ *
  * Provides behavioral guidance for AI agents interacting with WHMCS.
  * Exposed as an MCP resource at whmcs://docs/ops-playbook
  */
@@ -125,28 +125,21 @@ For sensitive operations:
 /**
  * Register the WHMCS Ops Playbook as an MCP resource
  */
-export function registerPlaybookResource(
-  server: McpServer,
-  logger: Logger
-): void {
+export function registerPlaybookResource(server: McpServer, logger: Logger): void {
   logger.info('Registering WHMCS Ops Playbook resource');
 
   // Register the playbook as a static resource
-  server.resource(
-    'ops-playbook',
-    'whmcs://docs/ops-playbook',
-    (uri) => {
-      logger.debug('Fetching ops-playbook resource');
+  server.resource('ops-playbook', 'whmcs://docs/ops-playbook', (uri) => {
+    logger.debug('Fetching ops-playbook resource');
 
-      return {
-        contents: [
-          {
-            uri: stripAuthFromUri(uri),
-            mimeType: 'text/markdown',
-            text: WHMCS_OPS_PLAYBOOK.trim(),
-          }
-        ],
-      };
-    }
-  );
+    return {
+      contents: [
+        {
+          uri: stripAuthFromUri(uri),
+          mimeType: 'text/markdown',
+          text: WHMCS_OPS_PLAYBOOK.trim(),
+        },
+      ],
+    };
+  });
 }

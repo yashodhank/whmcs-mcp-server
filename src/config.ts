@@ -115,40 +115,54 @@ const configSchema = z
     // Allowlist of WHMCS read actions eligible for caching (comma list). Only
     // actions in this set are cached, and only when MCP_READ_CACHE_TTL_MS > 0.
     // Default is a SMALL set of truly-static reference reads.
-    MCP_READ_CACHE_ACTIONS: z.preprocess((val) => {
-      const raw = preprocessCommaSeparatedString(val);
-      if (raw === '') {
-        return ['GetTLDPricing', 'GetRegistrars', 'GetSupportDepartments', 'GetProducts', 'GetCurrencies'];
-      }
-      return raw
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }, z.array(z.string()).default(['GetTLDPricing', 'GetRegistrars', 'GetSupportDepartments', 'GetProducts', 'GetCurrencies'])),
-    // Optional id:label map for client custom fields (e.g. "12:Tax ID,34:VAT Number").
-    // Configured labels override WHMCS-provided field names when set.
-    MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess(
+    MCP_READ_CACHE_ACTIONS: z.preprocess(
       (val) => {
         const raw = preprocessCommaSeparatedString(val);
-        if (raw === '') return {};
-        return Object.fromEntries(
-          raw
-            .split(',')
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-            .map((entry) => {
-              const separatorIndex = entry.indexOf(':');
-              if (separatorIndex === -1) return null;
-              const id = Number.parseInt(entry.slice(0, separatorIndex).trim(), 10);
-              const label = entry.slice(separatorIndex + 1).trim();
-              if (!Number.isFinite(id) || id <= 0 || !label) return null;
-              return [String(id), label] as const;
-            })
-            .filter((entry): entry is readonly [string, string] => entry !== null)
-        );
+        if (raw === '') {
+          return [
+            'GetTLDPricing',
+            'GetRegistrars',
+            'GetSupportDepartments',
+            'GetProducts',
+            'GetCurrencies',
+          ];
+        }
+        return raw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
       },
-      z.record(z.string(), z.string()).default({})
+      z
+        .array(z.string())
+        .default([
+          'GetTLDPricing',
+          'GetRegistrars',
+          'GetSupportDepartments',
+          'GetProducts',
+          'GetCurrencies',
+        ])
     ),
+    // Optional id:label map for client custom fields (e.g. "12:Tax ID,34:VAT Number").
+    // Configured labels override WHMCS-provided field names when set.
+    MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess((val) => {
+      const raw = preprocessCommaSeparatedString(val);
+      if (raw === '') return {};
+      return Object.fromEntries(
+        raw
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .map((entry) => {
+            const separatorIndex = entry.indexOf(':');
+            if (separatorIndex === -1) return null;
+            const id = Number.parseInt(entry.slice(0, separatorIndex).trim(), 10);
+            const label = entry.slice(separatorIndex + 1).trim();
+            if (!Number.isFinite(id) || id <= 0 || !label) return null;
+            return [String(id), label] as const;
+          })
+          .filter((entry): entry is readonly [string, string] => entry !== null)
+      );
+    }, z.record(z.string(), z.string()).default({})),
     MCP_LARGE_REFUND_THRESHOLD: z.coerce.number().positive().default(1000),
     // Phase B governance: allow the deliberate anonymous llm_safe_summary
     // fallback for unknown/no-token callers. Never grants a privileged
@@ -286,13 +300,19 @@ const configSchema = z
     // When enabled, HTTP bearer tokens are validated as JWTs (jose) against the
     // configured issuer(s) with audience == MCP_OAUTH_RESOURCE (RFC 8707), and a
     // PRM document is served at /.well-known/oauth-protected-resource (RFC 9728).
-    MCP_OAUTH_ENABLED: z.preprocess((val) => val === 'true' || val === '1', z.boolean().default(false)),
+    MCP_OAUTH_ENABLED: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
     MCP_OAUTH_RESOURCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     MCP_OAUTH_AUDIENCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     MCP_OAUTH_ISSUERS: z.preprocess((val) => {
       const raw = preprocessCommaSeparatedString(val);
       if (raw === '') return [];
-      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     }, z.array(z.string()).default([])),
   })
   .superRefine((val, ctx) => {

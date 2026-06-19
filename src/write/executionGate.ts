@@ -156,9 +156,7 @@ export function preAuthorizeIntent(
         return deny('action_not_prod_authorized');
       }
     } else {
-      if (
-        !allowlistAuthorizes(req.runtimeAuthorizedActions, req.intent.action, req.intent.scope)
-      ) {
+      if (!allowlistAuthorizes(req.runtimeAuthorizedActions, req.intent.action, req.intent.scope)) {
         return deny('action_not_runtime_authorized');
       }
     }

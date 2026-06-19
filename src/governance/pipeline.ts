@@ -33,10 +33,7 @@ export function getProjectionEnv(): ProjectionEnv {
  * if the resolved consumer profile permits it; otherwise the profile default.
  * Projection is never driven by an arbitrary caller-supplied contract name.
  */
-export function pickContract(
-  profile: ConsumerProfile,
-  requested?: string
-): ContractName {
+export function pickContract(profile: ConsumerProfile, requested?: string): ContractName {
   if (
     requested !== undefined &&
     (profile.allowedContracts as readonly string[]).includes(requested)
@@ -46,10 +43,7 @@ export function pickContract(
   return profile.defaultContract;
 }
 
-export type GovernStatus =
-  | 'projected'
-  | 'consumer_denied'
-  | 'contract_env_forbidden';
+export type GovernStatus = 'projected' | 'consumer_denied' | 'contract_env_forbidden';
 
 export interface GovernResult {
   readonly ok: boolean;
@@ -96,16 +90,11 @@ export function governProjection<T>(args: {
   try {
     if (args.withTrace === true) {
       // SAME per-key decision as project(); data is byte-identical.
-      const r = projectWithTrace(
-        args.canonical as Canonical<unknown>,
-        contract,
-        args.env,
-        {
-          consumer_id: profile.id,
-          contract: contractName,
-          tool: args.canonical.entity,
-        }
-      );
+      const r = projectWithTrace(args.canonical as Canonical<unknown>, contract, args.env, {
+        consumer_id: profile.id,
+        contract: contractName,
+        tool: args.canonical.entity,
+      });
       return {
         ok: true,
         status: 'projected',
@@ -199,14 +188,8 @@ export function governListProjection(args: {
         for (const rec of r.trace) {
           trace.push({
             ...rec,
-            source_path:
-              rec.source_path === ''
-                ? prefix
-                : `${prefix}.${rec.source_path}`,
-            output_path:
-              rec.output_path === ''
-                ? ''
-                : `${prefix}.${rec.output_path}`,
+            source_path: rec.source_path === '' ? prefix : `${prefix}.${rec.source_path}`,
+            output_path: rec.output_path === '' ? '' : `${prefix}.${rec.output_path}`,
           });
         }
       });
@@ -219,9 +202,7 @@ export function governListProjection(args: {
         audit_trace: trace,
       };
     }
-    const items = args.rows.map((raw) =>
-      project(args.mapItem(raw), contract, args.env)
-    );
+    const items = args.rows.map((raw) => project(args.mapItem(raw), contract, args.env));
     return {
       ok: true,
       status: 'projected',
@@ -268,11 +249,7 @@ export function applyGovernanceOrLegacy(args: {
     const result: GovernedToolResult = {
       content: [{ type: 'text', text }],
     };
-    if (
-      args.legacy !== null &&
-      typeof args.legacy === 'object' &&
-      !Array.isArray(args.legacy)
-    ) {
+    if (args.legacy !== null && typeof args.legacy === 'object' && !Array.isArray(args.legacy)) {
       result.structuredContent = args.legacy as Record<string, unknown>;
     }
     return result;

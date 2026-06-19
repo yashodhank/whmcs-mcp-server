@@ -52,10 +52,7 @@ export interface CanonicalCurrencies {
 
 const CURRENCY_CLASSES = new ClassMapBuilder()
   .many(['currencies[].id', 'currencies[].code'], 'business.identifier')
-  .many(
-    ['currencies[].prefix', 'currencies[].suffix', 'currencies[].format'],
-    'business.label'
-  )
+  .many(['currencies[].prefix', 'currencies[].suffix', 'currencies[].format'], 'business.label')
   .set('currencies[].rate', 'financial.amount')
   .set('currencies[].isDefault', 'public.safe')
   // Empty-array container collapses to the array path itself — classify it.
@@ -75,14 +72,11 @@ function mapCurrency(row: Record<string, unknown>): CanonicalCurrency {
   };
 }
 
-export function mapToCanonicalCurrencies(
-  raw: unknown
-): Canonical<CanonicalCurrencies> {
+export function mapToCanonicalCurrencies(raw: unknown): Canonical<CanonicalCurrencies> {
   const src = asRecord(raw);
   // GetCurrencies → { currencies: { currency: [...] } }; tolerate a flat
   // `currency` fallback and single-object rows.
-  const nested =
-    'currencies' in src ? src.currencies : (src as { currency?: unknown });
+  const nested = 'currencies' in src ? src.currencies : (src as { currency?: unknown });
   const rows = listOf(nested, 'currency');
 
   return {
@@ -109,25 +103,19 @@ const PAYMENT_METHOD_CLASSES = new ClassMapBuilder()
   .set('methods', 'public.safe')
   .build();
 
-function mapPaymentMethod(
-  row: Record<string, unknown>
-): CanonicalPaymentMethod {
+function mapPaymentMethod(row: Record<string, unknown>): CanonicalPaymentMethod {
   return {
     module: str(row, 'module') ?? null,
     displayName: str(row, 'displayname') ?? null,
   };
 }
 
-export function mapToCanonicalPaymentMethods(
-  raw: unknown
-): Canonical<CanonicalPaymentMethods> {
+export function mapToCanonicalPaymentMethods(raw: unknown): Canonical<CanonicalPaymentMethods> {
   const src = asRecord(raw);
   // GetPaymentMethods → { paymentmethods: { paymentmethod: [...] } }; tolerate
   // a flat `paymentmethod` fallback and single-object rows.
   const nested =
-    'paymentmethods' in src
-      ? src.paymentmethods
-      : (src as { paymentmethod?: unknown });
+    'paymentmethods' in src ? src.paymentmethods : (src as { paymentmethod?: unknown });
   const rows = listOf(nested, 'paymentmethod');
 
   return {
@@ -151,9 +139,7 @@ const WHMCS_DETAILS_CLASSES = new ClassMapBuilder()
   .many(['version', 'release'], 'public.safe')
   .build();
 
-export function mapToCanonicalWhmcsDetails(
-  raw: unknown
-): Canonical<CanonicalWhmcsDetails> {
+export function mapToCanonicalWhmcsDetails(raw: unknown): Canonical<CanonicalWhmcsDetails> {
   const src = asRecord(raw);
   // WhmcsDetails → { whmcs: { version, canonicalversion }, ... }; tolerate the
   // fields being hoisted to the top level on some builds.
@@ -163,8 +149,7 @@ export function mapToCanonicalWhmcsDetails(
     entity: 'activity',
     data: {
       version: str(whmcs, 'version') ?? null,
-      release:
-        str(whmcs, 'canonicalversion') ?? str(whmcs, 'release') ?? null,
+      release: str(whmcs, 'canonicalversion') ?? str(whmcs, 'release') ?? null,
     },
     classes: WHMCS_DETAILS_CLASSES,
   };

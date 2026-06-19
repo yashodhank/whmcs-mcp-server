@@ -7,10 +7,7 @@
  * business.label; status flags → system.status), and classmap completeness.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalServer,
-  mapToCanonicalServers,
-} from '../../src/canonical/server.js';
+import { mapToCanonicalServer, mapToCanonicalServers } from '../../src/canonical/server.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalServer (single)', () => {
@@ -80,7 +77,12 @@ describe('mapToCanonicalServers (list)', () => {
   it('unwraps servers.server array', () => {
     const raw = {
       result: 'success',
-      servers: { server: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] },
+      servers: {
+        server: [
+          { id: 1, name: 'a' },
+          { id: 2, name: 'b' },
+        ],
+      },
     };
     const list = mapToCanonicalServers(raw);
     expect(list.map((c) => c.data.serverId)).toEqual([1, 2]);

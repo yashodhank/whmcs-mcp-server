@@ -42,7 +42,7 @@ export interface CreateDraftIntentInput {
  */
 export function createDraftIntent(
   input: CreateDraftIntentInput,
-  now: () => number = Date.now,
+  now: () => number = Date.now
 ): WriteIntent {
   const createdMs = now();
   const ttlMs = input.ttlMs ?? DEFAULT_TTL_MS;
@@ -61,7 +61,7 @@ export function createDraftIntent(
       input.scope,
       input.naturalKey,
       input.windowMs,
-      createdMs,
+      createdMs
     ),
     preconditions: input.preconditions,
     projected_effect: input.projected_effect,
@@ -123,9 +123,7 @@ export class IntentStore {
     }
     const allowed = TRANSITIONS[current.state];
     if (!allowed.includes(nextState)) {
-      throw new Error(
-        `IntentStore: illegal transition ${current.state} -> ${nextState}`,
-      );
+      throw new Error(`IntentStore: illegal transition ${current.state} -> ${nextState}`);
     }
     const next: WriteIntent = { ...current, state: nextState };
     this.intents.set(intent_id, next);

@@ -59,10 +59,10 @@ function harness() {
     logToolResult: vi.fn(),
     info: vi.fn(),
     error: vi.fn(),
-     
+
     child: () => childLogger,
   };
-   
+
   const logger: any = { child: () => childLogger };
   const rateLimiter: any = { tryConsume: () => true };
   return { server, handlers, logger, rateLimiter };
@@ -75,10 +75,7 @@ function harness() {
  * WHMCS wrapper). `shape` controls the per-page container encoding so the
  * repo normalizers are exercised.
  */
-function pagedReader(
-  all: any[],
-  shape: 'array' | 'numeric' | 'single' | 'empty' = 'array'
-) {
+function pagedReader(all: any[], shape: 'array' | 'numeric' | 'single' | 'empty' = 'array') {
   return vi.fn(async (_action: string, params: any) => {
     const start = Number(params.limitstart ?? 0);
     const num = Number(params.limitnum ?? 10);
@@ -389,15 +386,9 @@ describe('list_client_domains status filter — governance ON', () => {
       isClientMode: () => false,
       ensureClientAllowed: () => null,
     }));
-    const { registerListTool: rlt } = await import(
-      '../../src/tools/listTools.js'
-    );
-    const { mapToCanonicalDomain: cmap } = await import(
-      '../../src/canonical/index.js'
-    );
-    const { __resetRegistryCacheForTests } = await import(
-      '../../src/governance/pipeline.js'
-    );
+    const { registerListTool: rlt } = await import('../../src/tools/listTools.js');
+    const { mapToCanonicalDomain: cmap } = await import('../../src/canonical/index.js');
+    const { __resetRegistryCacheForTests } = await import('../../src/governance/pipeline.js');
     __resetRegistryCacheForTests();
     const { server, handlers, logger, rateLimiter } = harness();
     rlt(server as any, { read: vi.fn(readImpl) } as any, logger, rateLimiter, {

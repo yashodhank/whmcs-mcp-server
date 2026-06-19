@@ -1,18 +1,49 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-vi.mock('../../src/config.js', () => ({ config: { MCP_MAX_PAGE_SIZE: 100 }, isToolAllowed: () => true }));
-vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {}, ensureToolAuth: () => null, isClientMode: () => false, ensureClientAllowed: () => null }));
+vi.mock('../../src/config.js', () => ({
+  config: { MCP_MAX_PAGE_SIZE: 100 },
+  isToolAllowed: () => true,
+}));
+vi.mock('../../src/security.js', () => ({
+  AUTH_SHAPE: {},
+  ensureToolAuth: () => null,
+  isClientMode: () => false,
+  ensureClientAllowed: () => null,
+}));
 import { registerCapabilityShellTools } from '../../src/tools/capabilityShellTools.js';
 
 function harness() {
-  const handlers: Record<string, (a: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }>> = {};
+  const handlers: Record<
+    string,
+    (a: Record<string, unknown>) => Promise<{
+      content: { type: string; text: string }[];
+      structuredContent?: Record<string, unknown>;
+      isError?: boolean;
+    }>
+  > = {};
   const configs: Record<string, Record<string, unknown>> = {};
-  const server = { registerTool: (n: string, c: unknown, cb: unknown) => { configs[n] = c as Record<string, unknown>; handlers[n] = cb as never; } };
-  const childLogger = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
+  const server = {
+    registerTool: (n: string, c: unknown, cb: unknown) => {
+      configs[n] = c as Record<string, unknown>;
+      handlers[n] = cb as never;
+    },
+  };
+  const childLogger = {
+    logToolCall: vi.fn(),
+    logToolResult: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    child: () => childLogger,
+  };
   const logger = { child: () => childLogger };
   const rateLimiter = { tryConsume: () => true };
   const read = vi.fn();
   const whmcs = { read };
-  registerCapabilityShellTools(server as never, whmcs as never, logger as never, rateLimiter as never);
+  registerCapabilityShellTools(
+    server as never,
+    whmcs as never,
+    logger as never,
+    rateLimiter as never
+  );
   return { handlers, configs, read };
 }
 
@@ -46,10 +77,22 @@ describe('registerCapabilityShellTools', () => {
   // Phase H: the 4 production-verified actions are PROMOTED — real
   // governed reads (call WHMCS, return data, NOT capability_unavailable).
   const PROMOTED: [tool: string, action: string, resp: Record<string, unknown>][] = [
-    ['list_client_transactions', 'GetTransactions', { transactions: { transaction: [{ id: 1, userid: 7, amountin: '10.00' }] } }],
+    [
+      'list_client_transactions',
+      'GetTransactions',
+      { transactions: { transaction: [{ id: 1, userid: 7, amountin: '10.00' }] } },
+    ],
     ['get_stats', 'GetStats', { income_today: '100.00', num_clients: 5 }],
-    ['get_todo_items', 'GetToDoItems', { todoitems: { todoitem: [{ id: 1, title: 'x', status: 'New' }] } }],
-    ['get_automation_log', 'GetAutomationLog', { automationlog: { entry: [{ id: 1, name: 'cron', status: 'Success' }] } }],
+    [
+      'get_todo_items',
+      'GetToDoItems',
+      { todoitems: { todoitem: [{ id: 1, title: 'x', status: 'New' }] } },
+    ],
+    [
+      'get_automation_log',
+      'GetAutomationLog',
+      { automationlog: { entry: [{ id: 1, name: 'cron', status: 'Success' }] } },
+    ],
   ];
   for (const [tool, action, resp] of PROMOTED) {
     it(`${tool} is PROMOTED: calls WHMCS ${action}, returns governed data (not capability_unavailable)`, async () => {
@@ -80,7 +123,10 @@ describe('registerCapabilityShellTools', () => {
     // Phase H: GetTransactions promoted to supported; GetUsers stays unverified.
     expect(byAction.GetTransactions).toBe('supported');
     expect(byAction.GetUsers).toBe('unverified');
-    expect(p.compat_9x).toMatchObject({ immutable_non_draft_invoices: true, credit_debit_notes: true });
+    expect(p.compat_9x).toMatchObject({
+      immutable_non_draft_invoices: true,
+      credit_debit_notes: true,
+    });
     expect(res.isError).toBeUndefined();
     expect(res.structuredContent).toBeDefined();
   });
@@ -90,8 +136,10 @@ describe('registerCapabilityShellTools', () => {
     const cfg = configs.list_users;
     expect(cfg.outputSchema).toBeDefined();
     // outputSchema is a passthrough ZodObject — inspect its .shape.
-    const shape = (cfg.outputSchema as z.ZodObject<z.ZodRawShape>)
-      .shape as Record<string, { _def?: unknown }>;
+    const shape = (cfg.outputSchema as z.ZodObject<z.ZodRawShape>).shape as Record<
+      string,
+      { _def?: unknown }
+    >;
     for (const k of ['capability_unavailable', 'action', 'status', 'note']) {
       expect(shape[k]).toBeDefined();
       expect(shape[k]._def).toBeDefined();
@@ -105,7 +153,14 @@ describe('registerCapabilityShellTools', () => {
     const cfg = configs.get_capability_matrix;
     expect(cfg.outputSchema).toBeDefined();
     const shape = cfg.outputSchema as Record<string, { _def?: unknown }>;
-    for (const k of ['whmcs_version', 'capabilities', 'compat_9x', 'consumer', 'contract', 'data']) {
+    for (const k of [
+      'whmcs_version',
+      'capabilities',
+      'compat_9x',
+      'consumer',
+      'contract',
+      'data',
+    ]) {
       expect(shape[k]).toBeDefined();
       expect(shape[k]._def).toBeDefined();
     }
@@ -150,9 +205,7 @@ import { hashToken } from '../../src/governance/consumers.js';
 // Registered outputSchema is now a passthrough ZodObject (heterogeneous
 // shell payloads) — use as-is if built, else wrap a raw shape.
 const asSchema = (os: unknown): z.ZodType =>
-  os !== null &&
-  typeof os === 'object' &&
-  (os as { _def?: unknown })._def !== undefined
+  os !== null && typeof os === 'object' && (os as { _def?: unknown })._def !== undefined
     ? (os as z.ZodType)
     : z.object(os as z.ZodRawShape);
 
@@ -190,7 +243,13 @@ const LIST_TOOLS: {
     tool: 'list_client_transactions',
     action: 'GetTransactions',
     wrap: (rows) => ({ transactions: { transaction: rows } }),
-    sensitiveRow: { id: 1, userid: 7, transid: 'TX-1', amountin: '10.00', description: LONG_FREE_TEXT },
+    sensitiveRow: {
+      id: 1,
+      userid: 7,
+      transid: 'TX-1',
+      amountin: '10.00',
+      description: LONG_FREE_TEXT,
+    },
     sensitiveField: 'description',
     mode: 'summarize',
   },
@@ -207,7 +266,12 @@ const LIST_TOOLS: {
     action: 'GetAutomationLog',
     wrap: (rows) => ({ automationlog: { entry: rows } }),
     // `output` is system.audit ⇒ DROPPED entirely under llm_safe_summary.
-    sensitiveRow: { id: 1, name: 'cron', status: 'Success', output: `AUDITSECRET admin@corp.test ${LONG_TAIL}` },
+    sensitiveRow: {
+      id: 1,
+      name: 'cron',
+      status: 'Success',
+      output: `AUDITSECRET admin@corp.test ${LONG_TAIL}`,
+    },
     sensitiveField: 'output',
     mode: 'drop',
   },
@@ -217,7 +281,12 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
   for (const { tool, action, wrap } of LIST_TOOLS) {
     it(`${tool}: happy path calls WHMCS ${action}, returns legacy {items,count}, NOT capability_unavailable`, async () => {
       const { handlers, read } = harness();
-      read.mockResolvedValue(wrap([{ id: 1, userid: 7 }, { id: 2, userid: 7 }]));
+      read.mockResolvedValue(
+        wrap([
+          { id: 1, userid: 7 },
+          { id: 2, userid: 7 },
+        ])
+      );
       const res = (await handlers[tool]({ clientid: 7 })) as ToolResult;
       expect(read).toHaveBeenCalledWith(action, expect.any(Object));
       const p = JSON.parse(res.content[0].text) as Record<string, unknown>;
@@ -252,9 +321,14 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
 
     it(`${tool}: malformed/partial rows (missing keys, wrong types) degrade safely, no throw`, async () => {
       const { handlers, read } = harness();
-      read.mockResolvedValue(wrap([{}, { id: 'not-a-number', userid: null }, { unexpected: { nested: true } }]));
+      read.mockResolvedValue(
+        wrap([{}, { id: 'not-a-number', userid: null }, { unexpected: { nested: true } }])
+      );
       const res = (await handlers[tool]({})) as ToolResult;
-      const p = JSON.parse(res.content[0].text) as { items: Record<string, unknown>[]; count: number };
+      const p = JSON.parse(res.content[0].text) as {
+        items: Record<string, unknown>[];
+        count: number;
+      };
       expect(p.count).toBe(3);
       expect(p.items).toHaveLength(3);
       // Mapper coerces unknowns to null rather than throwing.
@@ -274,9 +348,10 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
 
     it(`${tool}: single (non-array) object under the singular key is treated as one row`, async () => {
       const { handlers, read } = harness();
-      const single = JSON.parse(
-        JSON.stringify(wrap([])).replace(/\[\]/, '{"id":9}')
-      ) as Record<string, unknown>;
+      const single = JSON.parse(JSON.stringify(wrap([])).replace(/\[\]/, '{"id":9}')) as Record<
+        string,
+        unknown
+      >;
       read.mockResolvedValue(single);
       const res = (await handlers[tool]({})) as ToolResult;
       const p = JSON.parse(res.content[0].text) as { items: unknown[]; count: number };
@@ -397,15 +472,10 @@ describe('Phase H promoted tools — governance ON (contract projection + denial
       isClientMode: () => false,
       ensureClientAllowed: () => null,
     }));
-    const { registerCapabilityShellTools: register } = await import(
-      '../../src/tools/capabilityShellTools.js'
-    );
-    const { __resetRegistryCacheForTests } = await import(
-      '../../src/governance/pipeline.js'
-    );
-    const { __resetCapabilityCacheForTests } = await import(
-      '../../src/governance/capabilities.js'
-    );
+    const { registerCapabilityShellTools: register } =
+      await import('../../src/tools/capabilityShellTools.js');
+    const { __resetRegistryCacheForTests } = await import('../../src/governance/pipeline.js');
+    const { __resetCapabilityCacheForTests } = await import('../../src/governance/capabilities.js');
     __resetRegistryCacheForTests();
     __resetCapabilityCacheForTests();
 
@@ -417,7 +487,13 @@ describe('Phase H promoted tools — governance ON (contract projection + denial
         handlers[n] = cb as never;
       },
     };
-    const childLogger = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
+    const childLogger = {
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+      child: () => childLogger,
+    };
     const logger = { child: () => childLogger };
     const rateLimiter = { tryConsume: () => true };
     const read = vi.fn();
@@ -428,7 +504,9 @@ describe('Phase H promoted tools — governance ON (contract projection + denial
 
   it('list_client_transactions: authed ops consumer ⇒ projected list envelope {consumer,contract,items}', async () => {
     const { handlers, read } = await governedHarness();
-    read.mockResolvedValue({ transactions: { transaction: [{ id: 1, userid: 7, transid: 'TX-1', amountin: '10.00' }] } });
+    read.mockResolvedValue({
+      transactions: { transaction: [{ id: 1, userid: 7, transid: 'TX-1', amountin: '10.00' }] },
+    });
     const res = await handlers.list_client_transactions({ clientid: 7, auth_token: TOKEN_OPS });
     expect(res.isError).toBeFalsy();
     expect(res.structuredContent).toBeDefined();
@@ -458,10 +536,22 @@ describe('Phase H promoted tools — governance ON (contract projection + denial
 
   it('unknown bearer token ⇒ structured consumer_denied, NO data leaked (all promoted tools)', async () => {
     const cases: { tool: string; resp: Record<string, unknown>; needle: string }[] = [
-      { tool: 'list_client_transactions', resp: { transactions: { transaction: [{ id: 1, transid: 'SECRET-TX' }] } }, needle: 'SECRET-TX' },
+      {
+        tool: 'list_client_transactions',
+        resp: { transactions: { transaction: [{ id: 1, transid: 'SECRET-TX' }] } },
+        needle: 'SECRET-TX',
+      },
       { tool: 'get_stats', resp: { income_today: '987654.00' }, needle: '987654' },
-      { tool: 'get_todo_items', resp: { todoitems: { todoitem: [{ id: 1, title: 'SECRET-TODO' }] } }, needle: 'SECRET-TODO' },
-      { tool: 'get_automation_log', resp: { automationlog: { entry: [{ id: 1, output: 'SECRET-AUDIT' }] } }, needle: 'SECRET-AUDIT' },
+      {
+        tool: 'get_todo_items',
+        resp: { todoitems: { todoitem: [{ id: 1, title: 'SECRET-TODO' }] } },
+        needle: 'SECRET-TODO',
+      },
+      {
+        tool: 'get_automation_log',
+        resp: { automationlog: { entry: [{ id: 1, output: 'SECRET-AUDIT' }] } },
+        needle: 'SECRET-AUDIT',
+      },
     ];
     for (const { tool, resp, needle } of cases) {
       const { handlers, read } = await governedHarness();

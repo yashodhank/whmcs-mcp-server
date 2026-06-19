@@ -166,7 +166,9 @@ describe('list_services — opaque cursor pagination', () => {
     const { server, handlers, logger, rateLimiter } = harness();
     const read = pagedReader(makeServices(3), 'products');
     registerReportingListTools(server as any, { read } as any, logger, rateLimiter);
-    const r = await handlers.list_services(svcArgs({ limit: 2, cursor: encodeCursor(0).slice(0, 3) + '!!' }));
+    const r = await handlers.list_services(
+      svcArgs({ limit: 2, cursor: encodeCursor(0).slice(0, 3) + '!!' })
+    );
     const p = JSON.parse(r.content[0].text);
     expect(p.offset).toBe(0);
   });
