@@ -100,7 +100,7 @@ that doc before continuing.
 ### (b) Grant the single scope to a dev consumer + arm runtime execution
 
 In the dev consumer registry (`MCP_CONSUMER_REGISTRY`, e.g. derived from
-`docs/consumer-registry.c2-example.json`), the dev consumer must have:
+`docs/reference/consumer-registry.c2-example.json`), the dev consumer must have:
 
 - the **one** scope under test in `allowedWriteScopes`, and
 - `"writeCapability": "execution_allowed"`, and

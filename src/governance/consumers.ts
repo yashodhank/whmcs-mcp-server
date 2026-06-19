@@ -6,7 +6,7 @@
  * string) into typed `ConsumerProfile[]`, then resolves an inbound bearer token
  * to a profile.
  *
- * Security invariants (see docs/PHASE_B_GOVERNANCE.md §5):
+ * Security invariants (see docs/design/governance.md §5):
  *  - Token values/hashes live ONLY in env, never committed.
  *  - Tokens are compared by sha256 hash; the raw token is never stored, logged,
  *    nor placed in any resolution result or thrown error.
