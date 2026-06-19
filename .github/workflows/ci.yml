@@ -52,3 +52,26 @@ jobs:
           WHMCS_IDENTIFIER: ci-dummy-identifier
           WHMCS_SECRET: ci-dummy-secret
         run: npm test
+
+  python-php-check:
+    name: python-php-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python syntax check (ip updater)
+        run: python3 -m py_compile scripts/whmcs-ip-updater/whmcs_ip_updater.py
+
+      - name: Install pytest
+        run: python3 -m pip install --quiet pytest
+
+      - name: Python unit tests
+        run: python3 -m pytest scripts/whmcs-ip-updater/tests/ -q
+
+      - name: PHP lint (remote worker + bootstrap-callable PHP)
+        run: |
+          php -l scripts/whmcs-ip-updater/remote/whmcs_api_ip_updater.php
