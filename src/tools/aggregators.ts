@@ -179,7 +179,7 @@ const RECON_RECENT_PAYMENT_DAYS = 14;
 const RECON_DUP_NEAR_DAYS = 3;
 
 /** A reconciliation-shaped view of one canonical transaction. */
-interface ReconTransaction extends CanonicalTransaction {
+export interface ReconTransaction extends CanonicalTransaction {
   /**
    * Conservative refund/reversal heuristic. TRUE when money clearly left
    * the system for this row (amountOut > 0) OR a net-negative inflow
@@ -209,7 +209,7 @@ function isRefundOrReversal(t: CanonicalTransaction): boolean {
   return false;
 }
 
-interface InvoiceLite {
+export interface InvoiceLite {
   invoiceid: unknown;
   status: unknown;
   total: unknown;
@@ -218,7 +218,7 @@ interface InvoiceLite {
   datepaid: unknown;
 }
 
-interface ReconMatching {
+export interface ReconMatching {
   matched: { transactionRowId: number | null; invoiceId: number | null }[];
   unmatched_transaction_ids: (number | null)[];
   duplicate_risk: {
@@ -238,7 +238,7 @@ interface ReconMatching {
  * invoice list. Preserves the financial references needed for matching;
  * derives duplicate-risk, unmatched, and unpaid-with-recent-payment signals.
  */
-function reconcile(
+export function reconcile(
   txns: ReconTransaction[],
   invoices: InvoiceLite[]
 ): ReconMatching {

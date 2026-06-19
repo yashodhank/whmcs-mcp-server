@@ -36,6 +36,7 @@ import { getProjectionEnv, getConsumerRegistry } from '../governance/pipeline.js
 import {
   WRITE_SCOPES,
   type WriteScope,
+  type WriteRisk,
   type WriteToolResult,
   type WriteIntent,
   type HumanApprovalRecord,
@@ -332,6 +333,54 @@ function resolveWriteConsumer(params: Record<string, unknown>) {
   return resolveConsumer(token, getProjectionEnv(), getConsumerRegistry(), {
     allowAnon: false,
   });
+}
+
+/**
+ * Programmatic governed-draft request. Mirrors the `draft_write_intent` tool
+ * input but is callable in-process (e.g. by composite workflow tools) without
+ * going through the MCP tool layer.
+ */
+export interface WorkflowDraftRequest {
+  readonly auth_token?: string;
+  readonly scope: WriteScope;
+  readonly params: Record<string, unknown>;
+  readonly naturalKey: string;
+  readonly projected_effect: string;
+  readonly preconditions?: Record<string, unknown>;
+}
+
+export type WorkflowDraftResult =
+  | { ok: true; intent_id: string; scope: WriteScope; risk: WriteRisk }
+  | { ok: false; reason: string };
+
+/**
+ * Draft a governed write-intent PROGRAMMATICALLY, reusing the EXACT governance
+ * + singletons the `draft_write_intent` tool uses:
+ *   resolve consumer → assertWriteScopeAllowed → createDraftIntent →
+ *   store.put → audit.append('intent.drafted').
+ *
+ * DRAFT-ONLY INVARIANT: this NEVER validates-to-approved, NEVER approves,
+ * NEVER executes, NEVER calls `whmcs.mutate`. It is consumer- and write-scope
+ * gated (a denied consumer/scope returns `{ ok:false }` and drafts nothing).
+ * Because it writes to the same module-level `store`/`audit` singletons the
+ * tool flow uses, a draft created here is retrievable via `get_write_intent`.
+ */
+export function draftWorkflowIntent(req: WorkflowDraftRequest): WorkflowDraftResult {
+  const res = resolveWriteConsumer({ auth_token: req.auth_token });
+  if (!res.ok) return { ok: false, reason: `consumer denied: ${res.reason}` };
+  const gate = assertWriteScopeAllowed(res.profile, req.scope);
+  if (!gate.ok) return { ok: false, reason: `write scope denied: ${gate.reason}` };
+  const intent = createDraftIntent({
+    consumer_id: res.profile.id,
+    scope: req.scope,
+    params: req.params,
+    naturalKey: req.naturalKey,
+    preconditions: req.preconditions ?? {},
+    projected_effect: req.projected_effect,
+  });
+  store.put(intent);
+  audit.append(auditEvent('intent.drafted', intent));
+  return { ok: true, intent_id: intent.intent_id, scope: intent.scope, risk: intent.risk };
 }
 
 /**
