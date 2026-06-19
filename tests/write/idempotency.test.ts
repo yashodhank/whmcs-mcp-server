@@ -7,7 +7,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { idempotencyKey, IdempotencyLedger } from '../../src/write/idempotency.js';
+import {
+  idempotencyKey,
+  IdempotencyLedger,
+  toPersistedReplay,
+} from '../../src/write/idempotency.js';
 
 describe('idempotencyKey', () => {
   it('is deterministic sha256 hex for identical inputs', () => {
@@ -60,5 +64,68 @@ describe('IdempotencyLedger', () => {
     now = 2_500;
     expect(ledger.seen(key)).toBe(false);
     expect(ledger.getResult(key)).toBeUndefined();
+  });
+});
+
+describe('toPersistedReplay', () => {
+  const AT = '2026-06-19T00:00:00.000Z';
+
+  it('returns undefined for non-WriteToolResult markers and non-objects', () => {
+    expect(toPersistedReplay({ executing: true }, AT)).toBeUndefined();
+    expect(toPersistedReplay({ ok: true }, AT)).toBeUndefined();
+    expect(toPersistedReplay(null, AT)).toBeUndefined();
+    expect(toPersistedReplay('a string', AT)).toBeUndefined();
+    expect(toPersistedReplay(42, AT)).toBeUndefined();
+    // Object with no intent / no string intent_id ⇒ undefined.
+    expect(toPersistedReplay({ intent: {} }, AT)).toBeUndefined();
+    expect(toPersistedReplay({ intent: null, executed: true }, AT)).toBeUndefined();
+  });
+
+  it('derives exactly the fixed allowlist and never copies params/would_call', () => {
+    const result = {
+      intent: {
+        intent_id: 'i1',
+        action: 'AddClientNote',
+        scope: 'client_note:write',
+        risk: 'low',
+        params: { ssn: 'XXX' },
+      },
+      executed: true,
+      execution: { verified: true },
+      would_call: { params: { ssn: 'XXX' } },
+    };
+    const env = toPersistedReplay(result, AT);
+    expect(env).toEqual({
+      intent_id: 'i1',
+      action: 'AddClientNote',
+      scope: 'client_note:write',
+      executed: true,
+      verified: true,
+      at: AT,
+    });
+    // The envelope is a fixed allowlist — no params / would_call leak through.
+    expect(Object.keys(env as object)).toEqual([
+      'intent_id',
+      'action',
+      'scope',
+      'executed',
+      'verified',
+      'at',
+    ]);
+    expect(env).not.toHaveProperty('params');
+    expect(env).not.toHaveProperty('would_call');
+    expect(JSON.stringify(env)).not.toContain('XXX');
+  });
+
+  it('defaults executed/verified to false and missing action/scope to empty', () => {
+    const env = toPersistedReplay({ intent: { intent_id: 'i2' } }, AT);
+    expect(env).toEqual({
+      intent_id: 'i2',
+      action: '',
+      scope: '',
+      executed: false,
+      verified: false,
+      at: AT,
+    });
   });
 });
