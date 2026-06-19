@@ -135,6 +135,37 @@ depends on the other. Recommended: execute both. The deployment env value was
 already corrected live (`WHMCS_API_URL=https://my.securiace.com`); 022 prevents
 recurrence in code.
 
+## 403 / IP-heal diagnosability audit (2026-06-19, `improve`)
+
+From the RCA of "why the IP-whitelist automation failed to detect & apply." Root
+cause: the post-URL-fix failure was an **edge/WAF fingerprint 403** (curl-200 /
+axios-403 from the *same allowlisted IP*), NOT an IP-allowlist 403 — so the heal
+correctly skipped (it only acts on WHMCS `Invalid IP` 403s), and the IP was
+already listed anyway. The real gaps are **diagnosability/observability**, not a
+heal bug. Stamped against `2b7f665`. Advisor plans (not yet executed).
+
+| Plan | Title | Priority | Effort | Status |
+|------|-------|----------|--------|--------|
+| 024 | Make 403 + IP-heal decisions self-diagnosing (classified 403 hint, heal-decision in surfaced error, WAF-403 case, timeout msg) | P1 | M | DONE — applied + verified |
+| 025 | Regression tests: edge/WAF 403 reset+retry, enriched 403, permission 403, timeout msg | P1 | M | DONE — applied + verified |
+| 026 | Docs/rules: runbook "three 403 causes" + auto-heal scope/limits + keep-alive finding; AGENTS/.cursorrules | P1 | S | DONE — applied |
+
+**Enhancement beyond the plans (the WAF RCA payoff):** the WhmcsClient now uses an
+explicit keep-alive agent and, on an **edge 403 (no WHMCS body)**, destroys its
+pooled sockets and retries once on a **fresh connection** — auto-recovering the
+exact transient connection-level block that stranded the live MCP process
+(Node ≥19 `keepAlive=true` reused a flagged socket for the process lifetime).
+`tests/whmcs/whmcsClient403Heal.test.ts` covers reset+recover, persist-and-enrich,
+permission-hint, and timeout-message.
+
+Order: 024 → 025 (tests assert 024's hints) → 026 (docs) — but 026 is independent
+and can land anytime. Considered and **rejected** (noise from the audit): adding
+403 to retryable codes (auth/WAF 403s must not retry — by design); the
+`attempt=-1` "extra retries" concern (403 is non-retryable → throws after one
+post-heal attempt; only a post-heal *5xx* over-retries, negligible); strict
+whitelist of the updater's `childEnv` (the spawned SSH updater needs
+`HOME`/`PATH`/`SSH_AUTH_SOCK` — whitelisting would break SSH).
+
 ## Low-priority backlog disposition (2026-06-19)
 
 Audited the open low-priority notes across `plans/` + `docs/design/` and decided
