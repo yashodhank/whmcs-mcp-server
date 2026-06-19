@@ -106,22 +106,14 @@ function mapCard(src: Record<string, unknown>): CanonicalPayMethodCard | null {
   const expiryDate = str(src, 'expdate') ?? str(src, 'cardexpiry') ?? null;
   const startDate = str(src, 'startdate') ?? str(src, 'cardstart') ?? null;
   const issueNumber = str(src, 'issuenumber') ?? null;
-  if (
-    cardNumber === null &&
-    expiryDate === null &&
-    startDate === null &&
-    issueNumber === null
-  ) {
+  if (cardNumber === null && expiryDate === null && startDate === null && issueNumber === null) {
     return null;
   }
   return { cardNumber, expiryDate, startDate, issueNumber };
 }
 
-function mapBank(
-  src: Record<string, unknown>
-): CanonicalPayMethodBankAccount | null {
-  const accountNumber =
-    str(src, 'accountnumber') ?? str(src, 'bankacct') ?? null;
+function mapBank(src: Record<string, unknown>): CanonicalPayMethodBankAccount | null {
+  const accountNumber = str(src, 'accountnumber') ?? str(src, 'bankacct') ?? null;
   const accountType = str(src, 'accounttype') ?? str(src, 'bankacctype') ?? null;
   const routingNumber =
     str(src, 'routingnumber') ?? str(src, 'bankcode') ?? str(src, 'sortcode') ?? null;
@@ -161,8 +153,7 @@ function mapOnePayMethod(raw: Record<string, unknown>): CanonicalPayMethod {
     payMethodId: num(raw, 'id') ?? num(raw, 'paymethodid') ?? null,
     type: str(raw, 'type') ?? null,
     description: str(raw, 'description') ?? null,
-    gateway:
-      str(raw, 'gateway_name') ?? str(raw, 'gateway') ?? str(raw, 'paymentmethod') ?? null,
+    gateway: str(raw, 'gateway_name') ?? str(raw, 'gateway') ?? str(raw, 'paymentmethod') ?? null,
     lastFour: maskedLastFour(cardSrc),
     remoteToken,
     card: mapCard(cardSrc),
@@ -207,18 +198,14 @@ export interface CanonicalPayMethods {
   payMethods: CanonicalPayMethod[];
 }
 
-export function mapToCanonicalPayMethods(
-  raw: unknown
-): Canonical<CanonicalPayMethods> {
+export function mapToCanonicalPayMethods(raw: unknown): Canonical<CanonicalPayMethods> {
   const src = asRecord(raw);
   const rows = listOf(src.paymethods, 'paymethod');
   const data: CanonicalPayMethods = {
     clientId: num(src, 'clientid') ?? num(src, 'userid') ?? null,
     payMethods: rows.map((r) => mapOnePayMethod(r)),
   };
-  const classes = new ClassMapBuilder()
-    .set('clientId', 'business.identifier')
-    .build();
+  const classes = new ClassMapBuilder().set('clientId', 'business.identifier').build();
   return {
     entity: 'transaction',
     data,
@@ -264,9 +251,7 @@ const CREDIT_CLASSES = new ClassMapBuilder()
   .set('credits[].amount', 'financial.amount')
   .build();
 
-export function mapToCanonicalCredits(
-  raw: unknown
-): Canonical<CanonicalCredits> {
+export function mapToCanonicalCredits(raw: unknown): Canonical<CanonicalCredits> {
   const src = asRecord(raw);
   const rows = listOf(src.credits, 'credit');
   const data: CanonicalCredits = {

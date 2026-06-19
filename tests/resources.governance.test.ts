@@ -35,12 +35,21 @@ import { __resetRegistryCacheForTests } from '../src/governance/pipeline.js';
 
 function makeServer() {
   const handlers: Record<string, (uri: URL, params?: any) => Promise<any>> = {};
-  const server = { resource: (n: string, _t: unknown, cb: any) => { handlers[n] = cb; } };
+  const server = {
+    resource: (n: string, _t: unknown, cb: any) => {
+      handlers[n] = cb;
+    },
+  };
   return { server, handlers };
 }
- 
-const childLogger: any = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => childLogger };
- 
+
+const childLogger: any = {
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: () => childLogger,
+};
+
 const logger: any = { child: () => childLogger, info: vi.fn(), debug: vi.fn() };
 const rateLimiter: any = { tryConsume: () => true };
 
@@ -74,7 +83,17 @@ const TICKET_RAW = {
   status: 'Open',
   date: '2026-05-18 07:21:49',
   userid: 7,
-  replies: { reply: [{ replyid: '0', name: 'Grace Hopper', date: '2026-05-18 07:21:49', message: 'Body', admin: '' }] },
+  replies: {
+    reply: [
+      {
+        replyid: '0',
+        name: 'Grace Hopper',
+        date: '2026-05-18 07:21:49',
+        message: 'Body',
+        admin: '',
+      },
+    ],
+  },
   notes: [],
 };
 
@@ -92,7 +111,9 @@ describe('resources governance wiring — backward compat (governance OFF)', () 
     const whmcsClient: any = { read: vi.fn().mockResolvedValue(CLIENT_RAW) };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const res = await handlers['client-summary'](new URL('whmcs://clients/7/summary'), { clientid: '7' });
+    const res = await handlers['client-summary'](new URL('whmcs://clients/7/summary'), {
+      clientid: '7',
+    });
     const payload = JSON.parse(res.contents[0].text);
 
     expect(payload).toEqual({
@@ -113,19 +134,25 @@ describe('resources governance wiring — backward compat (governance OFF)', () 
   it('invoice-history and ticket-thread return unchanged legacy payloads', async () => {
     const { server, handlers } = makeServer();
     const whmcsClient: any = {
-      read: vi.fn(async (action: string) =>
-        action === 'GetInvoice' ? INVOICE_RAW : TICKET_RAW
-      ),
+      read: vi.fn(async (action: string) => (action === 'GetInvoice' ? INVOICE_RAW : TICKET_RAW)),
     };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
     const inv = JSON.parse(
-      (await handlers['invoice-history'](new URL('whmcs://invoices/555/history'), { invoiceid: '555' })).contents[0].text
+      (
+        await handlers['invoice-history'](new URL('whmcs://invoices/555/history'), {
+          invoiceid: '555',
+        })
+      ).contents[0].text
     );
     expect(inv).toMatchObject({ invoiceid: 555, clientid: 7, status: 'Unpaid', total: '99.00' });
 
     const tkt = JSON.parse(
-      (await handlers['ticket-thread'](new URL('whmcs://tickets/1001/thread'), { ticketid: '1001' })).contents[0].text
+      (
+        await handlers['ticket-thread'](new URL('whmcs://tickets/1001/thread'), {
+          ticketid: '1001',
+        })
+      ).contents[0].text
     );
     expect(tkt.ticket_number).toBe('GOV01');
     expect(tkt.initial_message).toBe('Body');
@@ -139,7 +166,9 @@ describe('resources governance wiring — governance ON, production, no registry
     const whmcsClient: any = { read: vi.fn().mockResolvedValue(CLIENT_RAW) };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const res = await handlers['client-summary'](new URL('whmcs://clients/7/summary'), { clientid: '7' });
+    const res = await handlers['client-summary'](new URL('whmcs://clients/7/summary'), {
+      clientid: '7',
+    });
     const text = res.contents[0].text;
     const payload = JSON.parse(text);
 
@@ -155,16 +184,20 @@ describe('resources governance wiring — governance ON, production, no registry
     cfg.config.MCP_GOVERNANCE_ENABLED = true;
     const { server, handlers } = makeServer();
     const whmcsClient: any = {
-      read: vi.fn(async (action: string) =>
-        action === 'GetInvoice' ? INVOICE_RAW : TICKET_RAW
-      ),
+      read: vi.fn(async (action: string) => (action === 'GetInvoice' ? INVOICE_RAW : TICKET_RAW)),
     };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const invText = (await handlers['invoice-history'](new URL('whmcs://invoices/555/history'), { invoiceid: '555' })).contents[0].text;
+    const invText = (
+      await handlers['invoice-history'](new URL('whmcs://invoices/555/history'), {
+        invoiceid: '555',
+      })
+    ).contents[0].text;
     expect(JSON.parse(invText)).toMatchObject({ isError: true, status: 'consumer_denied' });
 
-    const tktText = (await handlers['ticket-thread'](new URL('whmcs://tickets/1001/thread'), { ticketid: '1001' })).contents[0].text;
+    const tktText = (
+      await handlers['ticket-thread'](new URL('whmcs://tickets/1001/thread'), { ticketid: '1001' })
+    ).contents[0].text;
     expect(JSON.parse(tktText)).toMatchObject({ isError: true, status: 'consumer_denied' });
     expect(tktText).not.toContain('secret subject');
   });

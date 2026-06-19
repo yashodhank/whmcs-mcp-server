@@ -46,8 +46,7 @@ export function registerWhmcsPrompts(server: McpServer): void {
     'month_end_reconciliation',
     {
       title: 'Month-end reconciliation',
-      description:
-        'Reconcile invoices against transactions for the period and flag mismatches.',
+      description: 'Reconcile invoices against transactions for the period and flag mismatches.',
       argsSchema: {
         clientid: z
           .string()
@@ -88,10 +87,7 @@ Follow this workflow, one step at a time, citing the tool you used at each step:
       description:
         'Bank-only sweep: detect Paid-but-no-arrival (phantom) and unpaid-but-arrived (inverse-phantom) invoices.',
       argsSchema: {
-        clientid: z
-          .string()
-          .optional()
-          .describe('Optional WHMCS client id to scope the sweep.'),
+        clientid: z.string().optional().describe('Optional WHMCS client id to scope the sweep.'),
       },
     },
     ({ clientid }) =>
@@ -127,9 +123,7 @@ Workflow:
       description:
         'Identify 90+ day overdue accounts and draft a governed service:suspend write intent (never direct).',
       argsSchema: {
-        clientid: z
-          .string()
-          .describe('WHMCS client id to evaluate for suspension (required).'),
+        clientid: z.string().describe('WHMCS client id to evaluate for suspension (required).'),
       },
     },
     ({ clientid }) =>
@@ -161,8 +155,7 @@ Workflow:
     'new_client_onboarding',
     {
       title: 'New client onboarding review',
-      description:
-        'Pull the 360 view of a newly created client and run an onboarding checklist.',
+      description: 'Pull the 360 view of a newly created client and run an onboarding checklist.',
       argsSchema: {
         clientid: z.string().describe('WHMCS client id to onboard (required).'),
       },
@@ -193,8 +186,7 @@ Workflow:
     'domain_renewal_review',
     {
       title: 'Domain renewal review',
-      description:
-        'Surface domains expiring within 30 days and their renewal cost.',
+      description: 'Surface domains expiring within 30 days and their renewal cost.',
       argsSchema: {
         clientid: z
           .string()
@@ -331,9 +323,7 @@ STRUCTURED OUTPUT:
         clientid: z
           .string()
           .optional()
-          .describe(
-            'Optional WHMCS client id to scope the ticket queue to one client.',
-          ),
+          .describe('Optional WHMCS client id to scope the ticket queue to one client.'),
       },
     },
     ({ clientid }) =>
@@ -380,10 +370,7 @@ STRUCTURED OUTPUT:
       description:
         'Full month-end CLOSE: reconcile + AR-age + revenue + export, then DRAFT a client_note annotation per flagged discrepancy — never executes.',
       argsSchema: {
-        clientid: z
-          .string()
-          .optional()
-          .describe('Optional WHMCS client id to scope the close.'),
+        clientid: z.string().optional().describe('Optional WHMCS client id to scope the close.'),
       },
     },
     ({ clientid }) =>

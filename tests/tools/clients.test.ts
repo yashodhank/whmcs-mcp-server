@@ -1,6 +1,6 @@
 /**
  * Unit tests for client management tools
- * 
+ *
  * Tests: create_client, search_clients, get_client_details, update_client, get_service_details
  */
 
@@ -68,31 +68,33 @@ describe('Client Tools', () => {
     it('should validate required fields', () => {
       // Test schema validation
       const { z } = require('zod');
-      
-      const createClientSchema = z.object({
-        firstname: z.string().min(1, 'First name is required'),
-        lastname: z.string().min(1, 'Last name is required'),
-        email: z.string().email('Valid email is required'),
-        country: z.string().length(2, 'Country must be 2-letter ISO code'),
-        address1: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        postcode: z.string().optional(),
-        phonenumber: z.string().optional(),
-        skip_validation: z.boolean().default(false),
-      }).superRefine((val, ctx) => {
-        if (val.skip_validation) return;
-        const requiredFields = ['address1', 'city', 'state', 'postcode', 'phonenumber'] as const;
-        for (const field of requiredFields) {
-          if (!val[field] || String(val[field]).trim().length === 0) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: [field],
-              message: `${field} is required unless skip_validation=true`,
-            });
+
+      const createClientSchema = z
+        .object({
+          firstname: z.string().min(1, 'First name is required'),
+          lastname: z.string().min(1, 'Last name is required'),
+          email: z.string().email('Valid email is required'),
+          country: z.string().length(2, 'Country must be 2-letter ISO code'),
+          address1: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().optional(),
+          postcode: z.string().optional(),
+          phonenumber: z.string().optional(),
+          skip_validation: z.boolean().default(false),
+        })
+        .superRefine((val, ctx) => {
+          if (val.skip_validation) return;
+          const requiredFields = ['address1', 'city', 'state', 'postcode', 'phonenumber'] as const;
+          for (const field of requiredFields) {
+            if (!val[field] || String(val[field]).trim().length === 0) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [field],
+                message: `${field} is required unless skip_validation=true`,
+              });
+            }
           }
-        }
-      });
+        });
 
       // Valid input
       const validResult = createClientSchema.safeParse({
@@ -186,14 +188,14 @@ describe('Client Tools', () => {
 
     it('should generate secure passwords with required character types', () => {
       const crypto = require('node:crypto');
-      
+
       function generateSecurePassword(length = 16): string {
         const lowercase = 'abcdefghijklmnopqrstuvwxyz';
         const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const digits = '0123456789';
         const special = '!@#$%^&*';
         const allChars = lowercase + uppercase + digits + special;
-        
+
         const bytes = crypto.randomBytes(length);
         const required = [
           lowercase[bytes[0] % lowercase.length],
@@ -201,18 +203,21 @@ describe('Client Tools', () => {
           digits[bytes[2] % digits.length],
           special[bytes[3] % special.length],
         ];
-        
+
         let password = '';
         for (let i = 4; i < length; i++) {
           password += allChars[bytes[i] % allChars.length];
         }
-        
+
         const combined = required.join('') + password;
-        return combined.split('').sort(() => Math.random() - 0.5).join('');
+        return combined
+          .split('')
+          .sort(() => Math.random() - 0.5)
+          .join('');
       }
 
       const password = generateSecurePassword(16);
-      
+
       expect(password.length).toBe(16);
       expect(/[a-z]/.test(password)).toBe(true);
       expect(/[A-Z]/.test(password)).toBe(true);
@@ -224,7 +229,7 @@ describe('Client Tools', () => {
   describe('search_clients', () => {
     it('should validate search parameters', () => {
       const { z } = require('zod');
-      
+
       const searchClientsSchema = z.object({
         search: z.string().optional(),
         limit: z.number().int().min(1).max(100).default(25),
@@ -294,7 +299,7 @@ describe('Client Tools', () => {
   describe('update_client', () => {
     it('should allow partial updates', () => {
       const { z } = require('zod');
-      
+
       const updateClientSchema = z.object({
         clientid: z.number().int().positive(),
         firstname: z.string().optional(),
@@ -339,9 +344,18 @@ describe('Client read tools — governed path', () => {
 
   function harness(read: any) {
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = {
+      registerTool: (n: string, _cfg: unknown, cb: any) => {
+        handlers[n] = cb;
+      },
+    };
     const whmcsClient: any = { read, isReadOnly: () => true };
-    const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn() };
+    const childLogger: any = {
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+    };
     childLogger.child = () => childLogger as unknown;
     const logger: any = { child: () => childLogger as unknown };
     const rateLimiter: any = { tryConsume: () => true };
@@ -376,7 +390,17 @@ describe('Client read tools — governed path', () => {
     enableGovernance();
     try {
       const read = vi.fn().mockResolvedValue({
-        clients: { client: [{ id: 7, firstname: 'Jane', lastname: 'Roe', email: 'jane@example.test', companyname: 'Acme' }] },
+        clients: {
+          client: [
+            {
+              id: 7,
+              firstname: 'Jane',
+              lastname: 'Roe',
+              email: 'jane@example.test',
+              companyname: 'Acme',
+            },
+          ],
+        },
         totalresults: 1,
       });
       const handlers = harness(read);
@@ -385,7 +409,10 @@ describe('Client read tools — governed path', () => {
       expect(ok.structuredContent).toBeDefined();
       expect(ok.structuredContent.contract).toBe('billing_reconciliation');
       expect(ok.structuredContent.items).toHaveLength(1);
-      expect(ok.structuredContent.items[0]).toMatchObject({ clientId: 7, email: 'jane@example.test' });
+      expect(ok.structuredContent.items[0]).toMatchObject({
+        clientId: 7,
+        email: 'jane@example.test',
+      });
 
       const denied = await handlers.search_clients({ search: 'jane', auth_token: 'nope' });
       expect(denied.isError).toBe(true);
@@ -402,12 +429,24 @@ describe('Client read tools — governed path', () => {
       const read = vi.fn().mockResolvedValue({
         result: 'success',
         products: {
-          product: [{
-            id: 545, clientid: 7, pid: 413, name: 'Web Hosting', domain: 'example.org',
-            status: 'Active', billingcycle: 'Monthly', nextduedate: '2030-04-14',
-            recurringamount: '3.00', paymentmethod: 'card', username: 'svcuser',
-            password: 'sup3rsecret', customfields: '', configoptions: '',
-          }],
+          product: [
+            {
+              id: 545,
+              clientid: 7,
+              pid: 413,
+              name: 'Web Hosting',
+              domain: 'example.org',
+              status: 'Active',
+              billingcycle: 'Monthly',
+              nextduedate: '2030-04-14',
+              recurringamount: '3.00',
+              paymentmethod: 'card',
+              username: 'svcuser',
+              password: 'sup3rsecret',
+              customfields: '',
+              configoptions: '',
+            },
+          ],
         },
       });
       const handlers = harness(read);
@@ -415,7 +454,11 @@ describe('Client read tools — governed path', () => {
       const ok = await handlers.get_service_details({ serviceid: 545, auth_token: TOKEN_BILL });
       expect(ok.structuredContent).toBeDefined();
       expect(ok.structuredContent.contract).toBe('billing_reconciliation');
-      expect(ok.structuredContent.data).toMatchObject({ serviceId: 545, clientId: 7, domain: 'example.org' });
+      expect(ok.structuredContent.data).toMatchObject({
+        serviceId: 545,
+        clientId: 7,
+        domain: 'example.org',
+      });
       expect(JSON.stringify(ok)).not.toContain('sup3rsecret');
 
       const denied = await handlers.get_service_details({ serviceid: 545, auth_token: 'bad' });
@@ -429,13 +472,31 @@ describe('Client read tools — governed path', () => {
 
   it('governance OFF: search_clients output is byte-identical legacy payload', async () => {
     const read = vi.fn().mockResolvedValue({
-      clients: { client: [{ id: 7, firstname: 'Jane', lastname: 'Roe', email: 'jane@example.test', companyname: 'Acme' }] },
+      clients: {
+        client: [
+          {
+            id: 7,
+            firstname: 'Jane',
+            lastname: 'Roe',
+            email: 'jane@example.test',
+            companyname: 'Acme',
+          },
+        ],
+      },
       totalresults: 1,
     });
     const handlers = harness(read);
     const res = await handlers.search_clients({ search: 'jane', offset: 0, limit: 25 });
     const expected = {
-      clients: [{ clientid: 7, firstname: 'Jane', lastname: 'Roe', email: 'jane@example.test', companyname: 'Acme' }],
+      clients: [
+        {
+          clientid: 7,
+          firstname: 'Jane',
+          lastname: 'Roe',
+          email: 'jane@example.test',
+          companyname: 'Acme',
+        },
+      ],
       total: 1,
       offset: 0,
       limit: 25,

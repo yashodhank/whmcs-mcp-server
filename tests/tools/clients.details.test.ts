@@ -48,7 +48,11 @@ import { __resetRegistryCacheForTests } from '../../src/governance/pipeline.js';
 describe('get_client_details (#10 stats counts)', () => {
   it('passes stats:true and maps product/domain counts from result.stats', async () => {
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = {
+      registerTool: (n: string, _cfg: unknown, cb: any) => {
+        handlers[n] = cb;
+      },
+    };
 
     const read = vi.fn().mockResolvedValue({
       id: 30,
@@ -68,7 +72,13 @@ describe('get_client_details (#10 stats counts)', () => {
       },
     });
     const whmcsClient: any = { read };
-    const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
+    const childLogger: any = {
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+      child: () => childLogger,
+    };
     const logger: any = { child: () => childLogger };
     const rateLimiter: any = { tryConsume: () => true };
 
@@ -88,7 +98,11 @@ describe('get_client_details (#10 stats counts)', () => {
   it('applies MCP_CLIENT_CUSTOM_FIELD_LABELS over WHMCS field names in custom_fields', async () => {
     cfg.MCP_CLIENT_CUSTOM_FIELD_LABELS = { '7': 'Configured Label' };
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = {
+      registerTool: (n: string, _cfg: unknown, cb: any) => {
+        handlers[n] = cb;
+      },
+    };
 
     const read = vi.fn().mockResolvedValue({
       id: 30,
@@ -103,7 +117,13 @@ describe('get_client_details (#10 stats counts)', () => {
       stats: { productsnumactive: 0, productsnumtotal: 0, numactivedomains: 0, numdomains: 0 },
     });
     const whmcsClient: any = { read };
-    const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
+    const childLogger: any = {
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+      child: () => childLogger,
+    };
     const logger: any = { child: () => childLogger };
     const rateLimiter: any = { tryConsume: () => true };
 
@@ -123,7 +143,11 @@ describe('get_client_details (governed path)', () => {
 
   function harness() {
     const handlers: Record<string, (p: any) => Promise<any>> = {};
-    const server = { registerTool: (n: string, _cfg: unknown, cb: any) => { handlers[n] = cb; } };
+    const server = {
+      registerTool: (n: string, _cfg: unknown, cb: any) => {
+        handlers[n] = cb;
+      },
+    };
     const read = vi.fn().mockResolvedValue({
       id: 30,
       firstname: 'Test',
@@ -139,7 +163,12 @@ describe('get_client_details (governed path)', () => {
       stats: { productsnumactive: 1, productsnumtotal: 3, numactivedomains: 4, numdomains: 23 },
     });
     const whmcsClient: any = { read };
-    const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn() };
+    const childLogger: any = {
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+    };
     childLogger.child = () => childLogger as unknown;
     const logger: any = { child: () => childLogger as unknown };
     const rateLimiter: any = { tryConsume: () => true };
@@ -178,11 +207,17 @@ describe('get_client_details (governed path)', () => {
       const ok = await handlers.get_client_details({ clientid: 30, auth_token: TOKEN_BILL });
       expect(ok.structuredContent).toBeDefined();
       expect(ok.structuredContent.contract).toBe('billing_reconciliation');
-      expect(ok.structuredContent.data).toMatchObject({ clientId: 30, email: 'client@example.test' });
+      expect(ok.structuredContent.data).toMatchObject({
+        clientId: 30,
+        email: 'client@example.test',
+      });
       // phone is masked under billing_reconciliation
       expect(JSON.stringify(ok.structuredContent.data)).not.toContain('+1.5125550100');
 
-      const denied = await handlers.get_client_details({ clientid: 30, auth_token: 'unknown-token' });
+      const denied = await handlers.get_client_details({
+        clientid: 30,
+        auth_token: 'unknown-token',
+      });
       expect(denied.isError).toBe(true);
       expect(denied.structuredContent?.data).toBeUndefined();
       expect(JSON.stringify(denied)).not.toContain('client@example.test');

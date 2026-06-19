@@ -51,12 +51,8 @@ describe('requiredScopeForWriteScope — every WRITE_SCOPE', () => {
   });
 
   it('covers all three tiers across the vocabulary (sanity: no tier missing)', () => {
-    const mapped = new Set(
-      WRITE_SCOPES.map((s) => requiredScopeForWriteScope(s)),
-    );
-    expect(mapped).toEqual(
-      new Set(['whmcs:write:low', 'whmcs:write:medium', 'whmcs:write:high']),
-    );
+    const mapped = new Set(WRITE_SCOPES.map((s) => requiredScopeForWriteScope(s)));
+    expect(mapped).toEqual(new Set(['whmcs:write:low', 'whmcs:write:medium', 'whmcs:write:high']));
   });
 
   it('fails closed to whmcs:write:high for an unknown write-scope', () => {
@@ -114,9 +110,7 @@ describe('hasRequiredScope — fail-closed edge cases', () => {
   });
 
   it('unknown granted scopes grant nothing', () => {
-    expect(hasRequiredScope(['admin', 'root', 'whmcs:write:ultra'], 'whmcs:read')).toBe(
-      false,
-    );
+    expect(hasRequiredScope(['admin', 'root', 'whmcs:write:ultra'], 'whmcs:read')).toBe(false);
   });
 
   it('an unrecognised required scope can never be satisfied', () => {
@@ -134,9 +128,9 @@ describe('hasRequiredScope — fail-closed edge cases', () => {
 
 describe('grantedFromScopes — normalisation', () => {
   it('trims, drops empties, and dedupes preserving first-seen order', () => {
-    expect(
-      grantedFromScopes(['  whmcs:read ', 'whmcs:write:low', '', '  ', 'whmcs:read']),
-    ).toEqual(['whmcs:read', 'whmcs:write:low']);
+    expect(grantedFromScopes(['  whmcs:read ', 'whmcs:write:low', '', '  ', 'whmcs:read'])).toEqual(
+      ['whmcs:read', 'whmcs:write:low']
+    );
   });
 
   it('passes unknown scopes through unchanged (no vocabulary filter)', () => {

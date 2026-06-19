@@ -146,8 +146,7 @@ const ADMIN_FULL_TRUSTED: Record<FieldClass, string> = {
   'public.safe': 'allow',
 };
 
-const findField = (r: ExposureAuditReport, path: string) =>
-  r.fields.find((f) => f.path === path);
+const findField = (r: ExposureAuditReport, path: string) => r.fields.find((f) => f.path === path);
 
 /** Recursively assert no object anywhere carries a `raw` key. */
 const assertNoRawDeep = (node: unknown): void => {

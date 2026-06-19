@@ -14,9 +14,7 @@ import type { FieldClass, FieldClassMap } from '../governance/types.js';
 
 /** True for a non-null, non-array plain object. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return (
-    value !== null && typeof value === 'object' && !Array.isArray(value)
-  );
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Coerce any WHMCS value to a record we can read, or an empty record. */
@@ -25,10 +23,7 @@ export function asRecord(value: unknown): Record<string, unknown> {
 }
 
 /** Read a string-ish field. WHMCS sends numbers/strings/null inconsistently. */
-export function str(
-  source: Record<string, unknown>,
-  key: string
-): string | undefined {
+export function str(source: Record<string, unknown>, key: string): string | undefined {
   const v = source[key];
   if (typeof v === 'string') {
     return v;
@@ -40,10 +35,7 @@ export function str(
 }
 
 /** Read a number-ish field. WHMCS frequently sends numeric strings. */
-export function num(
-  source: Record<string, unknown>,
-  key: string
-): number | undefined {
+export function num(source: Record<string, unknown>, key: string): number | undefined {
   const v = source[key];
   if (typeof v === 'number') {
     return Number.isFinite(v) ? v : undefined;
@@ -56,10 +48,7 @@ export function num(
 }
 
 /** Read a boolean-ish field (WHMCS uses 1/0, "true"/"false", "on"/"off"). */
-export function bool(
-  source: Record<string, unknown>,
-  key: string
-): boolean | undefined {
+export function bool(source: Record<string, unknown>, key: string): boolean | undefined {
   const v = source[key];
   if (typeof v === 'boolean') {
     return v;
@@ -90,10 +79,7 @@ export function bool(
  * `singularKey` is the WHMCS inner key (reply, item, transaction, …). If the
  * value is a wrapper object exposing that key, we descend into it first.
  */
-export function listOf(
-  value: unknown,
-  singularKey?: string
-): Record<string, unknown>[] {
+export function listOf(value: unknown, singularKey?: string): Record<string, unknown>[] {
   let target: unknown = value;
 
   if (

@@ -93,10 +93,7 @@ export function requiredScopeForWriteScope(writeScope: string): string {
  * Unknown granted scopes are ignored (fail closed — they grant nothing). An
  * unknown / unrecognised required scope can never be satisfied (also closed).
  */
-export function hasRequiredScope(
-  granted: readonly string[],
-  required: string,
-): boolean {
+export function hasRequiredScope(granted: readonly string[], required: string): boolean {
   const requiredRank = SCOPE_RANK[required];
   if (requiredRank === undefined) {
     // Unrecognised requirement → cannot be satisfied (fail closed).

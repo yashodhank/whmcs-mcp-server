@@ -4,12 +4,7 @@
  * param mappers, and validation.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  WRITE_SCOPES,
-  SCOPE_ACTION,
-  SCOPE_RISK,
-  type WriteIntent,
-} from '../../src/write/types.js';
+import { WRITE_SCOPES, SCOPE_ACTION, SCOPE_RISK, type WriteIntent } from '../../src/write/types.js';
 import { intentToWhmcsParams } from '../../src/write/paramMapping.js';
 import { validateIntent } from '../../src/write/validation.js';
 
@@ -57,9 +52,10 @@ describe('Track C2 strict mappers', () => {
   });
 
   it('ticket:merge emits {ticketid, mergeticketids: comma-joined string}', () => {
-    expect(
-      intentToWhmcsParams('ticket:merge', { ticketid: 8, mergeticketids: [9, 10] })
-    ).toEqual({ ticketid: 8, mergeticketids: '9,10' });
+    expect(intentToWhmcsParams('ticket:merge', { ticketid: 8, mergeticketids: [9, 10] })).toEqual({
+      ticketid: 8,
+      mergeticketids: '9,10',
+    });
   });
 });
 
@@ -89,9 +85,9 @@ describe('Track C2 validation', () => {
   });
 
   it('ticket:merge rejects empty/missing mergeticketids array', () => {
-    expect(
-      validateIntent(intent('ticket:merge', { ticketid: 8, mergeticketids: [] }), {}).ok
-    ).toBe(false);
+    expect(validateIntent(intent('ticket:merge', { ticketid: 8, mergeticketids: [] }), {}).ok).toBe(
+      false
+    );
     expect(validateIntent(intent('ticket:merge', { ticketid: 8 }), {}).ok).toBe(false);
   });
 

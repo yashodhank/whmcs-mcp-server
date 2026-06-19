@@ -32,10 +32,7 @@ import type { ConsumerProfile, ProjectionEnv } from '../../src/governance/types.
  * non-null assertions and `as` casts in the assertions below (both flagged by
  * the project eslint config).
  */
-function findProfile(
-  registry: readonly ConsumerProfile[],
-  id: string
-): ConsumerProfile {
+function findProfile(registry: readonly ConsumerProfile[], id: string): ConsumerProfile {
   const found = registry.find((p) => p.id === id);
   if (found === undefined) {
     throw new Error(`test fixture missing consumer '${id}'`);
@@ -303,37 +300,25 @@ describe('allowedWriteScopes (Phase F, additive)', () => {
   it('resolves a profile with valid allowedWriteScopes', () => {
     const registry = loadConsumerRegistry(envWith([writerEntry]));
     const writer = findProfile(registry, 'consumer-writer');
-    expect(consumerWriteScopes(writer)).toEqual([
-      'client_note:write',
-      'ticket:reply',
-    ]);
+    expect(consumerWriteScopes(writer)).toEqual(['client_note:write', 'ticket:reply']);
     expect(consumerWriteCapability(writer)).toBe('execution_allowed');
     expect(consumerCanDraft(writer)).toBe(true);
   });
 
   it('surfaces allowedWriteScopes through resolveConsumer', () => {
     const registry = loadConsumerRegistry(envWith([writerEntry]));
-    const r = resolveConsumer(
-      'synthetic-writer-token-DDDD4444',
-      'production',
-      registry,
-      { allowAnon: false }
-    );
+    const r = resolveConsumer('synthetic-writer-token-DDDD4444', 'production', registry, {
+      allowAnon: false,
+    });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(consumerWriteScopes(r.profile)).toEqual([
-        'client_note:write',
-        'ticket:reply',
-      ]);
+      expect(consumerWriteScopes(r.profile)).toEqual(['client_note:write', 'ticket:reply']);
     }
   });
 });
 
 describe('assertWriteScopeAllowed (pure, default-deny)', () => {
-  const writer = findProfile(
-    loadConsumerRegistry(envWith([writerEntry])),
-    'consumer-writer'
-  );
+  const writer = findProfile(loadConsumerRegistry(envWith([writerEntry])), 'consumer-writer');
 
   it('allows when capability != false/disabled AND scope is listed', () => {
     expect(assertWriteScopeAllowed(writer, 'client_note:write')).toEqual({ ok: true });
@@ -388,10 +373,7 @@ describe('assertWriteScopeAllowed (pure, default-deny)', () => {
   });
 
   it('never infers scopes: a legacy profile with empty scopes denies everything', () => {
-    const ops = findProfile(
-      loadConsumerRegistry(envWith([opsEntry])),
-      'consumer-ops'
-    );
+    const ops = findProfile(loadConsumerRegistry(envWith([opsEntry])), 'consumer-ops');
     expect(assertWriteScopeAllowed(ops, 'client_note:write')).toEqual({
       ok: false,
       reason: 'write_capability_false',

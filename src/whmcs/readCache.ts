@@ -71,11 +71,7 @@ export class ReadCache {
   /** Map preserves insertion order — used for oldest-first eviction. */
   private readonly store = new Map<string, CacheEntry>();
 
-  constructor(opts: {
-    ttlMs: number;
-    cacheableActions: readonly string[];
-    maxEntries?: number;
-  }) {
+  constructor(opts: { ttlMs: number; cacheableActions: readonly string[]; maxEntries?: number }) {
     this.ttlMs = Number.isFinite(opts.ttlMs) && opts.ttlMs > 0 ? opts.ttlMs : 0;
     this.cacheableActions = new Set(opts.cacheableActions);
     this.maxEntries =

@@ -19,11 +19,7 @@
  * No edits to existing files; imports only from the frozen seam.
  */
 
-import type {
-  ContractName,
-  ContractPolicy,
-  DataContract,
-} from './types.js';
+import type { ContractName, ContractPolicy, DataContract } from './types.js';
 
 /* ── policy builders ───────────────────────────────────────────────────────── */
 

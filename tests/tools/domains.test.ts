@@ -1,6 +1,6 @@
 /**
  * Unit tests for domain tools
- * 
+ *
  * Tests: check_domain_availability, register_domain, renew_domain, transfer_domain, sync_domain
  */
 
@@ -33,17 +33,17 @@ describe('Domain Tools', () => {
       if (!domain || domain.length > 253) {
         return false;
       }
-      
+
       const labels = domain.split('.');
       if (labels.length < 2) {
         return false;
       }
-      
+
       for (const label of labels) {
         if (!label || label.length > 63) {
           return false;
         }
-        
+
         if (label.toLowerCase().startsWith('xn--')) {
           const punyRegex = /^xn--[a-zA-Z0-9-]+$/;
           if (!punyRegex.test(label)) {
@@ -59,12 +59,12 @@ describe('Domain Tools', () => {
           }
         }
       }
-      
+
       const tld = labels[labels.length - 1];
       if (tld.length < 2) {
         return false;
       }
-      
+
       return true;
     }
 
@@ -98,7 +98,7 @@ describe('Domain Tools', () => {
     it('should reject overly long domains', () => {
       const longLabel = 'a'.repeat(64); // 64 chars (max is 63)
       expect(isValidDomainFormat(`${longLabel}.com`)).toBe(false);
-      
+
       const longDomain = 'a'.repeat(250) + '.com'; // Over 253 total
       expect(isValidDomainFormat(longDomain)).toBe(false);
     });
@@ -107,7 +107,7 @@ describe('Domain Tools', () => {
   describe('check_domain_availability', () => {
     it('should validate domain input schema', () => {
       const { z } = require('zod');
-      
+
       const checkDomainSchema = z.object({
         domain: z.string().min(4, 'Domain must be at least 4 characters'),
       });
@@ -122,7 +122,7 @@ describe('Domain Tools', () => {
   describe('register_domain', () => {
     it('should validate register domain parameters', () => {
       const { z } = require('zod');
-      
+
       const registerDomainSchema = z.object({
         domainid: z.number().int().positive().optional(),
         domain: z.string().optional(),
@@ -139,23 +139,27 @@ describe('Domain Tools', () => {
       expect(registerDomainSchema.safeParse({ domain: 'example.com' }).success).toBe(true);
 
       // With nameservers
-      expect(registerDomainSchema.safeParse({
-        domainid: 100,
-        nameserver1: 'ns1.example.com',
-        nameserver2: 'ns2.example.com',
-      }).success).toBe(true);
+      expect(
+        registerDomainSchema.safeParse({
+          domainid: 100,
+          nameserver1: 'ns1.example.com',
+          nameserver2: 'ns2.example.com',
+        }).success
+      ).toBe(true);
 
       // Invalid domainid
-      expect(registerDomainSchema.safeParse({
-        domainid: 0,
-      }).success).toBe(false);
+      expect(
+        registerDomainSchema.safeParse({
+          domainid: 0,
+        }).success
+      ).toBe(false);
     });
   });
 
   describe('renew_domain', () => {
     it('should validate domainid', () => {
       const { z } = require('zod');
-      
+
       const renewDomainSchema = z.object({
         domainid: z.number().int().positive().optional(),
         domain: z.string().optional(),
@@ -163,7 +167,9 @@ describe('Domain Tools', () => {
       });
 
       expect(renewDomainSchema.safeParse({ domainid: 200 }).success).toBe(true);
-      expect(renewDomainSchema.safeParse({ domain: 'example.com', regperiod: 2 }).success).toBe(true);
+      expect(renewDomainSchema.safeParse({ domain: 'example.com', regperiod: 2 }).success).toBe(
+        true
+      );
       expect(renewDomainSchema.safeParse({ domainid: -1 }).success).toBe(false);
     });
   });
@@ -171,7 +177,7 @@ describe('Domain Tools', () => {
   describe('transfer_domain', () => {
     it('should validate transfer parameters', () => {
       const { z } = require('zod');
-      
+
       const transferDomainSchema = z.object({
         domainid: z.number().int().positive().optional(),
         domain: z.string().optional(),
@@ -179,25 +185,31 @@ describe('Domain Tools', () => {
       });
 
       // Without EPP code
-      expect(transferDomainSchema.safeParse({
-        domainid: 100,
-      }).success).toBe(true);
-      expect(transferDomainSchema.safeParse({
-        domain: 'example.com',
-      }).success).toBe(true);
+      expect(
+        transferDomainSchema.safeParse({
+          domainid: 100,
+        }).success
+      ).toBe(true);
+      expect(
+        transferDomainSchema.safeParse({
+          domain: 'example.com',
+        }).success
+      ).toBe(true);
 
       // With EPP code
-      expect(transferDomainSchema.safeParse({
-        domainid: 100,
-        eppcode: 'ABC123XYZ',
-      }).success).toBe(true);
+      expect(
+        transferDomainSchema.safeParse({
+          domainid: 100,
+          eppcode: 'ABC123XYZ',
+        }).success
+      ).toBe(true);
     });
   });
 
   describe('sync_domain', () => {
     it('should validate domainid', () => {
       const { z } = require('zod');
-      
+
       const syncDomainSchema = z.object({
         domainid: z.number().int().positive(),
       });

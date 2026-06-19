@@ -11,10 +11,7 @@
  *  - classmap completeness: every emitted data path has a FieldClass
  */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalContact,
-  mapToCanonicalContacts,
-} from '../../src/canonical/contact.js';
+import { mapToCanonicalContact, mapToCanonicalContacts } from '../../src/canonical/contact.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalContact (single)', () => {

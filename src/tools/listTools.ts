@@ -86,9 +86,7 @@ export const READ_ONLY_ANNOTATIONS = {
  */
 export function encodeCursor(offset: number): string {
   const safe = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
-  return Buffer.from(JSON.stringify({ offset: safe }), 'utf8').toString(
-    'base64'
-  );
+  return Buffer.from(JSON.stringify({ offset: safe }), 'utf8').toString('base64');
 }
 
 /**
@@ -145,9 +143,7 @@ export const LIST_TOOL_OUTPUT_SHAPE = {
  * status-filter envelope metadata not in the base shape; strict MCP runtimes
  * (Kilo) reject extra keys with -32602 unless additionalProperties is allowed.
  */
-export const LIST_TOOL_OUTPUT_SCHEMA = z
-  .object(LIST_TOOL_OUTPUT_SHAPE)
-  .catchall(z.unknown());
+export const LIST_TOOL_OUTPUT_SCHEMA = z.object(LIST_TOOL_OUTPUT_SHAPE).catchall(z.unknown());
 
 /**
  * Extract the row array out of one WHMCS list response for a given
@@ -162,10 +158,8 @@ function extractRows(
 ): unknown[] {
   const container = resp[normalizerPath];
   const inner =
-    container !== null &&
-    typeof container === 'object' &&
-    !Array.isArray(container)
-      ? (container as Record<string, unknown>)[singular] ?? container
+    container !== null && typeof container === 'object' && !Array.isArray(container)
+      ? ((container as Record<string, unknown>)[singular] ?? container)
       : container;
   return normalizeToArray<unknown>(inner);
 }
@@ -252,17 +246,12 @@ async function scanByStatus(
     }
 
     const totalRaw = resp.totalresults;
-    const total =
-      typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
+    const total = typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
     const haveTotal = Number.isFinite(total);
 
     // Source exhausted: WHMCS reports we've read everything, an empty page
     // arrived, or a short page (< page size) signals no further rows.
-    if (
-      rows.length === 0 ||
-      (haveTotal && scannedCount >= total) ||
-      rows.length < pageSize
-    ) {
+    if (rows.length === 0 || (haveTotal && scannedCount >= total) || rows.length < pageSize) {
       sourceExhausted = true;
       break;
     }
@@ -335,7 +324,7 @@ export function registerListTool<T>(
       .string()
       .optional()
       .describe(
-        'Opaque pagination cursor from a prior response\'s nextCursor; pages forward through ALL rows. When set it overrides offset.'
+        "Opaque pagination cursor from a prior response's nextCursor; pages forward through ALL rows. When set it overrides offset."
       ),
     contract: z
       .string()
@@ -350,204 +339,185 @@ export function registerListTool<T>(
   // This is a type-only boundary cast; runtime behavior is unchanged and the
   // returned envelope is a valid MCP tool result.
   const handler: ToolCallback<z.ZodRawShape> = (async (params: Record<string, unknown>) => {
-      const log = logger.child();
-      const t0 = Date.now();
-      try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+    const log = logger.child();
+    const t0 = Date.now();
+    try {
+      const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+      const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-        const authErr = ensureToolAuth(params);
-        if (authErr) return authErr;
+      const authErr = ensureToolAuth(params);
+      if (authErr) return authErr;
 
-        if (isClientMode()) {
-          const scopedClientId = num(params, 'clientid');
-          if (scopedClientId === undefined) {
-            return {
-              content: [{ type: 'text', text: 'clientid is required' }],
-              isError: true,
-            };
-          }
-          const scopeErr = ensureClientAllowed(scopedClientId);
-          if (scopeErr) return scopeErr;
-        }
-
-        log.logToolCall(c.name, params, false);
-
-        if (!rl.tryConsume()) throw new RateLimitError();
-
-        const singular =
-          c.singular ??
-          c.normalizerPath.replace(/ies$/, 'y').replace(/s$/, '');
-
-        const limitNum = num(params, 'limit') ?? 10;
-        // An opaque `cursor`, when supplied, supersedes `offset`: it encodes
-        // the next WHMCS limitstart to read. A garbage cursor decodes to 0
-        // (first page) — never throws. With no cursor, `offset` is used exactly
-        // as before (backward compatible).
-        const rawCursor =
-          typeof params.cursor === 'string' ? params.cursor : undefined;
-        const offsetNum =
-          rawCursor !== undefined
-            ? decodeCursor(rawCursor)
-            : num(params, 'offset') ?? 0;
-        const clientIdNum = num(params, 'clientid');
-
-        const rawStatus = params.status;
-        const requestedStatus: string | undefined =
-          typeof rawStatus === 'string' && rawStatus.length > 0
-            ? rawStatus
-            : undefined;
-        const useClientSideStatusScan =
-          CLIENT_SIDE_STATUS_FILTER_TOOLS.has(c.name) &&
-          requestedStatus !== undefined;
-
-        let rows: unknown[];
-        let envelope: Record<string, unknown>;
-
-        if (requestedStatus !== undefined && useClientSideStatusScan) {
-          // HONEST client-side status filter via a bounded multi-page scan.
-          // WHMCS GetClientsDomains ignores any `status` param, so it is
-          // intentionally NOT forwarded — we filter the scanned rows here.
-          const baseParams: Record<string, unknown> = {
-            [c.clientParam]: clientIdNum,
-            ...(c.fixedParams ?? {}),
-          };
-          for (const k of Object.keys(c.extraSchema)) {
-            if (k === 'status') continue; // honoured client-side, not by WHMCS
-            if (params[k] !== undefined) baseParams[k] = params[k];
-          }
-
-          const scan = await scanByStatus(
-            whmcs,
-            c.action,
-            baseParams,
-            c.normalizerPath,
-            singular,
-            requestedStatus,
-            offsetNum,
-            limitNum
-          );
-
-          // Honest pagination over the FILTERED set only.
-          rows = scan.matched.slice(offsetNum, offsetNum + limitNum);
-          const matchedCount = scan.matched.length;
-          const returnedCount = rows.length;
-          // `scan_complete` is true ONLY when the whole source was read, so
-          // matched_count/total are authoritative. A capped OR early-stopped
-          // scan reports false (counts are the lower bound observed so far).
-          const scanComplete = scan.sourceExhausted;
-
-          // Counts reflect the FILTERED view. `total` is never over-claimed:
-          // it is matchedCount (authoritative when scan_complete, otherwise
-          // the conservative count of matches actually observed).
-          envelope = {
-            total: matchedCount,
-            count: returnedCount,
-            offset: offsetNum,
-            limit: limitNum,
-            ...(c.extraPayload ?? {}),
-            filter_mode: 'client_side',
-            filter_applied: true,
-            requested_status: requestedStatus,
-            scanned_count: scan.scannedCount,
-            matched_count: matchedCount,
-            returned_count: returnedCount,
-            scan_complete: scanComplete,
-          };
-          // Forward cursor over the FILTERED set: emit only when a full page
-          // was returned (more matches likely follow). The next offset is the
-          // current filtered offset + the rows actually returned.
-          if (returnedCount === limitNum && returnedCount > 0) {
-            envelope.nextCursor = encodeCursor(offsetNum + returnedCount);
-          }
-          if (scan.capped) {
-            envelope.warning =
-              `Status filter scan hit a safety bound (scanned ${String(
-                scan.scannedCount
-              )} domains) before exhausting all results; more '${requestedStatus}' domains may exist beyond the returned window. ` +
-              `Narrow the query or page within the matched results shown.`;
-          }
-        } else {
-          const apiParams: Record<string, unknown> = {
-            [c.clientParam]: clientIdNum,
-            limitnum: limitNum,
-            limitstart: offsetNum,
-            ...(c.fixedParams ?? {}),
-          };
-          for (const k of Object.keys(c.extraSchema)) {
-            if (params[k] !== undefined) apiParams[k] = params[k];
-          }
-
-          const resp = await whmcs.read<Record<string, unknown>>(
-            c.action,
-            apiParams
-          );
-          rows = extractRows(resp, c.normalizerPath, singular);
-          const totalResults = num(resp, 'totalresults');
-          envelope = {
-            total: totalResults ?? rows.length,
-            count: num(resp, 'numreturned') ?? rows.length,
-            offset: num(resp, 'startnumber') ?? offsetNum,
-            limit: limitNum,
-            ...(c.extraPayload ?? {}),
-          };
-          // Forward cursor: this REPLACES the old silent truncation. A full
-          // page (rows == requested limit) signals more rows likely remain, so
-          // emit a cursor to the next limitstart. If WHMCS reported a total and
-          // we've already reached it, suppress the cursor (true last page).
-          const fullPage = rows.length === limitNum && rows.length > 0;
-          const reachedTotal =
-            totalResults !== undefined && offsetNum + rows.length >= totalResults;
-          if (fullPage && !reachedTotal) {
-            envelope.nextCursor = encodeCursor(offsetNum + rows.length);
-          }
-        }
-
-        let items = rows.map(c.mapItem);
-        if (c.postSort) items = c.postSort(items);
-
-        log.logToolResult(c.name, true, Date.now() - t0);
-
-        const legacy = { items, ...envelope };
-
-        return applyGovernanceOrLegacy({
-          enabled: governanceEnabled() && c.canonicalMap !== undefined,
-          legacy,
-          govern: () =>
-            governedListResult({
-              rows,
-              mapItem: c.canonicalMap as (raw: unknown) => Canonical<unknown>,
-              envelope,
-              authToken,
-              requestedContract,
-            }),
-        });
-      } catch (e) {
-        log.logToolResult(
-          c.name,
-          false,
-          Date.now() - t0,
-          e instanceof Error ? e.message : String(e)
-        );
-        if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
+      if (isClientMode()) {
+        const scopedClientId = num(params, 'clientid');
+        if (scopedClientId === undefined) {
           return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  isError: true,
-                  error: e instanceof Error ? e.message : String(e),
-                }),
-              },
-            ],
+            content: [{ type: 'text', text: 'clientid is required' }],
             isError: true,
           };
         }
-        throw e;
+        const scopeErr = ensureClientAllowed(scopedClientId);
+        if (scopeErr) return scopeErr;
       }
-    }) as unknown as ToolCallback<z.ZodRawShape>;
+
+      log.logToolCall(c.name, params, false);
+
+      if (!rl.tryConsume()) throw new RateLimitError();
+
+      const singular = c.singular ?? c.normalizerPath.replace(/ies$/, 'y').replace(/s$/, '');
+
+      const limitNum = num(params, 'limit') ?? 10;
+      // An opaque `cursor`, when supplied, supersedes `offset`: it encodes
+      // the next WHMCS limitstart to read. A garbage cursor decodes to 0
+      // (first page) — never throws. With no cursor, `offset` is used exactly
+      // as before (backward compatible).
+      const rawCursor = typeof params.cursor === 'string' ? params.cursor : undefined;
+      const offsetNum =
+        rawCursor !== undefined ? decodeCursor(rawCursor) : (num(params, 'offset') ?? 0);
+      const clientIdNum = num(params, 'clientid');
+
+      const rawStatus = params.status;
+      const requestedStatus: string | undefined =
+        typeof rawStatus === 'string' && rawStatus.length > 0 ? rawStatus : undefined;
+      const useClientSideStatusScan =
+        CLIENT_SIDE_STATUS_FILTER_TOOLS.has(c.name) && requestedStatus !== undefined;
+
+      let rows: unknown[];
+      let envelope: Record<string, unknown>;
+
+      if (requestedStatus !== undefined && useClientSideStatusScan) {
+        // HONEST client-side status filter via a bounded multi-page scan.
+        // WHMCS GetClientsDomains ignores any `status` param, so it is
+        // intentionally NOT forwarded — we filter the scanned rows here.
+        const baseParams: Record<string, unknown> = {
+          [c.clientParam]: clientIdNum,
+          ...(c.fixedParams ?? {}),
+        };
+        for (const k of Object.keys(c.extraSchema)) {
+          if (k === 'status') continue; // honoured client-side, not by WHMCS
+          if (params[k] !== undefined) baseParams[k] = params[k];
+        }
+
+        const scan = await scanByStatus(
+          whmcs,
+          c.action,
+          baseParams,
+          c.normalizerPath,
+          singular,
+          requestedStatus,
+          offsetNum,
+          limitNum
+        );
+
+        // Honest pagination over the FILTERED set only.
+        rows = scan.matched.slice(offsetNum, offsetNum + limitNum);
+        const matchedCount = scan.matched.length;
+        const returnedCount = rows.length;
+        // `scan_complete` is true ONLY when the whole source was read, so
+        // matched_count/total are authoritative. A capped OR early-stopped
+        // scan reports false (counts are the lower bound observed so far).
+        const scanComplete = scan.sourceExhausted;
+
+        // Counts reflect the FILTERED view. `total` is never over-claimed:
+        // it is matchedCount (authoritative when scan_complete, otherwise
+        // the conservative count of matches actually observed).
+        envelope = {
+          total: matchedCount,
+          count: returnedCount,
+          offset: offsetNum,
+          limit: limitNum,
+          ...(c.extraPayload ?? {}),
+          filter_mode: 'client_side',
+          filter_applied: true,
+          requested_status: requestedStatus,
+          scanned_count: scan.scannedCount,
+          matched_count: matchedCount,
+          returned_count: returnedCount,
+          scan_complete: scanComplete,
+        };
+        // Forward cursor over the FILTERED set: emit only when a full page
+        // was returned (more matches likely follow). The next offset is the
+        // current filtered offset + the rows actually returned.
+        if (returnedCount === limitNum && returnedCount > 0) {
+          envelope.nextCursor = encodeCursor(offsetNum + returnedCount);
+        }
+        if (scan.capped) {
+          envelope.warning =
+            `Status filter scan hit a safety bound (scanned ${String(
+              scan.scannedCount
+            )} domains) before exhausting all results; more '${requestedStatus}' domains may exist beyond the returned window. ` +
+            `Narrow the query or page within the matched results shown.`;
+        }
+      } else {
+        const apiParams: Record<string, unknown> = {
+          [c.clientParam]: clientIdNum,
+          limitnum: limitNum,
+          limitstart: offsetNum,
+          ...(c.fixedParams ?? {}),
+        };
+        for (const k of Object.keys(c.extraSchema)) {
+          if (params[k] !== undefined) apiParams[k] = params[k];
+        }
+
+        const resp = await whmcs.read<Record<string, unknown>>(c.action, apiParams);
+        rows = extractRows(resp, c.normalizerPath, singular);
+        const totalResults = num(resp, 'totalresults');
+        envelope = {
+          total: totalResults ?? rows.length,
+          count: num(resp, 'numreturned') ?? rows.length,
+          offset: num(resp, 'startnumber') ?? offsetNum,
+          limit: limitNum,
+          ...(c.extraPayload ?? {}),
+        };
+        // Forward cursor: this REPLACES the old silent truncation. A full
+        // page (rows == requested limit) signals more rows likely remain, so
+        // emit a cursor to the next limitstart. If WHMCS reported a total and
+        // we've already reached it, suppress the cursor (true last page).
+        const fullPage = rows.length === limitNum && rows.length > 0;
+        const reachedTotal = totalResults !== undefined && offsetNum + rows.length >= totalResults;
+        if (fullPage && !reachedTotal) {
+          envelope.nextCursor = encodeCursor(offsetNum + rows.length);
+        }
+      }
+
+      let items = rows.map(c.mapItem);
+      if (c.postSort) items = c.postSort(items);
+
+      log.logToolResult(c.name, true, Date.now() - t0);
+
+      const legacy = { items, ...envelope };
+
+      return applyGovernanceOrLegacy({
+        enabled: governanceEnabled() && c.canonicalMap !== undefined,
+        legacy,
+        govern: () =>
+          governedListResult({
+            rows,
+            mapItem: c.canonicalMap as (raw: unknown) => Canonical<unknown>,
+            envelope,
+            authToken,
+            requestedContract,
+          }),
+      });
+    } catch (e) {
+      log.logToolResult(c.name, false, Date.now() - t0, e instanceof Error ? e.message : String(e));
+      if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                isError: true,
+                error: e instanceof Error ? e.message : String(e),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+      throw e;
+    }
+  }) as unknown as ToolCallback<z.ZodRawShape>;
 
   server.registerTool(
     c.name,
@@ -575,8 +545,7 @@ export function registerListTools(
 ): void {
   registerListTool(server, whmcs, logger, rl, {
     name: 'list_client_services',
-    description:
-      "List a client's products/services (read-only). Pagination via limit/offset.",
+    description: "List a client's products/services (read-only). Pagination via limit/offset.",
     action: 'GetClientsProducts',
     clientParam: 'clientid',
     normalizerPath: 'products',
@@ -600,8 +569,7 @@ export function registerListTools(
 
   registerListTool(server, whmcs, logger, rl, {
     name: 'list_client_domains',
-    description:
-      "List a client's domains (read-only). Pagination via limit/offset.",
+    description: "List a client's domains (read-only). Pagination via limit/offset.",
     action: 'GetClientsDomains',
     clientParam: 'clientid',
     normalizerPath: 'domains',
@@ -650,7 +618,7 @@ export function registerListTools(
   registerListTool(server, whmcs, logger, rl, {
     name: 'list_client_tickets',
     description:
-      'List a client\'s support tickets (read-only). NOTE: WHMCS GetTickets clientid filter may MISS operator/admin-created tickets; for reliable retrieval use get_ticket_thread with a known ticketid/tid.',
+      "List a client's support tickets (read-only). NOTE: WHMCS GetTickets clientid filter may MISS operator/admin-created tickets; for reliable retrieval use get_ticket_thread with a known ticketid/tid.",
     action: 'GetTickets',
     clientParam: 'clientid',
     normalizerPath: 'tickets',
@@ -704,8 +672,7 @@ export function registerListTools(
         name: str(o, 'name'),
       };
     },
-    postSort: (xs) =>
-      [...xs].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')),
+    postSort: (xs) => [...xs].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')),
     canonicalMap: mapToCanonicalOrder,
   });
 
@@ -716,7 +683,7 @@ export function registerListTools(
   registerListTool(server, whmcs, logger, rl, {
     name: 'get_activity_log',
     description:
-      "Read-only client activity log (newest first). WHMCS GetActivityLog; client-scoped via clientid. Pagination via limit/offset.",
+      'Read-only client activity log (newest first). WHMCS GetActivityLog; client-scoped via clientid. Pagination via limit/offset.',
     action: 'GetActivityLog',
     clientParam: 'clientid',
     normalizerPath: 'activity',
@@ -735,10 +702,7 @@ export function registerListTools(
         ipaddr: str(e, 'ipaddr') ?? str(e, 'ipaddress'),
       };
     },
-    postSort: (xs) =>
-      [...xs].sort((a, b) =>
-        String(b.date).localeCompare(String(a.date))
-      ),
+    postSort: (xs) => [...xs].sort((a, b) => String(b.date).localeCompare(String(a.date))),
     canonicalMap: mapToCanonicalActivity,
   });
 }

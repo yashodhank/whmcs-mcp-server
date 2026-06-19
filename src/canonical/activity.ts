@@ -32,15 +32,11 @@ function mapOne(src: Record<string, unknown>): CanonicalActivity {
   };
 }
 
-export function mapToCanonicalActivity(
-  raw: unknown
-): Canonical<CanonicalActivity> {
+export function mapToCanonicalActivity(raw: unknown): Canonical<CanonicalActivity> {
   return { entity: 'activity', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalActivities(
-  raw: unknown
-): Canonical<CanonicalActivity>[] {
+export function mapToCanonicalActivities(raw: unknown): Canonical<CanonicalActivity>[] {
   const src = asRecord(raw);
   const rows = listOf(src.activity, 'entry');
   return rows.map((r) => ({

@@ -65,9 +65,7 @@ function mapOne(src: Record<string, unknown>): CanonicalCreditNote {
   };
 }
 
-export function mapToCanonicalCreditNote(
-  raw: unknown
-): Canonical<CanonicalCreditNote> {
+export function mapToCanonicalCreditNote(raw: unknown): Canonical<CanonicalCreditNote> {
   return {
     entity: 'transaction',
     data: mapOne(asRecord(raw)),
@@ -75,9 +73,7 @@ export function mapToCanonicalCreditNote(
   };
 }
 
-export function mapToCanonicalCreditNotes(
-  raw: unknown
-): Canonical<CanonicalCreditNote>[] {
+export function mapToCanonicalCreditNotes(raw: unknown): Canonical<CanonicalCreditNote>[] {
   const src = asRecord(raw);
   const rows = listOf(src.creditnotes, 'creditnote');
   return rows.map((r) => ({

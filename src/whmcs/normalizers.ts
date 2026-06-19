@@ -1,11 +1,11 @@
 /**
  * WHMCS Response Normalizers
- * 
+ *
  * WHMCS API responses have quirky JSON structures where arrays may be:
  * - [] (proper array)
  * - {} (empty object)
  * - {"0": {...}, "1": {...}} (object with numeric keys)
- * 
+ *
  * These utilities normalize such responses into proper arrays.
  */
 
@@ -16,12 +16,12 @@ function isNumericKeyedObject(value: unknown): value is Record<string, unknown> 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
-  
+
   const keys = Object.keys(value);
   if (keys.length === 0) {
     return false;
   }
-  
+
   // Check if all keys are numeric strings
   return keys.every((key) => /^\d+$/.test(key));
 }
@@ -35,23 +35,23 @@ export function normalizeToArray<T>(value: unknown): T[] {
   if (Array.isArray(value)) {
     return value as T[];
   }
-  
+
   // Null/undefined
   if (value === null || value === undefined) {
     return [];
   }
-  
+
   // Not an object
   if (typeof value !== 'object') {
     return [];
   }
-  
+
   // Empty object → empty array
   const obj = value as Record<string, unknown>;
   if (Object.keys(obj).length === 0) {
     return [];
   }
-  
+
   // Numeric-keyed object → array
   if (isNumericKeyedObject(obj)) {
     const keys = Object.keys(obj)
@@ -59,7 +59,7 @@ export function normalizeToArray<T>(value: unknown): T[] {
       .sort((a, b) => a - b);
     return keys.map((key) => obj[String(key)] as T);
   }
-  
+
   // Single object (not an array structure) → wrap in array
   // This handles cases where WHMCS returns a single item as an object
   return [obj as T];
@@ -68,7 +68,7 @@ export function normalizeToArray<T>(value: unknown): T[] {
 /**
  * Known field paths in WHMCS responses that need normalization
  */
-type NormalizerKey = 
+type NormalizerKey =
   | 'clients'
   | 'invoices'
   | 'items'
@@ -118,8 +118,9 @@ const NORMALIZER_PATHS: Record<string, NormalizerKey[]> = {
   GetClientsDomains: ['domains'],
 };
 
-export const NORMALIZER_ACTION_KEYS: ReadonlySet<string> =
-  Object.freeze(new Set(Object.keys(NORMALIZER_PATHS)));
+export const NORMALIZER_ACTION_KEYS: ReadonlySet<string> = Object.freeze(
+  new Set(Object.keys(NORMALIZER_PATHS))
+);
 
 /**
  * Apply normalization to specific fields in a WHMCS response
@@ -132,7 +133,7 @@ export function normalizeWhmcsResponse<T extends Record<string, unknown>>(
     return response;
   }
   const paths = NORMALIZER_PATHS[action];
-  
+
   const normalized = { ...response };
 
   for (const path of paths) {
@@ -171,7 +172,10 @@ export function normalizeWhmcsResponse<T extends Record<string, unknown>>(
  * Convert JavaScript boolean to WHMCS expected format
  * WHMCS uses various formats: 1/0, "true"/"false", "on"/"off"
  */
-export function boolToWhmcs(value: boolean, format: '10' | 'truefalse' | 'onoff' = '10'): string | number {
+export function boolToWhmcs(
+  value: boolean,
+  format: '10' | 'truefalse' | 'onoff' = '10'
+): string | number {
   switch (format) {
     case '10':
       return value ? 1 : 0;

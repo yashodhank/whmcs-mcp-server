@@ -47,9 +47,10 @@ describe('Track C2 strict mappers', () => {
   });
 
   it('domain:lock:toggle normalizes lockstatus:false → {domainid, lockstatus:false}', () => {
-    expect(
-      intentToWhmcsParams('domain:lock:toggle', { domainid: 7, lockstatus: false })
-    ).toEqual({ domainid: 7, lockstatus: false });
+    expect(intentToWhmcsParams('domain:lock:toggle', { domainid: 7, lockstatus: false })).toEqual({
+      domainid: 7,
+      lockstatus: false,
+    });
   });
 });
 
@@ -72,9 +73,9 @@ function intent(scope: WriteIntent['scope'], params: Record<string, unknown>): W
 
 describe('Track C2 validation', () => {
   it('domain:idprotect:toggle accepts boolean idprotect (true AND false)', () => {
-    expect(validateIntent(intent('domain:idprotect:toggle', { domainid: 7, idprotect: true }), {}).ok).toBe(
-      true
-    );
+    expect(
+      validateIntent(intent('domain:idprotect:toggle', { domainid: 7, idprotect: true }), {}).ok
+    ).toBe(true);
     expect(
       validateIntent(intent('domain:idprotect:toggle', { domainid: 7, idprotect: false }), {}).ok
     ).toBe(true);
@@ -82,7 +83,10 @@ describe('Track C2 validation', () => {
 
   it('domain:idprotect:toggle rejects non-boolean idprotect', () => {
     for (const v of ['yes', 1]) {
-      const r = validateIntent(intent('domain:idprotect:toggle', { domainid: 7, idprotect: v }), {});
+      const r = validateIntent(
+        intent('domain:idprotect:toggle', { domainid: 7, idprotect: v }),
+        {}
+      );
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.code === 'invalid_idprotect')).toBe(true);
     }
@@ -90,18 +94,21 @@ describe('Track C2 validation', () => {
 
   it('domain:idprotect:toggle rejects missing/zero/negative domainid', () => {
     for (const did of [0, -1, undefined]) {
-      const r = validateIntent(intent('domain:idprotect:toggle', { domainid: did, idprotect: true }), {});
+      const r = validateIntent(
+        intent('domain:idprotect:toggle', { domainid: did, idprotect: true }),
+        {}
+      );
       expect(r.ok).toBe(false);
     }
   });
 
   it('domain:lock:toggle accepts boolean lockstatus (true AND false)', () => {
-    expect(validateIntent(intent('domain:lock:toggle', { domainid: 7, lockstatus: true }), {}).ok).toBe(
-      true
-    );
-    expect(validateIntent(intent('domain:lock:toggle', { domainid: 7, lockstatus: false }), {}).ok).toBe(
-      true
-    );
+    expect(
+      validateIntent(intent('domain:lock:toggle', { domainid: 7, lockstatus: true }), {}).ok
+    ).toBe(true);
+    expect(
+      validateIntent(intent('domain:lock:toggle', { domainid: 7, lockstatus: false }), {}).ok
+    ).toBe(true);
   });
 
   it('domain:lock:toggle rejects non-boolean lockstatus', () => {
@@ -114,7 +121,10 @@ describe('Track C2 validation', () => {
 
   it('domain:lock:toggle rejects missing/zero/negative domainid', () => {
     for (const did of [0, -1, undefined]) {
-      const r = validateIntent(intent('domain:lock:toggle', { domainid: did, lockstatus: true }), {});
+      const r = validateIntent(
+        intent('domain:lock:toggle', { domainid: did, lockstatus: true }),
+        {}
+      );
       expect(r.ok).toBe(false);
     }
   });

@@ -151,8 +151,7 @@ export function registerOrderTools(
             id: p.pid,
             name: p.name,
             group_name: p.groupname || null,
-            description:
-              typeof p.description === 'string' ? p.description.substring(0, 200) : null,
+            description: typeof p.description === 'string' ? p.description.substring(0, 200) : null,
             type: p.type,
             isHidden: whmcsToBool(p.hidden),
             // gid is always present in WHMCS GetProducts responses.

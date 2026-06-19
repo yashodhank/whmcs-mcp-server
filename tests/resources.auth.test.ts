@@ -142,7 +142,9 @@ describe('MCP resource boundaries preserved (client mode)', () => {
     };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const res = await handlers['client-summary'](new URL('whmcs://clients/9/summary'), { clientid: '9' });
+    const res = await handlers['client-summary'](new URL('whmcs://clients/9/summary'), {
+      clientid: '9',
+    });
     const payload = JSON.parse(res.contents[0].text);
 
     expect(payload.error).toMatch(/scope mismatch/i);

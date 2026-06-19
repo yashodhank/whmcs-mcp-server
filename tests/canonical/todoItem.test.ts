@@ -8,10 +8,7 @@
  * example.com / .test only.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalToDoItem,
-  mapToCanonicalToDoItems,
-} from '../../src/canonical/todoItem.js';
+import { mapToCanonicalToDoItem, mapToCanonicalToDoItems } from '../../src/canonical/todoItem.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalToDoItem (single)', () => {

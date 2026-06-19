@@ -38,24 +38,14 @@ const CLASSES = new ClassMapBuilder()
   .set('orderNumber', 'business.identifier')
   .set('amount', 'financial.amount')
   .set('paymentMethod', 'financial.reference')
-  .many(
-    ['date', 'nameservers', 'paymentStatus', 'status'],
-    'public.safe'
-  )
+  .many(['date', 'nameservers', 'paymentStatus', 'status'], 'public.safe')
   .set('ipAddress', 'pii.address')
   .set('fraudOutput', 'system.audit')
   .set('notes', 'untrusted.free_text')
   .set('lineItems', 'public.safe')
   // Track B: line-item product / domain are business DISPLAY labels.
   .many(['lineItems[].product', 'lineItems[].domain'], 'business.label')
-  .many(
-    [
-      'lineItems[].type',
-      'lineItems[].billingCycle',
-      'lineItems[].status',
-    ],
-    'public.safe'
-  )
+  .many(['lineItems[].type', 'lineItems[].billingCycle', 'lineItems[].status'], 'public.safe')
   .set('lineItems[].amount', 'financial.amount')
   .build();
 
@@ -91,15 +81,11 @@ function mapOne(src: Record<string, unknown>): CanonicalOrder {
   };
 }
 
-export function mapToCanonicalOrder(
-  raw: unknown
-): Canonical<CanonicalOrder> {
+export function mapToCanonicalOrder(raw: unknown): Canonical<CanonicalOrder> {
   return { entity: 'order', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalOrders(
-  raw: unknown
-): Canonical<CanonicalOrder>[] {
+export function mapToCanonicalOrders(raw: unknown): Canonical<CanonicalOrder>[] {
   const src = asRecord(raw);
   return listOf(src.orders, 'order').map((r) => ({
     entity: 'order' as const,

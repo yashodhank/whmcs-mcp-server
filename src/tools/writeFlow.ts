@@ -192,9 +192,7 @@ const approvals = new Map<string, HumanApprovalRecord>();
  * Constructed with a path ⇒ durable (survives restart); without ⇒ pure
  * in-memory (byte-identical to the legacy Map singleton when unset).
  */
-const dayAmountsStore = new DayAmountsStore(
-  config.MCP_WRITE_DAY_AMOUNTS_PATH || undefined
-);
+const dayAmountsStore = new DayAmountsStore(config.MCP_WRITE_DAY_AMOUNTS_PATH || undefined);
 
 /** Build the high-risk monetary context from intent params, if numeric. */
 function amountContextFor(
@@ -702,7 +700,12 @@ export async function executePriceRestoreBatch(
     // Cap floor mirrors the single-call authorizer (executionGate step 8):
     // an UNCONFIGURED cap (<=0) denies, so a zero/equal-amount (delta=0) target
     // can never slip through with default {0,0} caps.
-    if (caps.perAction <= 0 || caps.daily <= 0 || delta > caps.perAction || dayRunning + delta > caps.daily) {
+    if (
+      caps.perAction <= 0 ||
+      caps.daily <= 0 ||
+      delta > caps.perAction ||
+      dayRunning + delta > caps.daily
+    ) {
       audit.append(
         auditEvent(
           'intent.execution_blocked',
@@ -855,7 +858,9 @@ async function confirmViaElicitation(
     server as unknown as {
       server?: {
         getClientCapabilities?: () => { elicitation?: unknown } | undefined;
-        elicitInput?: (p: unknown) => Promise<{ action?: string; content?: Record<string, unknown> }>;
+        elicitInput?: (
+          p: unknown
+        ) => Promise<{ action?: string; content?: Record<string, unknown> }>;
       };
     }
   ).server;
@@ -1013,159 +1018,57 @@ export function registerWriteFlowTools(
   // `write` tool. Resolves consumer + intent from p (auth_token + intent_id),
   // enforces approved-state, then runs the batch / single-call execute path.
   const executeRun = async (p: Record<string, unknown>) => {
-      const res = resolveWriteConsumer(p);
-      if (!res.ok) return err(`consumer denied: ${res.reason}`);
-      const intent = store.get(p.intent_id as string);
-      if (!intent) return err('intent not found', { intent_id: p.intent_id });
-      if (intent.consumer_id !== res.profile.id)
-        return err('intent does not belong to this consumer');
-      // Execution is only attemptable from an approved intent. Reporting a
-      // blocked attempt must never force an illegal state transition, so a
-      // non-approved intent returns the structured denial in place.
-      //
-      // NOTE: this early-return precedes the deny-by-default authorizer because
-      // a non-approved intent can never mutate ANYWAY (kill-switch and the
-      // authorizer would deny identically); short-circuiting here preserves the
-      // legal state-machine transition rules (only `approved`→`executed`).
-      if (intent.state !== 'approved') {
-        audit.append(auditEvent('intent.execution_blocked', intent, 'intent_not_approved'));
-        return out(
-          toToolResult(intent, 'execute', {
-            execution: { attempted: false, blocked_reason: 'intent_not_approved' },
-          })
-        );
-      }
-      // SCOPE-3: re-check the consumer's CURRENT write-scope grant at execute time.
-      // allowedWriteScopes is enforced at draft time, but a scope can be revoked
-      // (env/registry change, future TTL-reload — issue #56) within the intent's
-      // 15-minute TTL after approval. Re-asserting here — before BOTH the batch and
-      // single-call branches — blocks an approved intent whose scope is no longer
-      // granted, instead of mutating WHMCS. Mirrors the decision.allowed===false
-      // handling below.
-      const scopeGate = assertWriteScopeAllowed(res.profile, intent.scope);
-      if (!scopeGate.ok) {
-        const next = store.transition(intent.intent_id, 'execution_blocked');
-        audit.append(auditEvent('intent.execution_blocked', next, 'scope_not_allowed'));
-        return out(
-          toToolResult(next, 'execute', {
-            execution: { attempted: false, blocked_reason: 'scope_not_allowed' },
-          })
-        );
-      }
-      // Batch scope dispatch — service:price_restore uses its own two-phase helper.
-      // The helper performs its own per-target authorization (idempotency,
-      // per-action + daily caps, scope-output assertion, fail-closed durable
-      // audit), so we branch BEFORE the single-call authorizer/mutate path.
-      // (intent.state === 'approved' is already enforced by the early-return above.)
-      if (intent.scope === 'service:price_restore') {
-        // Steps 1–7 of the gate (kill switch, mode, consumer execution
-        // capability, idempotency, permanently-blocked, prod/runtime allowlist)
-        // MUST run for the batch path too — otherwise price_restore would
-        // execute without ever consulting MCP_PROD_WRITE_AUTHORIZED, breaking
-        // the keystone. Per-target monetary caps stay inside the batch helper.
-        const pre = preAuthorizeIntent(
-          {
-            intent,
-            env: getProjectionEnv(),
-            mcpMode: config.MCP_MODE,
-            consumerWriteCapability: consumerWriteCapability(res.profile),
-            runtimeAuthorizedActions: runtimeAuthorizedActions(),
-            killSwitch: config.MCP_WRITE_KILL_SWITCH,
-            prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
-            strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
-            strictScopes: config.MCP_WRITE_STRICT_SCOPES,
-          },
-          (k) => ledger.seen(k)
-        );
-        if (!pre.allowed) {
-          const blocked = store.transition(intent.intent_id, 'execution_blocked');
-          audit.append(auditEvent('intent.execution_blocked', blocked, pre.reason));
-          return out(
-            toToolResult(blocked, 'execute', {
-              execution: { attempted: false, blocked_reason: pre.reason },
-            })
-          );
-        }
-        const approval = approvals.get(intent.intent_id);
-        if (!approval) {
-          const blocked = store.transition(intent.intent_id, 'execution_blocked');
-          audit.append(auditEvent('intent.execution_blocked', blocked, 'human_approval_required'));
-          return out(
-            toToolResult(blocked, 'execute', {
-              execution: { attempted: false, blocked_reason: 'human_approval_required' },
-            })
-          );
-        }
-        // Separation of duties (parity with the gate's step-8 high-risk rule):
-        // price_restore is always high-risk, so it can never be self-approved.
-        // The batch path uses preAuthorizeIntent (steps 1–7) and never invokes
-        // the gate's step 8, so the distinctness check must be enforced here.
-        if (approval.approver_consumer_id === intent.consumer_id) {
-          const blocked = store.transition(intent.intent_id, 'execution_blocked');
-          audit.append(auditEvent('intent.execution_blocked', blocked, 'self_approval_forbidden'));
-          return out(
-            toToolResult(blocked, 'execute', {
-              execution: { attempted: false, blocked_reason: 'self_approval_forbidden' },
-            })
-          );
-        }
-        const batchRes = await executePriceRestoreBatch({
-          intent,
-          whmcs,
-          audit,
-          ledger,
-          caps: {
-            perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
-            daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
-          },
-          approval,
-          dayAmounts: dayAmountsStore,
-        });
-        if (!batchRes.allowed) {
-          const blocked = store.transition(intent.intent_id, 'execution_blocked');
-          audit.append(
-            auditEvent('intent.execution_blocked', blocked, batchRes.reason ?? 'unknown')
-          );
-          return out(
-            toToolResult(blocked, 'execute', {
-              execution: {
-                attempted: false,
-                blocked_reason: batchRes.reason,
-                phase_1: batchRes.phase_1,
-                phase_2: batchRes.phase_2,
-              } as WriteToolResult['execution'],
-            })
-          );
-        }
-        if (batchRes.dry_run) {
-          return out(
-            toToolResult(intent, 'execute', {
-              executed: false,
-              execution: {
-                attempted: false,
-                dry_run: true,
-                phase_1: batchRes.phase_1,
-              } as WriteToolResult['execution'],
-            })
-          );
-        }
-        const finalState = store.transition(intent.intent_id, 'executed');
-        return out(
-          toToolResult(finalState, 'execute', {
-            executed: true,
-            execution: {
-              attempted: true,
-              phase_1: batchRes.phase_1,
-              phase_2: batchRes.phase_2,
-            } as WriteToolResult['execution'],
-          })
-        );
-      }
-      const isHigh = intent.risk === 'high';
-      const amountContext = isHigh
-        ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
-        : undefined;
-      const decision = defaultExecutionAuthorizer(
+    const res = resolveWriteConsumer(p);
+    if (!res.ok) return err(`consumer denied: ${res.reason}`);
+    const intent = store.get(p.intent_id as string);
+    if (!intent) return err('intent not found', { intent_id: p.intent_id });
+    if (intent.consumer_id !== res.profile.id)
+      return err('intent does not belong to this consumer');
+    // Execution is only attemptable from an approved intent. Reporting a
+    // blocked attempt must never force an illegal state transition, so a
+    // non-approved intent returns the structured denial in place.
+    //
+    // NOTE: this early-return precedes the deny-by-default authorizer because
+    // a non-approved intent can never mutate ANYWAY (kill-switch and the
+    // authorizer would deny identically); short-circuiting here preserves the
+    // legal state-machine transition rules (only `approved`→`executed`).
+    if (intent.state !== 'approved') {
+      audit.append(auditEvent('intent.execution_blocked', intent, 'intent_not_approved'));
+      return out(
+        toToolResult(intent, 'execute', {
+          execution: { attempted: false, blocked_reason: 'intent_not_approved' },
+        })
+      );
+    }
+    // SCOPE-3: re-check the consumer's CURRENT write-scope grant at execute time.
+    // allowedWriteScopes is enforced at draft time, but a scope can be revoked
+    // (env/registry change, future TTL-reload — issue #56) within the intent's
+    // 15-minute TTL after approval. Re-asserting here — before BOTH the batch and
+    // single-call branches — blocks an approved intent whose scope is no longer
+    // granted, instead of mutating WHMCS. Mirrors the decision.allowed===false
+    // handling below.
+    const scopeGate = assertWriteScopeAllowed(res.profile, intent.scope);
+    if (!scopeGate.ok) {
+      const next = store.transition(intent.intent_id, 'execution_blocked');
+      audit.append(auditEvent('intent.execution_blocked', next, 'scope_not_allowed'));
+      return out(
+        toToolResult(next, 'execute', {
+          execution: { attempted: false, blocked_reason: 'scope_not_allowed' },
+        })
+      );
+    }
+    // Batch scope dispatch — service:price_restore uses its own two-phase helper.
+    // The helper performs its own per-target authorization (idempotency,
+    // per-action + daily caps, scope-output assertion, fail-closed durable
+    // audit), so we branch BEFORE the single-call authorizer/mutate path.
+    // (intent.state === 'approved' is already enforced by the early-return above.)
+    if (intent.scope === 'service:price_restore') {
+      // Steps 1–7 of the gate (kill switch, mode, consumer execution
+      // capability, idempotency, permanently-blocked, prod/runtime allowlist)
+      // MUST run for the batch path too — otherwise price_restore would
+      // execute without ever consulting MCP_PROD_WRITE_AUTHORIZED, breaking
+      // the keystone. Per-target monetary caps stay inside the batch helper.
+      const pre = preAuthorizeIntent(
         {
           intent,
           env: getProjectionEnv(),
@@ -1176,152 +1079,250 @@ export function registerWriteFlowTools(
           prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
           strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
           strictScopes: config.MCP_WRITE_STRICT_SCOPES,
-          requireDistinctApprover: config.MCP_WRITE_REQUIRE_DISTINCT_APPROVER,
-          humanApproval: approvals.get(intent.intent_id),
-          amountContext,
-          caps: {
-            perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
-            daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
-          },
         },
         (k) => ledger.seen(k)
       );
-      if (!decision.allowed) {
-        const next = store.transition(intent.intent_id, 'execution_blocked');
-        audit.append(auditEvent('intent.execution_blocked', next, decision.reason));
+      if (!pre.allowed) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, pre.reason));
         return out(
-          toToolResult(next, 'execute', {
-            execution: { attempted: false, blocked_reason: decision.reason },
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: pre.reason },
           })
         );
       }
-
-      // Scope precondition snapshot (service:domain_rename): read-only check
-      // that the service exists, is not Terminated/Cancelled, and (if supplied)
-      // still has the expected current domain — BEFORE any mutation. Runs after
-      // authorization (no read before the gate allows) and before durable audit
-      // so a precondition failure never records idempotency or transitions to
-      // executed. Other single-call scopes have no read-only precondition.
-      if (intent.scope === 'service:domain_rename') {
-        const pc = await precheckDomainRename(whmcs, intent);
-        if (!pc.ok) {
-          const blocked = store.transition(intent.intent_id, 'execution_blocked');
-          audit.append(auditEvent('intent.execution_blocked', blocked, pc.reason));
-          return out(
-            toToolResult(blocked, 'execute', {
-              execution: { attempted: false, blocked_reason: pc.reason },
-            })
-          );
-        }
-      }
-
-      // Gates passed. FAIL-CLOSED durable audit: the "attempting mutation"
-      // event must be durably written BEFORE the WHMCS call. If durable audit
-      // cannot be written, refuse to execute — no unauditable mutation. (No
-      // idempotency recorded and no state change, so it is safely retryable.)
-      const attemptEvent = auditEvent(
-        'intent.executed',
-        intent,
-        `attempting ${intent.action} (risk=${intent.risk}, env=${getProjectionEnv()})`
-      );
-      try {
-        audit.appendDurable(attemptEvent);
-      } catch (e) {
-        if (e instanceof AuditPersistError) {
-          const blocked = store.transition(intent.intent_id, 'execution_blocked');
-          audit.append(auditEvent('intent.execution_blocked', blocked, 'audit_write_failed'));
-          return out(
-            toToolResult(blocked, 'execute', {
-              execution: {
-                attempted: false,
-                blocked_reason: 'audit_write_failed',
-                note: 'Durable audit write failed; mutation refused (fail-closed).',
-              },
-            })
-          );
-        }
-        throw e;
-      }
-
-      // Record idempotency BEFORE the call so a concurrent/retry attempt is
-      // treated as a replay. The WhmcsClient.mutate() read_only
-      // MODE_RESTRICTED check is an independent backstop beneath this gate.
-      ledger.record(intent.idempotency_key, { executing: true });
-      // approved → executed: committing to the attempt (legal transition;
-      // failed/verified are only reachable from `executed`).
-      const executing = store.transition(intent.intent_id, 'executed');
-      try {
-        // Map intent-contract params → WHMCS-shape params at the very last
-        // mile, so the rest of the flow (audit, validate, replay-guard) keeps
-        // working with the semantic intent shape while WHMCS receives the
-        // exact field names it requires (e.g. notes/userid, item flattening,
-        // amountout-only refund payload — no `amountin`).
-        const mappedParams = intentToWhmcsParams(
-          intent.scope,
-          intent.params as Record<string, unknown>,
-          { idempotency_key: intent.idempotency_key }
-        );
-        // Defense-in-depth on the shared, high-impact UpdateClientProduct
-        // action: assert the strict mapper leaked no extra field before sending.
-        if (intent.scope === 'service:domain_rename') {
-          assertDomainRenameOutput(mappedParams);
-        }
-        await whmcs.mutate(intent.action, mappedParams);
-      } catch (e) {
-        const failed = store.transition(intent.intent_id, 'failed');
-        audit.append(
-          auditEvent('intent.failed', failed, e instanceof Error ? e.message : String(e))
-        );
+      const approval = approvals.get(intent.intent_id);
+      if (!approval) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, 'human_approval_required'));
         return out(
-          toToolResult(failed, 'execute', {
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: 'human_approval_required' },
+          })
+        );
+      }
+      // Separation of duties (parity with the gate's step-8 high-risk rule):
+      // price_restore is always high-risk, so it can never be self-approved.
+      // The batch path uses preAuthorizeIntent (steps 1–7) and never invokes
+      // the gate's step 8, so the distinctness check must be enforced here.
+      if (approval.approver_consumer_id === intent.consumer_id) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, 'self_approval_forbidden'));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: 'self_approval_forbidden' },
+          })
+        );
+      }
+      const batchRes = await executePriceRestoreBatch({
+        intent,
+        whmcs,
+        audit,
+        ledger,
+        caps: {
+          perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
+          daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
+        },
+        approval,
+        dayAmounts: dayAmountsStore,
+      });
+      if (!batchRes.allowed) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, batchRes.reason ?? 'unknown'));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: {
+              attempted: false,
+              blocked_reason: batchRes.reason,
+              phase_1: batchRes.phase_1,
+              phase_2: batchRes.phase_2,
+            } as WriteToolResult['execution'],
+          })
+        );
+      }
+      if (batchRes.dry_run) {
+        return out(
+          toToolResult(intent, 'execute', {
             executed: false,
             execution: {
-              attempted: true,
-              note: `Execution failed: ${e instanceof Error ? e.message : String(e)}`,
+              attempted: false,
+              dry_run: true,
+              phase_1: batchRes.phase_1,
+            } as WriteToolResult['execution'],
+          })
+        );
+      }
+      const finalState = store.transition(intent.intent_id, 'executed');
+      return out(
+        toToolResult(finalState, 'execute', {
+          executed: true,
+          execution: {
+            attempted: true,
+            phase_1: batchRes.phase_1,
+            phase_2: batchRes.phase_2,
+          } as WriteToolResult['execution'],
+        })
+      );
+    }
+    const isHigh = intent.risk === 'high';
+    const amountContext = isHigh
+      ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
+      : undefined;
+    const decision = defaultExecutionAuthorizer(
+      {
+        intent,
+        env: getProjectionEnv(),
+        mcpMode: config.MCP_MODE,
+        consumerWriteCapability: consumerWriteCapability(res.profile),
+        runtimeAuthorizedActions: runtimeAuthorizedActions(),
+        killSwitch: config.MCP_WRITE_KILL_SWITCH,
+        prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
+        strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
+        strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+        requireDistinctApprover: config.MCP_WRITE_REQUIRE_DISTINCT_APPROVER,
+        humanApproval: approvals.get(intent.intent_id),
+        amountContext,
+        caps: {
+          perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
+          daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
+        },
+      },
+      (k) => ledger.seen(k)
+    );
+    if (!decision.allowed) {
+      const next = store.transition(intent.intent_id, 'execution_blocked');
+      audit.append(auditEvent('intent.execution_blocked', next, decision.reason));
+      return out(
+        toToolResult(next, 'execute', {
+          execution: { attempted: false, blocked_reason: decision.reason },
+        })
+      );
+    }
+
+    // Scope precondition snapshot (service:domain_rename): read-only check
+    // that the service exists, is not Terminated/Cancelled, and (if supplied)
+    // still has the expected current domain — BEFORE any mutation. Runs after
+    // authorization (no read before the gate allows) and before durable audit
+    // so a precondition failure never records idempotency or transitions to
+    // executed. Other single-call scopes have no read-only precondition.
+    if (intent.scope === 'service:domain_rename') {
+      const pc = await precheckDomainRename(whmcs, intent);
+      if (!pc.ok) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, pc.reason));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: pc.reason },
+          })
+        );
+      }
+    }
+
+    // Gates passed. FAIL-CLOSED durable audit: the "attempting mutation"
+    // event must be durably written BEFORE the WHMCS call. If durable audit
+    // cannot be written, refuse to execute — no unauditable mutation. (No
+    // idempotency recorded and no state change, so it is safely retryable.)
+    const attemptEvent = auditEvent(
+      'intent.executed',
+      intent,
+      `attempting ${intent.action} (risk=${intent.risk}, env=${getProjectionEnv()})`
+    );
+    try {
+      audit.appendDurable(attemptEvent);
+    } catch (e) {
+      if (e instanceof AuditPersistError) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, 'audit_write_failed'));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: {
+              attempted: false,
+              blocked_reason: 'audit_write_failed',
+              note: 'Durable audit write failed; mutation refused (fail-closed).',
             },
           })
         );
       }
-      // Executed — tally the high-risk amount toward the daily cap.
-      if (isHigh && amountContext !== undefined) {
-        dayAmountsStore.add(intent.action, amountContext.amount);
-      }
+      throw e;
+    }
 
-      // Post-action verification: best-effort read-back. Never fails the
-      // result if verification itself is unavailable — reports verified:false
-      // and the intent stays in `executed` (only `verified` re-transitions).
-      let verified = false;
-      try {
-        if (intent.scope === 'service:domain_rename') {
-          // Real read-back: confirm the service's domain field actually became
-          // the requested (normalized) value — not just that a read succeeded.
-          const want = normalizeDomain(intent.params.domain);
-          const resp = await whmcs.read<{
-            products?: { product?: readonly Record<string, unknown>[] };
-          }>('GetClientsProducts', { serviceid: intent.params.serviceid });
-          const vp = resp.products?.product?.[0];
-          verified = vp !== undefined && normalizeDomain(vp.domain) === want;
-        } else if (typeof intent.preconditions.verifyAction === 'string') {
-          await whmcs.read(intent.preconditions.verifyAction, {});
-          verified = true;
-        }
-      } catch {
-        verified = false;
-      }
-      const finalIntent = verified ? store.transition(intent.intent_id, 'verified') : executing;
-      audit.append(
-        auditEvent(
-          verified ? 'intent.verified' : 'intent.executed',
-          finalIntent,
-          verified ? 'post-action verified' : 'executed; post-action verification unavailable'
-        )
+    // Record idempotency BEFORE the call so a concurrent/retry attempt is
+    // treated as a replay. The WhmcsClient.mutate() read_only
+    // MODE_RESTRICTED check is an independent backstop beneath this gate.
+    ledger.record(intent.idempotency_key, { executing: true });
+    // approved → executed: committing to the attempt (legal transition;
+    // failed/verified are only reachable from `executed`).
+    const executing = store.transition(intent.intent_id, 'executed');
+    try {
+      // Map intent-contract params → WHMCS-shape params at the very last
+      // mile, so the rest of the flow (audit, validate, replay-guard) keeps
+      // working with the semantic intent shape while WHMCS receives the
+      // exact field names it requires (e.g. notes/userid, item flattening,
+      // amountout-only refund payload — no `amountin`).
+      const mappedParams = intentToWhmcsParams(
+        intent.scope,
+        intent.params as Record<string, unknown>,
+        { idempotency_key: intent.idempotency_key }
       );
+      // Defense-in-depth on the shared, high-impact UpdateClientProduct
+      // action: assert the strict mapper leaked no extra field before sending.
+      if (intent.scope === 'service:domain_rename') {
+        assertDomainRenameOutput(mappedParams);
+      }
+      await whmcs.mutate(intent.action, mappedParams);
+    } catch (e) {
+      const failed = store.transition(intent.intent_id, 'failed');
+      audit.append(auditEvent('intent.failed', failed, e instanceof Error ? e.message : String(e)));
       return out(
-        toToolResult(finalIntent, 'execute', {
-          executed: true,
-          execution: { attempted: true, verified },
+        toToolResult(failed, 'execute', {
+          executed: false,
+          execution: {
+            attempted: true,
+            note: `Execution failed: ${e instanceof Error ? e.message : String(e)}`,
+          },
         })
       );
+    }
+    // Executed — tally the high-risk amount toward the daily cap.
+    if (isHigh && amountContext !== undefined) {
+      dayAmountsStore.add(intent.action, amountContext.amount);
+    }
+
+    // Post-action verification: best-effort read-back. Never fails the
+    // result if verification itself is unavailable — reports verified:false
+    // and the intent stays in `executed` (only `verified` re-transitions).
+    let verified = false;
+    try {
+      if (intent.scope === 'service:domain_rename') {
+        // Real read-back: confirm the service's domain field actually became
+        // the requested (normalized) value — not just that a read succeeded.
+        const want = normalizeDomain(intent.params.domain);
+        const resp = await whmcs.read<{
+          products?: { product?: readonly Record<string, unknown>[] };
+        }>('GetClientsProducts', { serviceid: intent.params.serviceid });
+        const vp = resp.products?.product?.[0];
+        verified = vp !== undefined && normalizeDomain(vp.domain) === want;
+      } else if (typeof intent.preconditions.verifyAction === 'string') {
+        await whmcs.read(intent.preconditions.verifyAction, {});
+        verified = true;
+      }
+    } catch {
+      verified = false;
+    }
+    const finalIntent = verified ? store.transition(intent.intent_id, 'verified') : executing;
+    audit.append(
+      auditEvent(
+        verified ? 'intent.verified' : 'intent.executed',
+        finalIntent,
+        verified ? 'post-action verified' : 'executed; post-action verification unavailable'
+      )
+    );
+    return out(
+      toToolResult(finalIntent, 'execute', {
+        executed: true,
+        execution: { attempted: true, verified },
+      })
+    );
   };
 
   register(

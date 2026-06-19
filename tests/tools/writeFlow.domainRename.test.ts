@@ -71,9 +71,14 @@ function setup(read: ReturnType<typeof vi.fn>, mutate: ReturnType<typeof vi.fn>)
     info: vi.fn(),
     error: vi.fn(),
   };
-  registerWriteFlowTools(server as never, { mutate, read } as never, logger as never, {
-    tryConsume: () => true,
-  } as never);
+  registerWriteFlowTools(
+    server as never,
+    { mutate, read } as never,
+    logger as never,
+    {
+      tryConsume: () => true,
+    } as never
+  );
   return handlers;
 }
 
@@ -88,7 +93,12 @@ async function drive(handlers: Handlers, params: Record<string, unknown>) {
   });
   const id = (JSON.parse(d.content[0].text).intent as Record<string, unknown>).intent_id as string;
   await handlers.validate_write_intent({ intent_id: id, ...tok });
-  await handlers.approve_write_intent({ intent_id: id, approver: 'op', decision: 'approved', ...tok });
+  await handlers.approve_write_intent({
+    intent_id: id,
+    approver: 'op',
+    decision: 'approved',
+    ...tok,
+  });
   const e = await handlers.execute_write_intent({ intent_id: id, ...tok });
   return JSON.parse(e.content[0].text) as Record<string, unknown>;
 }
@@ -130,7 +140,9 @@ describe('service:domain_rename end-to-end via registered handlers', () => {
     const body = await drive(handlers, { serviceid: 43, domain: 'new.example.com' });
 
     expect(body.executed).toBeFalsy();
-    expect((body.execution as Record<string, unknown>).blocked_reason).toBe('precondition_mismatch');
+    expect((body.execution as Record<string, unknown>).blocked_reason).toBe(
+      'precondition_mismatch'
+    );
     expect(mutate).not.toHaveBeenCalled();
   });
 

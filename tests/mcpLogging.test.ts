@@ -45,8 +45,7 @@ function makeFakeServer(opts: {
 
   const core: Record<string, unknown> = { sendLoggingMessage };
   if (!opts.clientCapsUndefined) {
-    core.getClientCapabilities = () =>
-      opts.clientLogging ? { logging: {} } : {};
+    core.getClientCapabilities = () => (opts.clientLogging ? { logging: {} } : {});
   }
 
   return { server: { server: core }, sent, sendLoggingMessage };
@@ -145,9 +144,7 @@ describe('mcpLogging bridge', () => {
     it('ignores an unknown log level (no throw, no send)', () => {
       const f = makeFakeServer({ clientLogging: true });
       const bridge = new McpLoggingBridge(f.server);
-      expect(() =>
-        bridge.mcpLog('verbose' as unknown as McpLogLevel, 'x')
-      ).not.toThrow();
+      expect(() => bridge.mcpLog('verbose' as unknown as McpLogLevel, 'x')).not.toThrow();
       expect(f.sendLoggingMessage).not.toHaveBeenCalled();
     });
   });

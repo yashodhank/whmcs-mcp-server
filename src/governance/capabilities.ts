@@ -13,11 +13,7 @@
  * This module imports the FROZEN seam `./types.js` only and owns no other state.
  */
 
-import type {
-  CapabilityStatus,
-  CapabilityStatusValue,
-  CapabilityUnavailable,
-} from './types.js';
+import type { CapabilityStatus, CapabilityStatusValue, CapabilityUnavailable } from './types.js';
 
 /* ───────────────────────────  Static registry  ──────────────────────────── */
 
@@ -100,8 +96,7 @@ function buildRegistry(): Record<string, CapabilityStatus> {
 }
 
 /** Static, declared capability per WHMCS action the server cares about. */
-export const CAPABILITY_REGISTRY: Record<string, CapabilityStatus> =
-  buildRegistry();
+export const CAPABILITY_REGISTRY: Record<string, CapabilityStatus> = buildRegistry();
 
 /* ─────────────────────────────  In-process cache  ───────────────────────── */
 
@@ -205,8 +200,7 @@ function readResultIsError(value: unknown): { isError: boolean; message: string 
     (value as { result: unknown }).result === 'error'
   ) {
     const msg =
-      'message' in value &&
-      typeof (value as { message: unknown }).message === 'string'
+      'message' in value && typeof (value as { message: unknown }).message === 'string'
         ? (value as { message: string }).message
         : '';
     return { isError: true, message: msg };
@@ -305,12 +299,7 @@ export async function probeCapability(
           note: 'Probe succeeded against the live WHMCS install.',
         };
   } catch (error) {
-    resolved = classifyFailure(
-      action,
-      capability,
-      extractErrorMessage(error),
-      verifiedAt
-    );
+    resolved = classifyFailure(action, capability, extractErrorMessage(error), verifiedAt);
   }
 
   probeCache.set(action, resolved);
@@ -325,9 +314,10 @@ export async function probeCapability(
  * for this build; `supported`/`fallback_available` are not "unavailable" but
  * are kept representable (false — nothing to retry).
  */
-const RETRIABLE_STATUSES: ReadonlySet<CapabilityStatusValue> = new Set<
-  CapabilityStatusValue
->(['unverified', 'degraded']);
+const RETRIABLE_STATUSES: ReadonlySet<CapabilityStatusValue> = new Set<CapabilityStatusValue>([
+  'unverified',
+  'degraded',
+]);
 
 /**
  * Short, STABLE next-step hints per status. Stable strings let an app branch
@@ -335,18 +325,15 @@ const RETRIABLE_STATUSES: ReadonlySet<CapabilityStatusValue> = new Set<
  * next step only — they never imply fabricated data.
  */
 const GUIDANCE_BY_STATUS: Readonly<Record<CapabilityStatusValue, string>> = {
-  supported:
-    'Capability is supported; this payload should not normally be emitted.',
-  unsupported:
-    'Action is not supported on this WHMCS install or build; do not retry.',
+  supported: 'Capability is supported; this payload should not normally be emitted.',
+  unsupported: 'Action is not supported on this WHMCS install or build; do not retry.',
   not_authorized:
     'The configured WHMCS API credentials lack permission for this action; an operator must adjust API role permissions.',
   unverified:
     'Action not yet verified on this WHMCS install; an operator must run a read-only probe.',
   degraded:
     'A previous probe failed for a transport/other reason; an operator may retry the read-only probe.',
-  fallback_available:
-    'A safe fallback is available for this capability (reserved status).',
+  fallback_available: 'A safe fallback is available for this capability (reserved status).',
 };
 
 /**
@@ -358,9 +345,7 @@ const GUIDANCE_BY_STATUS: Readonly<Record<CapabilityStatusValue, string>> = {
  * and `guidance` are additive, making the response app-handleable without any
  * change to safety behavior.
  */
-export function capabilityUnavailablePayload(
-  c: CapabilityStatus
-): CapabilityUnavailable {
+export function capabilityUnavailablePayload(c: CapabilityStatus): CapabilityUnavailable {
   const payload: {
     capability_unavailable: true;
     action: string;

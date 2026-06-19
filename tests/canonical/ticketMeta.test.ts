@@ -90,7 +90,9 @@ describe('mapToCanonicalSupportStatuses', () => {
   });
 
   it('tolerates a single status object (no array) and a flat `status` key', () => {
-    const single = mapToCanonicalSupportStatuses({ statuses: { status: { title: 'Open', count: 1 } } });
+    const single = mapToCanonicalSupportStatuses({
+      statuses: { status: { title: 'Open', count: 1 } },
+    });
     expect(single.data.statuses).toHaveLength(1);
     expect(single.data.statuses[0].title).toBe('Open');
 

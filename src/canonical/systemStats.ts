@@ -51,9 +51,7 @@ function classifyKey(key: string): FieldClass {
 /** Only scalar leaves are emitted; nested objects/arrays are skipped. */
 function isScalar(v: unknown): v is string | number | boolean {
   return (
-    typeof v === 'string' ||
-    (typeof v === 'number' && Number.isFinite(v)) ||
-    typeof v === 'boolean'
+    typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean'
   );
 }
 
@@ -68,9 +66,7 @@ function coerce(v: string | number | boolean): string | number | boolean {
   return v;
 }
 
-export function mapToCanonicalSystemStats(
-  raw: unknown
-): Canonical<CanonicalSystemStats> {
+export function mapToCanonicalSystemStats(raw: unknown): Canonical<CanonicalSystemStats> {
   const src = asRecord(raw);
   const metrics: Record<string, string | number | boolean> = {};
   const builder = new ClassMapBuilder();

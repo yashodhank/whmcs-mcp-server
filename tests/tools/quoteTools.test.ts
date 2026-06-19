@@ -22,14 +22,16 @@ vi.mock('../../src/security.js', () => ({
   ensureClientAllowed: () => clientAllowedError.value,
   clientModeDenied: (tool: string) => ({
     content: [
-      { type: 'text', text: JSON.stringify({ isError: true, error: `client mode denied: ${tool}` }) },
+      {
+        type: 'text',
+        text: JSON.stringify({ isError: true, error: `client mode denied: ${tool}` }),
+      },
     ],
     isError: true,
   }),
 }));
 vi.mock('../../src/governance/pipeline.js', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('../../src/governance/pipeline.js')>();
+  const actual = await importOriginal<typeof import('../../src/governance/pipeline.js')>();
   return { ...actual, governanceEnabled: () => false };
 });
 

@@ -1,9 +1,6 @@
 /** B1 — canonical service mapper. Synthetic fixtures only. */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalService,
-  mapToCanonicalServices,
-} from '../../src/canonical/service.js';
+import { mapToCanonicalService, mapToCanonicalServices } from '../../src/canonical/service.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalService', () => {
@@ -47,7 +44,12 @@ describe('mapToCanonicalService', () => {
 
   it('unwraps products.product list with empty {} customfields', () => {
     const raw = {
-      products: { product: { '0': { id: 1, name: 'X', customfields: {} }, '1': { id: 2, name: 'Y', customfields: [] } } },
+      products: {
+        product: {
+          '0': { id: 1, name: 'X', customfields: {} },
+          '1': { id: 2, name: 'Y', customfields: [] },
+        },
+      },
     };
     const list = mapToCanonicalServices(raw);
     expect(list).toHaveLength(2);

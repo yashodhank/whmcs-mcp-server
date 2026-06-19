@@ -70,11 +70,7 @@ function countOf(value: unknown): number | null {
  *   - a flat scalar map: { Open: 4, Answered: 2 }
  * into an array of { label, count } rows.
  */
-function rowsFrom(
-  value: unknown,
-  wrapperKey: string,
-  singularKey: string
-): CanonicalTicketCount[] {
+function rowsFrom(value: unknown, wrapperKey: string, singularKey: string): CanonicalTicketCount[] {
   // Prefer the explicit list shape (wrapperKey → singularKey[]).
   const listSource = isRecord(value) && wrapperKey in value ? value[wrapperKey] : value;
   const rows = listOf(listSource, singularKey);
@@ -101,9 +97,7 @@ function rowsFrom(
   return [];
 }
 
-export function mapToCanonicalTicketCounts(
-  raw: unknown
-): Canonical<CanonicalTicketCounts> {
+export function mapToCanonicalTicketCounts(raw: unknown): Canonical<CanonicalTicketCounts> {
   const src = asRecord(raw);
 
   const statuses = rowsFrom(src.statuses, 'status', 'status');
@@ -113,19 +107,13 @@ export function mapToCanonicalTicketCounts(
     statuses,
     departments,
     awaitingReply:
-      countOf(src.awaitingreply) ??
-      countOf(src.awaitingReply) ??
-      countOf(src.flagged) ??
-      null,
+      countOf(src.awaitingreply) ?? countOf(src.awaitingReply) ?? countOf(src.flagged) ?? null,
     total: countOf(src.total) ?? countOf(src.totaltickets) ?? null,
   };
 
   const classes = new ClassMapBuilder()
     // Counters are aggregate, never PII.
-    .many(
-      ['awaitingReply', 'total', 'statuses[].count', 'departments[].count'],
-      'public.safe'
-    )
+    .many(['awaitingReply', 'total', 'statuses[].count', 'departments[].count'], 'public.safe')
     // Status/department titles are operator DISPLAY labels.
     .many(['statuses[].label', 'departments[].label'], 'business.label')
     // Empty-collection container leaves (when statuses/departments are []).
@@ -147,15 +135,11 @@ export interface CanonicalSupportStatuses {
   statuses: CanonicalSupportStatus[];
 }
 
-export function mapToCanonicalSupportStatuses(
-  raw: unknown
-): Canonical<CanonicalSupportStatuses> {
+export function mapToCanonicalSupportStatuses(raw: unknown): Canonical<CanonicalSupportStatuses> {
   const src = asRecord(raw);
   // GetSupportStatuses nests under statuses.status (defensive: single object,
   // numeric-keyed wrapper, or a top-level `status` key on some builds).
-  const nested = isRecord(src.statuses) || Array.isArray(src.statuses)
-    ? src.statuses
-    : src.status;
+  const nested = isRecord(src.statuses) || Array.isArray(src.statuses) ? src.statuses : src.status;
   const rows = listOf(nested, 'status');
 
   const statuses: CanonicalSupportStatus[] = rows

@@ -103,10 +103,7 @@ describe('Track C2 validation — service:upgrade', () => {
   });
 
   it('rejects an invalid type', () => {
-    const r = validateIntent(
-      intent('service:upgrade', { serviceid: 5, type: 'bogus' }),
-      {}
-    );
+    const r = validateIntent(intent('service:upgrade', { serviceid: 5, type: 'bogus' }), {});
     expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.code === 'invalid_upgrade_type')).toBe(true);
   });

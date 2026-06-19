@@ -23,16 +23,8 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
-import {
-  ensureToolAuth,
-  isClientMode,
-  ensureClientAllowed,
-  AUTH_SHAPE,
-} from '../security.js';
-import {
-  READ_ONLY_ANNOTATIONS,
-  LIST_TOOL_OUTPUT_SCHEMA,
-} from './listTools.js';
+import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
+import { READ_ONLY_ANNOTATIONS, LIST_TOOL_OUTPUT_SCHEMA } from './listTools.js';
 import {
   applyGovernanceOrLegacy,
   governedListResult,
@@ -40,10 +32,7 @@ import {
   type GovernedToolResult,
 } from '../governance/pipeline.js';
 import { asRecord, num, listOf } from '../canonical/_shared.js';
-import {
-  mapToCanonicalContact,
-  mapToCanonicalContacts,
-} from '../canonical/contact.js';
+import { mapToCanonicalContact, mapToCanonicalContacts } from '../canonical/contact.js';
 
 /**
  * Extract the raw per-contact source rows from a GetContacts response so the
@@ -61,9 +50,7 @@ const TOOL_VERSION = 'v1';
 /** Standard structured-error result for a recoverable read failure. */
 function errorResult(message: string): GovernedToolResult {
   return {
-    content: [
-      { type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) },
-    ],
+    content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) }],
     isError: true,
   };
 }
@@ -95,17 +82,13 @@ export function registerContactsTools(
       .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
   });
 
-  const handler: ToolCallback<z.ZodRawShape> = (async (
-    rawParams: Record<string, unknown>
-  ) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
     const params = rawParams as z.infer<typeof schema> & { auth_token?: string };
     const log = logger.child();
     const t0 = Date.now();
     try {
-      const authToken =
-        typeof params.auth_token === 'string' ? params.auth_token : undefined;
-      const requestedContract =
-        typeof params.contract === 'string' ? params.contract : undefined;
+      const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+      const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
       const authErr = ensureToolAuth(params as Record<string, unknown>);
       if (authErr) return authErr;
@@ -130,10 +113,7 @@ export function registerContactsTools(
         apiParams.limitnum = params.limit;
       }
 
-      const resp = await whmcs.read<Record<string, unknown>>(
-        'GetContacts',
-        apiParams
-      );
+      const resp = await whmcs.read<Record<string, unknown>>('GetContacts', apiParams);
       const root = asRecord(resp);
       // Same nesting the canonical mapper unwraps (contacts.contact, with a
       // flat `contact` fallback); each raw row is mapped per-row downstream.

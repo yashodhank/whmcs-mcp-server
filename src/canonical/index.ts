@@ -27,16 +27,8 @@ export {
   mapToCanonicalTransactions,
   type CanonicalTransaction,
 } from './transaction.js';
-export {
-  mapToCanonicalService,
-  mapToCanonicalServices,
-  type CanonicalService,
-} from './service.js';
-export {
-  mapToCanonicalDomain,
-  mapToCanonicalDomains,
-  type CanonicalDomain,
-} from './domain.js';
+export { mapToCanonicalService, mapToCanonicalServices, type CanonicalService } from './service.js';
+export { mapToCanonicalDomain, mapToCanonicalDomains, type CanonicalDomain } from './domain.js';
 export {
   mapToCanonicalTicket,
   type CanonicalTicket,
@@ -70,15 +62,8 @@ export {
   mapToCanonicalAutomationLogEntries,
   type CanonicalAutomationLogEntry,
 } from './automationLog.js';
-export {
-  mapToCanonicalSystemStats,
-  type CanonicalSystemStats,
-} from './systemStats.js';
-export {
-  mapToCanonicalServer,
-  mapToCanonicalServers,
-  type CanonicalServer,
-} from './server.js';
+export { mapToCanonicalSystemStats, type CanonicalSystemStats } from './systemStats.js';
+export { mapToCanonicalServer, mapToCanonicalServers, type CanonicalServer } from './server.js';
 export {
   mapToCanonicalTldPricing,
   type CanonicalTldPricing,

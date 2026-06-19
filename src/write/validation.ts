@@ -749,8 +749,7 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
   }
 
   // ── Track C2 validators ───────────────────────────────────────────────────
-  const isPosInt = (v: unknown): boolean =>
-    typeof v === 'number' && Number.isInteger(v) && v > 0;
+  const isPosInt = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v > 0;
 
   const requirePosInt = (key: string, code: string, label: string): void => {
     if (!isPosInt(intent.params[key])) {

@@ -88,11 +88,7 @@ function codeOf(err: unknown): string {
 }
 
 function flagged(err: unknown, key: string): boolean {
-  return (
-    err !== null &&
-    typeof err === 'object' &&
-    (err as Record<string, unknown>)[key] === true
-  );
+  return err !== null && typeof err === 'object' && (err as Record<string, unknown>)[key] === true;
 }
 
 const TIMEOUT_RE = /timed?\s*out|timeout|deadline|etimedout|esockettimedout/i;
@@ -106,10 +102,7 @@ const TRANSPORT_RE =
  * call); explicit flags (`mcpToolError`) and parse-phase syntax errors take
  * precedence so a deterministic failure is never misfiled as transient.
  */
-export function classifyFailure(
-  err: unknown,
-  phase: Phase
-): ClassifiedFailure {
+export function classifyFailure(err: unknown, phase: Phase): ClassifiedFailure {
   const message = messageOf(err);
   const code = codeOf(err);
 
@@ -256,10 +249,7 @@ export interface FailureReport {
  * the gate can classify and explain residual failures instead of silently
  * counting them as success. Never contains a raw value.
  */
-export function buildFailureReport(
-  env: Envelope,
-  detail: FailureDetail
-): FailureReport {
+export function buildFailureReport(env: Envelope, detail: FailureDetail): FailureReport {
   return {
     ok: false,
     failure: { kind: detail.kind, message: detail.message },
@@ -322,11 +312,7 @@ export interface MetricsRollup {
   readonly reliability_pct: number;
 }
 
-function bump(
-  map: Record<string, DimensionCount>,
-  key: string,
-  ok: boolean
-): void {
+function bump(map: Record<string, DimensionCount>, key: string, ok: boolean): void {
   const slot = (map[key] ??= { ok: 0, failed: 0 });
   if (ok) slot.ok += 1;
   else slot.failed += 1;
@@ -339,9 +325,7 @@ function bump(
  * structured failure counts as failed (NOT masked as success), so residual
  * production failures stay visible and classifiable.
  */
-export function aggregateMetrics(
-  outcomes: readonly JobOutcome[]
-): MetricsRollup {
+export function aggregateMetrics(outcomes: readonly JobOutcome[]): MetricsRollup {
   const total = outcomes.length;
   let okCount = 0;
   const byKind: Record<string, number> = {};
@@ -360,8 +344,7 @@ export function aggregateMetrics(
   }
 
   const failed = total - okCount;
-  const reliability =
-    total === 0 ? 0 : Math.round((okCount / total) * 1000) / 10;
+  const reliability = total === 0 ? 0 : Math.round((okCount / total) * 1000) / 10;
 
   return {
     total,

@@ -52,8 +52,24 @@ describe('get_currencies', () => {
       result: 'success',
       currencies: {
         currency: [
-          { id: '1', code: 'USD', prefix: '$', suffix: '', format: '1', rate: '1.00000', default: '1' },
-          { id: '2', code: 'EUR', prefix: '€', suffix: '', format: '2', rate: '0.92000', default: '0' },
+          {
+            id: '1',
+            code: 'USD',
+            prefix: '$',
+            suffix: '',
+            format: '1',
+            rate: '1.00000',
+            default: '1',
+          },
+          {
+            id: '2',
+            code: 'EUR',
+            prefix: '€',
+            suffix: '',
+            format: '2',
+            rate: '0.92000',
+            default: '0',
+          },
         ],
       },
     });

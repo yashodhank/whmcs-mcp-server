@@ -15,16 +15,10 @@ import { mapToCanonicalService } from '../../src/canonical/service.js';
 import { mapToCanonicalTicket } from '../../src/canonical/ticket.js';
 import { mapToCanonicalOrder } from '../../src/canonical/order.js';
 import { mapToCanonicalClient } from '../../src/canonical/client.js';
-import {
-  mapToCanonicalTransaction,
-} from '../../src/canonical/transaction.js';
+import { mapToCanonicalTransaction } from '../../src/canonical/transaction.js';
 import type { FieldClass } from '../../src/governance/types.js';
 
-const PERMISSIVE = new Set<FieldClass>([
-  'business.label',
-  'system.status',
-  'public.safe',
-]);
+const PERMISSIVE = new Set<FieldClass>(['business.label', 'system.status', 'public.safe']);
 
 describe('genuine business labels are business.label', () => {
   it('domain.domain (a domain DISPLAY name) → business.label', () => {
@@ -113,10 +107,9 @@ describe('SAFETY: no pii.* / secret.* field became a more-permissive class', () 
     for (const c of samples) {
       for (const [path, cls] of Object.entries(c.classes)) {
         if (cls.startsWith('pii.') || cls.startsWith('secret.')) {
-          expect(
-            PERMISSIVE.has(cls),
-            `${path} (${cls}) must NOT be a permissive class`
-          ).toBe(false);
+          expect(PERMISSIVE.has(cls), `${path} (${cls}) must NOT be a permissive class`).toBe(
+            false
+          );
         }
       }
     }
@@ -125,15 +118,12 @@ describe('SAFETY: no pii.* / secret.* field became a more-permissive class', () 
   it('no field that should be PII/secret is labelled business.label/system.*', () => {
     for (const c of samples) {
       for (const [path, cls] of Object.entries(c.classes)) {
-        const looksSensitive =
-          /email|phone|password|secret|credential|tax|ssn|token|apikey/i.test(
-            path
-          );
+        const looksSensitive = /email|phone|password|secret|credential|tax|ssn|token|apikey/i.test(
+          path
+        );
         if (looksSensitive) {
           expect(
-            cls === 'business.label' ||
-              cls === 'system.status' ||
-              cls === 'system.diagnostic',
+            cls === 'business.label' || cls === 'system.status' || cls === 'system.diagnostic',
             `${path} (${cls}) is sensitive but got a permissive label`
           ).toBe(false);
         }

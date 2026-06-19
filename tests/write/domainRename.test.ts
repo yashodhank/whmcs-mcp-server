@@ -8,12 +8,7 @@
  * by the shared writeFlow.* suites.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  WRITE_SCOPES,
-  SCOPE_ACTION,
-  SCOPE_RISK,
-  type WriteIntent,
-} from '../../src/write/types.js';
+import { WRITE_SCOPES, SCOPE_ACTION, SCOPE_RISK, type WriteIntent } from '../../src/write/types.js';
 import {
   intentToWhmcsParams,
   mapServiceDomainRenameParams,
@@ -203,22 +198,27 @@ describe('validateIntent: service:domain_rename', () => {
 });
 
 describe('precheckDomainRename (read-only precondition)', () => {
-  const intentFor = (params: Record<string, unknown>): WriteIntent =>
-    intent(params);
-  const readReturning = (product: Record<string, unknown> | undefined) =>
-    () => Promise.resolve({ products: { product: product ? [product] : [] } });
+  const intentFor = (params: Record<string, unknown>): WriteIntent => intent(params);
+  const readReturning = (product: Record<string, unknown> | undefined) => () =>
+    Promise.resolve({ products: { product: product ? [product] : [] } });
 
   it('ok when the service exists and is Active', async () => {
     const whmcs = {
       read: readReturning({ id: 7, domain: 'old.example.com', domainstatus: 'Active' }),
     };
-    const r = await precheckDomainRename(whmcs as never, intentFor({ serviceid: 7, domain: 'new.example.com' }));
+    const r = await precheckDomainRename(
+      whmcs as never,
+      intentFor({ serviceid: 7, domain: 'new.example.com' })
+    );
     expect(r.ok).toBe(true);
   });
 
   it('precondition_mismatch when the service is not found', async () => {
     const whmcs = { read: readReturning(undefined) };
-    const r = await precheckDomainRename(whmcs as never, intentFor({ serviceid: 7, domain: 'new.example.com' }));
+    const r = await precheckDomainRename(
+      whmcs as never,
+      intentFor({ serviceid: 7, domain: 'new.example.com' })
+    );
     expect(r).toEqual({ ok: false, reason: 'precondition_mismatch' });
   });
 
@@ -226,7 +226,10 @@ describe('precheckDomainRename (read-only precondition)', () => {
     const whmcs = {
       read: readReturning({ id: 7, domain: 'old.example.com', domainstatus: 'Terminated' }),
     };
-    const r = await precheckDomainRename(whmcs as never, intentFor({ serviceid: 7, domain: 'new.example.com' }));
+    const r = await precheckDomainRename(
+      whmcs as never,
+      intentFor({ serviceid: 7, domain: 'new.example.com' })
+    );
     expect(r).toEqual({ ok: false, reason: 'precondition_mismatch' });
   });
 
@@ -236,7 +239,11 @@ describe('precheckDomainRename (read-only precondition)', () => {
     };
     const r = await precheckDomainRename(
       whmcs as never,
-      intentFor({ serviceid: 7, domain: 'new.example.com', expected_old_domain: 'WRONG.example.com' })
+      intentFor({
+        serviceid: 7,
+        domain: 'new.example.com',
+        expected_old_domain: 'WRONG.example.com',
+      })
     );
     expect(r).toEqual({ ok: false, reason: 'precondition_mismatch' });
   });
@@ -247,14 +254,21 @@ describe('precheckDomainRename (read-only precondition)', () => {
     };
     const r = await precheckDomainRename(
       whmcs as never,
-      intentFor({ serviceid: 7, domain: 'new.example.com', expected_old_domain: 'OLD.Example.COM.' })
+      intentFor({
+        serviceid: 7,
+        domain: 'new.example.com',
+        expected_old_domain: 'OLD.Example.COM.',
+      })
     );
     expect(r.ok).toBe(true);
   });
 
   it('precondition_mismatch when the read throws', async () => {
     const whmcs = { read: () => Promise.reject(new Error('boom')) };
-    const r = await precheckDomainRename(whmcs as never, intentFor({ serviceid: 7, domain: 'new.example.com' }));
+    const r = await precheckDomainRename(
+      whmcs as never,
+      intentFor({ serviceid: 7, domain: 'new.example.com' })
+    );
     expect(r).toEqual({ ok: false, reason: 'precondition_mismatch' });
   });
 });

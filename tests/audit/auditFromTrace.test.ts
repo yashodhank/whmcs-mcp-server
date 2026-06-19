@@ -10,10 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  auditFromTrace,
-  redactedReport,
-} from '../../src/audit/exposureAudit.js';
+import { auditFromTrace, redactedReport } from '../../src/audit/exposureAudit.js';
 import type { AuditTraceRecord } from '../../src/governance/auditTrace.js';
 
 function rec(p: Partial<AuditTraceRecord>): AuditTraceRecord {

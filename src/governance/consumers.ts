@@ -102,39 +102,37 @@ const consumerEntrySchema = z
     }
   });
 
-const consumerRegistrySchema = z
-  .array(consumerEntrySchema)
-  .superRefine((entries, ctx) => {
-    const seenIds = new Set<string>();
-    const seenHashes = new Set<string>();
-    let anonCount = 0;
-    entries.forEach((entry, index) => {
-      if (seenIds.has(entry.id)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index, 'id'],
-          message: `duplicate consumer id '${entry.id}'`,
-        });
-      }
-      seenIds.add(entry.id);
-      if (seenHashes.has(entry.token_sha256)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index, 'token_sha256'],
-          message: 'duplicate token_sha256 across consumers',
-        });
-      }
-      seenHashes.add(entry.token_sha256);
-      if (entry.anonymous) anonCount += 1;
-    });
-    if (anonCount > 1) {
+const consumerRegistrySchema = z.array(consumerEntrySchema).superRefine((entries, ctx) => {
+  const seenIds = new Set<string>();
+  const seenHashes = new Set<string>();
+  let anonCount = 0;
+  entries.forEach((entry, index) => {
+    if (seenIds.has(entry.id)) {
       ctx.addIssue({
         code: 'custom',
-        path: [],
-        message: 'at most one anonymous consumer entry is permitted',
+        path: [index, 'id'],
+        message: `duplicate consumer id '${entry.id}'`,
       });
     }
+    seenIds.add(entry.id);
+    if (seenHashes.has(entry.token_sha256)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [index, 'token_sha256'],
+        message: 'duplicate token_sha256 across consumers',
+      });
+    }
+    seenHashes.add(entry.token_sha256);
+    if (entry.anonymous) anonCount += 1;
   });
+  if (anonCount > 1) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'at most one anonymous consumer entry is permitted',
+    });
+  }
+});
 
 type ConsumerEntry = z.infer<typeof consumerEntrySchema>;
 
@@ -270,9 +268,7 @@ export function loadConsumerRegistry(env: NodeJS.ProcessEnv): ConsumerProfile[] 
     const detail = result.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
-    throw new ConsumerRegistryError(
-      `${CONSUMER_REGISTRY_ENV} failed validation:\n${detail}`
-    );
+    throw new ConsumerRegistryError(`${CONSUMER_REGISTRY_ENV} failed validation:\n${detail}`);
   }
 
   return result.data.map(toProfile);
@@ -348,9 +344,7 @@ export function resolveConsumer(
 
   if (hasToken) {
     const hash = hashToken(token);
-    const match = registry.find(
-      (p) => isLoadedProfile(p) && p.tokenSha256 === hash
-    );
+    const match = registry.find((p) => isLoadedProfile(p) && p.tokenSha256 === hash);
     if (match) {
       if (envForbidden(match, env)) {
         return deny('env_forbidden');

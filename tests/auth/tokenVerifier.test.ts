@@ -227,13 +227,13 @@ describe('createTokenVerifier', () => {
 
   it('throws when configured with no issuers', () => {
     expect(() =>
-      createTokenVerifier({ issuers: [], audience: AUDIENCE, jwksResolver: localResolver }),
+      createTokenVerifier({ issuers: [], audience: AUDIENCE, jwksResolver: localResolver })
     ).toThrow(/issuers/);
   });
 
   it('throws when configured with an empty audience', () => {
     expect(() =>
-      createTokenVerifier({ issuers: [ISSUER], audience: '', jwksResolver: localResolver }),
+      createTokenVerifier({ issuers: [ISSUER], audience: '', jwksResolver: localResolver })
     ).toThrow(/audience/);
   });
 });

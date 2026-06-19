@@ -1,6 +1,6 @@
 /**
  * WHMCS MCP Server Entry Point
- * 
+ *
  * A production-ready Model Context Protocol (MCP) server for WHMCS administration.
  * Supports AI agents (via Cursor or other MCP hosts) to manage WHMCS installations.
  */
@@ -123,12 +123,12 @@ async function main(): Promise<void> {
     rateLimit: config.MCP_RATE_LIMIT,
     maxPageSize: config.MCP_MAX_PAGE_SIZE,
     accessMode: config.MCP_ACCESS_MODE,
-    allowedClientIds: config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS : 'not set',
+    allowedClientIds:
+      config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS : 'not set',
     authEnabled: !!config.MCP_AUTH_TOKEN,
     transport: config.MCP_TRANSPORT,
-    toolAllowlist: config.MCP_TOOL_ALLOWLIST.length > 0
-      ? config.MCP_TOOL_ALLOWLIST
-      : 'all tools enabled',
+    toolAllowlist:
+      config.MCP_TOOL_ALLOWLIST.length > 0 ? config.MCP_TOOL_ALLOWLIST : 'all tools enabled',
   });
 
   // Initialize rate limiter
@@ -189,14 +189,20 @@ function gracefulShutdown(signal: string): void {
   }
   if (httpServerHandle) {
     // Best-effort: close listeners + active transports, then exit.
-    void httpServerHandle.close().finally(() => { process.exit(0); });
+    void httpServerHandle.close().finally(() => {
+      process.exit(0);
+    });
     return;
   }
   process.exit(0);
 }
 
-process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
-process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
+process.on('SIGTERM', () => {
+  gracefulShutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+  gracefulShutdown('SIGINT');
+});
 
 // Start the server
 main().catch((error: unknown) => {

@@ -61,16 +61,10 @@ function mapOne(src: Record<string, unknown>): CanonicalServer {
     disabled: bool(src, 'disabled') ?? null,
     type: str(src, 'type') ?? str(src, 'servertype') ?? null,
     module: str(src, 'module') ?? null,
-    maxAccounts:
-      num(src, 'maxallowedaccounts') ?? num(src, 'maxaccounts') ?? null,
-    activeServices:
-      num(src, 'activeservices') ?? num(src, 'noofactiveaccounts') ?? null,
+    maxAccounts: num(src, 'maxallowedaccounts') ?? num(src, 'maxaccounts') ?? null,
+    activeServices: num(src, 'activeservices') ?? num(src, 'noofactiveaccounts') ?? null,
     // WHMCS reports load variously; accept several documented spellings.
-    loadPercent:
-      num(src, 'percentused') ??
-      num(src, 'loadpercent') ??
-      num(src, 'load') ??
-      null,
+    loadPercent: num(src, 'percentused') ?? num(src, 'loadpercent') ?? num(src, 'load') ?? null,
     statusText: str(src, 'statusmsg') ?? str(src, 'status') ?? null,
   };
 }
@@ -79,9 +73,7 @@ export function mapToCanonicalServer(raw: unknown): Canonical<CanonicalServer> {
   return { entity: 'server', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalServers(
-  raw: unknown
-): Canonical<CanonicalServer>[] {
+export function mapToCanonicalServers(raw: unknown): Canonical<CanonicalServer>[] {
   const src = asRecord(raw);
   // GetServers nests under servers.server (defensive: single object too).
   // Some builds flatten to a top-level `server` key — accept that too, but

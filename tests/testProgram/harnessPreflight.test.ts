@@ -51,10 +51,7 @@ interface ToolNameFail {
 type ToolNameResult = ToolNameOk | ToolNameFail;
 
 const mod = (await import('../../scripts/lib/harnessPreflight.mjs')) as {
-  validateToolNames: (
-    requested: readonly string[],
-    live: readonly string[]
-  ) => ToolNameResult;
+  validateToolNames: (requested: readonly string[], live: readonly string[]) => ToolNameResult;
   governancePreflight: (env: Record<string, string | undefined>) => PreflightResult;
 };
 const { validateToolNames, governancePreflight } = mod;

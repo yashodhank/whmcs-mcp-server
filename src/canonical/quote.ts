@@ -79,9 +79,7 @@ export function mapToCanonicalQuote(raw: unknown): Canonical<CanonicalQuote> {
   return { entity: 'invoice', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalQuotes(
-  raw: unknown
-): Canonical<CanonicalQuote>[] {
+export function mapToCanonicalQuotes(raw: unknown): Canonical<CanonicalQuote>[] {
   const src = asRecord(raw);
   return listOf(src.quotes, 'quote').map((r) => ({
     entity: 'invoice' as const,

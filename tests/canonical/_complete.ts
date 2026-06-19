@@ -38,10 +38,6 @@ function leafPaths(value: unknown, prefix: string, out: Set<string>): void {
 export function assertClassmapComplete(c: Canonical<unknown>): void {
   const paths = new Set<string>();
   leafPaths(c.data, '', paths);
-  const missing = [...paths].filter(
-    (p) => p !== '' && !(p in c.classes)
-  );
-  expect(missing, `unclassified data paths: ${missing.join(', ')}`).toEqual(
-    []
-  );
+  const missing = [...paths].filter((p) => p !== '' && !(p in c.classes));
+  expect(missing, `unclassified data paths: ${missing.join(', ')}`).toEqual([]);
 }

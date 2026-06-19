@@ -169,12 +169,7 @@ export class IdempotencyLedger {
     return entry;
   }
 
-  private persist(
-    file: string,
-    key: string,
-    expiresAt: number,
-    replay?: PersistedReplay
-  ): void {
+  private persist(file: string, key: string, expiresAt: number, replay?: PersistedReplay): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const fd = fs.openSync(file, 'a');
     try {

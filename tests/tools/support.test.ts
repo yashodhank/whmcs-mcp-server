@@ -1,6 +1,6 @@
 /**
  * Unit tests for support/ticketing tools
- * 
+ *
  * Tests: create_ticket, reply_ticket, get_ticket_departments
  */
 
@@ -30,7 +30,7 @@ describe('Support Tools', () => {
   describe('create_ticket', () => {
     it('should validate ticket creation parameters', () => {
       const { z } = require('zod');
-      
+
       const createTicketSchema = z.object({
         deptid: z.number().int().positive(),
         subject: z.string().min(1, 'Subject is required'),
@@ -52,43 +52,51 @@ describe('Support Tools', () => {
       expect(minimalResult.data?.markdown).toBe(true);
 
       // With all options
-      expect(createTicketSchema.safeParse({
-        deptid: 2,
-        subject: 'Urgent Issue',
-        message: 'Please help!',
-        clientid: 123,
-        priority: 'High',
-        markdown: false,
-        related_service_id: 456,
-      }).success).toBe(true);
+      expect(
+        createTicketSchema.safeParse({
+          deptid: 2,
+          subject: 'Urgent Issue',
+          message: 'Please help!',
+          clientid: 123,
+          priority: 'High',
+          markdown: false,
+          related_service_id: 456,
+        }).success
+      ).toBe(true);
 
       // Missing subject
-      expect(createTicketSchema.safeParse({
-        deptid: 1,
-        message: 'No subject',
-      }).success).toBe(false);
+      expect(
+        createTicketSchema.safeParse({
+          deptid: 1,
+          message: 'No subject',
+        }).success
+      ).toBe(false);
 
       // Empty message
-      expect(createTicketSchema.safeParse({
-        deptid: 1,
-        subject: 'Test',
-        message: '',
-      }).success).toBe(false);
+      expect(
+        createTicketSchema.safeParse({
+          deptid: 1,
+          subject: 'Test',
+          message: '',
+        }).success
+      ).toBe(false);
 
       // Invalid priority
-      expect(createTicketSchema.safeParse({
-        deptid: 1,
-        subject: 'Test',
-        message: 'Test',
-        priority: 'Urgent', // Not a valid enum value
-      }).success).toBe(false);
+      expect(
+        createTicketSchema.safeParse({
+          deptid: 1,
+          subject: 'Test',
+          message: 'Test',
+          priority: 'Urgent', // Not a valid enum value
+        }).success
+      ).toBe(false);
     });
   });
 
   describe('reply_ticket', () => {
     it('should validate reply parameters', () => {
       const { z } = require('zod');
-      
+
       const replyTicketSchema = z.object({
         ticketid: z.number().int().positive(),
         message: z.string().min(1, 'Message is required'),
@@ -97,41 +105,51 @@ describe('Support Tools', () => {
       });
 
       // Client reply
-      expect(replyTicketSchema.safeParse({
-        ticketid: 100,
-        message: 'Thank you for your response',
-        type: 'Client',
-      }).success).toBe(true);
+      expect(
+        replyTicketSchema.safeParse({
+          ticketid: 100,
+          message: 'Thank you for your response',
+          type: 'Client',
+        }).success
+      ).toBe(true);
 
       // Admin note
-      expect(replyTicketSchema.safeParse({
-        ticketid: 100,
-        message: 'Internal note for team',
-        type: 'AdminNote',
-      }).success).toBe(true);
+      expect(
+        replyTicketSchema.safeParse({
+          ticketid: 100,
+          message: 'Internal note for team',
+          type: 'AdminNote',
+        }).success
+      ).toBe(true);
 
       // Admin public reply with status change
-      expect(replyTicketSchema.safeParse({
-        ticketid: 100,
-        message: 'Issue resolved',
-        type: 'AdminPublic',
-        status_after_reply: 'Closed',
-      }).success).toBe(true);
+      expect(
+        replyTicketSchema.safeParse({
+          ticketid: 100,
+          message: 'Issue resolved',
+          type: 'AdminPublic',
+          status_after_reply: 'Closed',
+        }).success
+      ).toBe(true);
 
       // Invalid type
-      expect(replyTicketSchema.safeParse({
-        ticketid: 100,
-        message: 'Test',
-        type: 'Unknown',
-      }).success).toBe(false);
+      expect(
+        replyTicketSchema.safeParse({
+          ticketid: 100,
+          message: 'Test',
+          type: 'Unknown',
+        }).success
+      ).toBe(false);
 
       // Invalid status
-      expect(replyTicketSchema.safeParse({
-        ticketid: 100,
-        message: 'Test',
-        type: 'Client',
-        status_after_reply: 'Pending', // Not a valid status
-      }).success).toBe(false);
+      expect(
+        replyTicketSchema.safeParse({
+          ticketid: 100,
+          message: 'Test',
+          type: 'Client',
+          status_after_reply: 'Pending', // Not a valid status
+        }).success
+      ).toBe(false);
     });
 
     it('should determine correct API action based on type', () => {
@@ -153,7 +171,7 @@ describe('Support Tools', () => {
   describe('get_ticket_departments', () => {
     it('should have no required input parameters', () => {
       const { z } = require('zod');
-      
+
       // The schema is essentially empty object
       const getDepartmentsSchema = z.object({});
 
@@ -280,7 +298,13 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
       totalresults: 2,
       departments: {
         department: [
-          { id: 1, name: 'Technical Support', description: 'Tech', awaitingreply: 5, opentickets: 12 },
+          {
+            id: 1,
+            name: 'Technical Support',
+            description: 'Tech',
+            awaitingreply: 5,
+            opentickets: 12,
+          },
           { id: 2, name: 'Billing', description: 'Money', awaitingreply: 0, opentickets: 3 },
         ],
       },
@@ -310,7 +334,13 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
     const expectedText = JSON.stringify({
       total: 2,
       departments: [
-        { id: 1, name: 'Technical Support', description: 'Tech', awaiting_reply: 5, open_tickets: 12 },
+        {
+          id: 1,
+          name: 'Technical Support',
+          description: 'Tech',
+          awaiting_reply: 5,
+          open_tickets: 12,
+        },
         { id: 2, name: 'Billing', description: 'Money', awaiting_reply: 0, open_tickets: 3 },
       ],
     });
@@ -320,7 +350,9 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
 
   it('empty department list ⇒ schema-valid { total:0, departments:[] }', async () => {
     const h = depsHarness();
-    const read = vi.fn().mockResolvedValue({ result: 'success', totalresults: 0, departments: { department: [] } });
+    const read = vi
+      .fn()
+      .mockResolvedValue({ result: 'success', totalresults: 0, departments: { department: [] } });
     registerSupportTools(h.server as any, { read } as any, h.logger, h.rateLimiter);
 
     const res = await h.handlers.get_ticket_departments({});
@@ -358,7 +390,11 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
     const h = depsHarness();
     const read = vi.fn().mockResolvedValue({
       totalresults: 1,
-      departments: { department: [{ id: 1, name: 'Support', description: 'd', awaitingreply: 2, opentickets: 4 }] },
+      departments: {
+        department: [
+          { id: 1, name: 'Support', description: 'd', awaitingreply: 2, opentickets: 4 },
+        ],
+      },
     });
     registerSupportTools(h.server as any, { read } as any, h.logger, h.rateLimiter);
 
@@ -368,7 +404,9 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
 
     const expectedText = JSON.stringify({
       total: 1,
-      departments: [{ id: 1, name: 'Support', description: 'd', awaiting_reply: 2, open_tickets: 4 }],
+      departments: [
+        { id: 1, name: 'Support', description: 'd', awaiting_reply: 2, open_tickets: 4 },
+      ],
     });
     expect(res.content[0].text).toBe(expectedText);
     expect(res.structuredContent).toEqual(JSON.parse(expectedText));
@@ -383,7 +421,9 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
     const h = depsHarness();
     const read = vi.fn().mockResolvedValue({
       totalresults: 1,
-      departments: { department: [{ id: 9, name: 'Abuse', description: 'a', awaitingreply: 1, opentickets: 2 }] },
+      departments: {
+        department: [{ id: 9, name: 'Abuse', description: 'a', awaitingreply: 1, opentickets: 2 }],
+      },
     });
     registerSupportTools(h.server as any, { read } as any, h.logger, h.rateLimiter);
 
@@ -413,6 +453,8 @@ describe('get_ticket_departments — outputSchema + structuredContent contract',
     registerSupportTools(h.server as any, { read } as any, h.logger, h.rateLimiter);
     const res = await h.handlers.get_ticket_departments({});
     const config = h.configs.get_ticket_departments;
-    expect(z.object(config.outputSchema as z.ZodRawShape).safeParse(res.structuredContent).success).toBe(true);
+    expect(
+      z.object(config.outputSchema as z.ZodRawShape).safeParse(res.structuredContent).success
+    ).toBe(true);
   });
 });

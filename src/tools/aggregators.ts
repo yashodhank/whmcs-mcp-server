@@ -23,14 +23,8 @@ import {
   governanceEnabled,
 } from '../governance/pipeline.js';
 import type { Canonical, FieldClass, FieldClassMap } from '../governance/types.js';
-import {
-  mapToCanonicalTransactions,
-  type CanonicalTransaction,
-} from '../canonical/transaction.js';
-import {
-  mapToCanonicalCreditNotes,
-  type CanonicalCreditNote,
-} from '../canonical/creditNote.js';
+import { mapToCanonicalTransactions, type CanonicalTransaction } from '../canonical/transaction.js';
+import { mapToCanonicalCreditNotes, type CanonicalCreditNote } from '../canonical/creditNote.js';
 import { asRecord, isRecord, num, str } from '../canonical/_shared.js';
 import { mapToCanonicalTldPricing } from '../canonical/tldPricing.js';
 
@@ -238,10 +232,7 @@ export interface ReconMatching {
  * invoice list. Preserves the financial references needed for matching;
  * derives duplicate-risk, unmatched, and unpaid-with-recent-payment signals.
  */
-export function reconcile(
-  txns: ReconTransaction[],
-  invoices: InvoiceLite[]
-): ReconMatching {
+export function reconcile(txns: ReconTransaction[], invoices: InvoiceLite[]): ReconMatching {
   const invoiceIds = new Set<number>();
   const invoiceById = new Map<number, InvoiceLite>();
   for (const inv of invoices) {
@@ -303,9 +294,7 @@ export function reconcile(
     const inv = invoiceById.get(id);
     if (!inv) continue;
     const status =
-      typeof inv.status === 'string' || typeof inv.status === 'number'
-        ? String(inv.status)
-        : '';
+      typeof inv.status === 'string' || typeof inv.status === 'number' ? String(inv.status) : '';
     if (!/^(unpaid|overdue)$/i.test(status)) continue;
     const recentPayers = txns.filter((t) => {
       if (t.invoiceId !== id) return false;
@@ -356,9 +345,7 @@ function ledgerAdjustmentsSection(): Record<string, unknown> {
   // Keep the canonical credit-note mapper referenced (wired-ready). Mapping
   // an empty representation yields zero canonical notes — proving the path
   // is connected WITHOUT inventing any data.
-  const wiredReady: CanonicalCreditNote[] = mapToCanonicalCreditNotes({}).map(
-    (c) => c.data
-  );
+  const wiredReady: CanonicalCreditNote[] = mapToCanonicalCreditNotes({}).map((c) => c.data);
   return {
     capability: 'whmcs9_credit_debit_notes',
     status: 'capability_unavailable' as const,
@@ -443,9 +430,7 @@ const AGGREGATOR_OUTPUT_SHAPE = {
  * governance-OFF legacy payloads are heterogeneous; strict MCP runtimes
  * (Kilo) otherwise reject extras with -32602.
  */
-const AGGREGATOR_OUTPUT_SCHEMA = z
-  .object(AGGREGATOR_OUTPUT_SHAPE)
-  .catchall(z.unknown());
+const AGGREGATOR_OUTPUT_SCHEMA = z.object(AGGREGATOR_OUTPUT_SHAPE).catchall(z.unknown());
 
 interface PartialError {
   section: string;
@@ -579,10 +564,7 @@ async function safeSection<T>(
  * tolerating both wrapped and bare shapes.
  */
 function norm<T>(container: unknown, singular: string): T[] {
-  const inner =
-    isRecord(container) && singular in container
-      ? container[singular]
-      : container;
+  const inner = isRecord(container) && singular in container ? container[singular] : container;
   return normalizeToArray<T>(inner);
 }
 
@@ -634,20 +616,11 @@ export function classifyAggregateKey(key: string): FieldClass {
   // Capability / partial-error PRESENCE, truncated/composed/bounded flags,
   // counts, risk roll-ups, ledger-adjustment status marker — operational
   // STATUS only (no PII, no raw refs) ⇒ safe in every contract.
-  if (
-    k === 'counts' ||
-    k === 'risk' ||
-    k === 'truncated' ||
-    k === 'ledger_adjustments'
-  ) {
+  if (k === 'counts' || k === 'risk' || k === 'truncated' || k === 'ledger_adjustments') {
     return 'system.status';
   }
   // Source-id arrays so a consumer can re-fetch by id.
-  if (
-    k === 'source_invoice_ids' ||
-    k === 'source_transaction_ids' ||
-    k === 'source_service_ids'
-  ) {
+  if (k === 'source_invoice_ids' || k === 'source_transaction_ids' || k === 'source_service_ids') {
     return 'business.identifier';
   }
   // Non-sensitive business DISPLAY labels: the WHMCS-9 notice, the
@@ -668,9 +641,7 @@ export function classifyAggregateKey(key: string): FieldClass {
     return 'untrusted.free_text';
   }
   if (
-    /amount|balance|credit|total|paid|unpaid|overdue|refund|cancel|draft|recurring|currency/.test(
-      k
-    )
+    /amount|balance|credit|total|paid|unpaid|overdue|refund|cancel|draft|recurring|currency/.test(k)
   ) {
     return 'financial.amount';
   }
@@ -722,10 +693,7 @@ function classifyAggregateTree(
   }
 }
 
-function aggregateCanonical(
-  entity: string,
-  payload: Record<string, unknown>
-): Canonical<unknown> {
+function aggregateCanonical(entity: string, payload: Record<string, unknown>): Canonical<unknown> {
   void entity;
   const classes: Record<string, FieldClass> = {};
   classifyAggregateTree(payload, '', classes);
@@ -754,10 +722,7 @@ function register(
   // forwarded so a `run` callback can emit MCP progress notifications. It is
   // OPTIONAL: existing aggregators that ignore it are unaffected (backward
   // compatible — they simply never read the 2nd arg).
-  run: (
-    params: Record<string, unknown>,
-    extra?: ProgressExtra
-  ) => Promise<unknown>
+  run: (params: Record<string, unknown>, extra?: ProgressExtra) => Promise<unknown>
 ): void {
   if (!isToolAllowed(name)) return;
   const schema = z.object({
@@ -782,10 +747,8 @@ function register(
     try {
       // Capture the bearer token + requested contract before
       // ensureToolAuth strips auth fields from params.
-      const authToken =
-        typeof params.auth_token === 'string' ? params.auth_token : undefined;
-      const requestedContract =
-        typeof params.contract === 'string' ? params.contract : undefined;
+      const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+      const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
       const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
@@ -809,21 +772,13 @@ function register(
         legacy: payload,
         govern: () =>
           governedToolResult({
-            canonical: aggregateCanonical(
-              name,
-              payload as Record<string, unknown>
-            ),
+            canonical: aggregateCanonical(name, payload as Record<string, unknown>),
             authToken,
             requestedContract,
           }),
       });
     } catch (e) {
-      log.logToolResult(
-        name,
-        false,
-        Date.now() - t0,
-        e instanceof Error ? e.message : String(e)
-      );
+      log.logToolResult(name, false, Date.now() - t0, e instanceof Error ? e.message : String(e));
       if (e instanceof RateLimitError) {
         return {
           content: [
@@ -886,14 +841,24 @@ export function registerAggregatorTools(
       const st = asRecord(cd.stats);
       const services = await safeSection('services', errs, [], async () =>
         norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetClientsProducts', { clientid: cid, limitnum: n })).products,
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+              clientid: cid,
+              limitnum: n,
+            })
+          ).products,
           'product'
         ).map(mapServiceRow)
       );
       progress.section('services');
       const domains = await safeSection('domains', errs, [], async () =>
         norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetClientsDomains', { clientid: cid, limitnum: n })).domains,
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsDomains', {
+              clientid: cid,
+              limitnum: n,
+            })
+          ).domains,
           'domain'
         ).map(mapDomainRow)
       );
@@ -914,7 +879,8 @@ export function registerAggregatorTools(
       progress.section('invoices');
       const orders = await safeSection('orders', errs, [], async () =>
         norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetOrders', { userid: cid, limitnum: 25 })).orders,
+          (await whmcs.read<Record<string, unknown>>('GetOrders', { userid: cid, limitnum: 25 }))
+            .orders,
           'order'
         )
           .map(mapOrderRow)
@@ -924,7 +890,8 @@ export function registerAggregatorTools(
       progress.section('orders');
       const tickets = await safeSection('tickets', errs, [], async () =>
         norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
+          (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 }))
+            .tickets,
           'ticket'
         )
           .map(mapTicketRow)
@@ -980,31 +947,31 @@ export function registerAggregatorTools(
       const st = asRecord(cd.stats);
       const recent_unpaid = await safeSection('unpaid', errs, [], async () =>
         norm<WhmcsRow>(
-            (
-              await whmcs.read<Record<string, unknown>>('GetInvoices', {
-                userid: cid,
-                status: 'Unpaid',
-                limitnum: 5,
-                orderby: 'duedate',
-                order: 'desc',
-              })
-            ).invoices,
-            'invoice'
-          ).map(mapInvoiceBillingRow)
+          (
+            await whmcs.read<Record<string, unknown>>('GetInvoices', {
+              userid: cid,
+              status: 'Unpaid',
+              limitnum: 5,
+              orderby: 'duedate',
+              order: 'desc',
+            })
+          ).invoices,
+          'invoice'
+        ).map(mapInvoiceBillingRow)
       );
       const recent_overdue = await safeSection('overdue', errs, [], async () =>
         norm<WhmcsRow>(
-            (
-              await whmcs.read<Record<string, unknown>>('GetInvoices', {
-                userid: cid,
-                status: 'Overdue',
-                limitnum: 5,
-                orderby: 'duedate',
-                order: 'desc',
-              })
-            ).invoices,
-            'invoice'
-          ).map(mapInvoiceBillingRow)
+          (
+            await whmcs.read<Record<string, unknown>>('GetInvoices', {
+              userid: cid,
+              status: 'Overdue',
+              limitnum: 5,
+              orderby: 'duedate',
+              order: 'desc',
+            })
+          ).invoices,
+          'invoice'
+        ).map(mapInvoiceBillingRow)
       );
       return {
         currency: str(cd, 'currency_code'),
@@ -1054,7 +1021,8 @@ export function registerAggregatorTools(
       );
       const items = await safeSection('tickets', errs, [], async () =>
         norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 })).tickets,
+          (await whmcs.read<Record<string, unknown>>('GetTickets', { clientid: cid, limitnum: 25 }))
+            .tickets,
           'ticket'
         )
           .map(mapTicketRow)
@@ -1081,9 +1049,7 @@ export function registerAggregatorTools(
       const errs: PartialError[] = [];
       const cid = requireClientId(params);
       const windowDays = num(params, 'days') ?? 60;
-      const horizon = new Date(Date.now() + windowDays * 86400000)
-        .toISOString()
-        .slice(0, 10);
+      const horizon = new Date(Date.now() + windowDays * 86400000).toISOString().slice(0, 10);
       const inWindow = (d?: string) =>
         !!d &&
         /^\d{4}-\d{2}-\d{2}/.test(d) &&
@@ -1092,8 +1058,12 @@ export function registerAggregatorTools(
       const truncated = { services: false, domains: false };
       const svc = await safeSection('services', errs, [], async () => {
         const raw = norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetClientsProducts', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
-            .products,
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+              clientid: cid,
+              limitnum: RENEWAL_FETCH_LIMIT,
+            })
+          ).products,
           'product'
         );
         truncated.services = raw.length >= RENEWAL_FETCH_LIMIT;
@@ -1110,8 +1080,12 @@ export function registerAggregatorTools(
       });
       const dom = await safeSection('domains', errs, [], async () => {
         const raw = norm<WhmcsRow>(
-          (await whmcs.read<Record<string, unknown>>('GetClientsDomains', { clientid: cid, limitnum: RENEWAL_FETCH_LIMIT }))
-            .domains,
+          (
+            await whmcs.read<Record<string, unknown>>('GetClientsDomains', {
+              clientid: cid,
+              limitnum: RENEWAL_FETCH_LIMIT,
+            })
+          ).domains,
           'domain'
         );
         truncated.domains = raw.length >= RENEWAL_FETCH_LIMIT;
@@ -1167,9 +1141,7 @@ export function registerAggregatorTools(
         return { map, currency: canon.data.currencyCode };
       });
       // Longest matching TLD suffix (so example.co.uk prefers .co.uk over .uk).
-      const tldKeys = pricing
-        ? [...pricing.map.keys()].sort((a, b) => b.length - a.length)
-        : [];
+      const tldKeys = pricing ? [...pricing.map.keys()].sort((a, b) => b.length - a.length) : [];
       const renewalCostFor = (domainName: string): number | null => {
         if (!pricing) return null;
         const lower = domainName.toLowerCase();
@@ -1435,8 +1407,7 @@ export function registerAggregatorTools(
       // Sections: invoices always; transactions only when GetTransactions is
       // supported (composed path). Size the total accordingly up-front so the
       // final progress always equals total.
-      const txnSupported =
-        getCapability('GetTransactions').status === 'supported';
+      const txnSupported = getCapability('GetTransactions').status === 'supported';
       const progress = new AggregatorProgress(txnSupported ? 2 : 1, extra);
       const invoices = await safeSection('invoices', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
@@ -1480,15 +1451,12 @@ export function registerAggregatorTools(
         rows: ReconTransaction[];
         bounded: boolean;
       }>('transactions', errs, { rows: [], bounded: false }, async () => {
-        const r = await whmcs.read<Record<string, unknown>>(
-          'GetTransactions',
-          {
-            // Per-client filter — the snapshot is per-client. WHMCS
-            // GetTransactions supports clientid/invoiceid/transid filters.
-            clientid: cid,
-            limitnum: RECON_TX_FETCH_LIMIT,
-          }
-        );
+        const r = await whmcs.read<Record<string, unknown>>('GetTransactions', {
+          // Per-client filter — the snapshot is per-client. WHMCS
+          // GetTransactions supports clientid/invoiceid/transid filters.
+          clientid: cid,
+          limitnum: RECON_TX_FETCH_LIMIT,
+        });
         const canon = mapToCanonicalTransactions(r);
         return {
           rows: canon.map((c) => ({
@@ -1616,10 +1584,7 @@ export function registerAggregatorTools(
             status: str(s, 'status'),
           }));
       });
-      const overdueBalance = overdue.reduce(
-        (sum, i) => sum + (Number(i.balance ?? 0) || 0),
-        0
-      );
+      const overdueBalance = overdue.reduce((sum, i) => sum + (Number(i.balance ?? 0) || 0), 0);
       return {
         clientid: cid,
         risk: {
@@ -1653,13 +1618,11 @@ export function registerAggregatorTools(
         errs,
         null,
         async () => {
-          const r = await whmcs.read<Record<string, unknown>>(
-            'GetClientsProducts',
-            { clientid: cid, serviceid: sid }
-          );
-          const row = norm<WhmcsRow>(r.products, 'product').find(
-            (p) => num(p, 'id') === sid
-          );
+          const r = await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+            clientid: cid,
+            serviceid: sid,
+          });
+          const row = norm<WhmcsRow>(r.products, 'product').find((p) => num(p, 'id') === sid);
           if (!row) return null;
           return {
             id: num(row, 'id'),
@@ -1684,10 +1647,7 @@ export function registerAggregatorTools(
             const direct = num(o, 'serviceid');
             if (direct !== undefined) return direct === sid;
             // Fall back to scanning a nested line-item container if present.
-            const lines = norm<WhmcsRow>(
-              (o as Record<string, unknown>).lineitems,
-              'lineitem'
-            );
+            const lines = norm<WhmcsRow>((o as Record<string, unknown>).lineitems, 'lineitem');
             return lines.some((li) => num(li, 'relid') === sid);
           })
           .map(mapOrderRow);
@@ -1714,9 +1674,7 @@ export function registerAggregatorTools(
       const cid = requireClientId(params);
       const windowDays = num(params, 'days') ?? 90;
       const errs: PartialError[] = [];
-      const since = new Date(Date.now() - windowDays * 86400000)
-        .toISOString()
-        .slice(0, 10);
+      const since = new Date(Date.now() - windowDays * 86400000).toISOString().slice(0, 10);
       const inWindow = (d: string | null): boolean =>
         !!d && /^\d{4}-\d{2}-\d{2}/.test(d) && d.slice(0, 10) >= since;
 
@@ -1755,34 +1713,29 @@ export function registerAggregatorTools(
           count: number;
           total_in: number;
           total_out: number;
-        }>(
-          'transactions',
-          errs,
-          { count: 0, total_in: 0, total_out: 0 },
-          async () => {
-            const r = await whmcs.read<Record<string, unknown>>(
-              'GetTransactions',
-              { clientid: cid, limitnum: RECON_TX_FETCH_LIMIT }
-            );
-            const canon = mapToCanonicalTransactions(r);
-            let totalIn = 0;
-            let totalOut = 0;
-            let count = 0;
-            for (const c of canon) {
-              const t = c.data;
-              const dt = inWindow(t.date);
-              if (!dt) continue;
-              count += 1;
-              if (typeof t.amountIn === 'number') totalIn += t.amountIn;
-              if (typeof t.amountOut === 'number') totalOut += t.amountOut;
-            }
-            return {
-              count,
-              total_in: Number(totalIn.toFixed(2)),
-              total_out: Number(totalOut.toFixed(2)),
-            };
+        }>('transactions', errs, { count: 0, total_in: 0, total_out: 0 }, async () => {
+          const r = await whmcs.read<Record<string, unknown>>('GetTransactions', {
+            clientid: cid,
+            limitnum: RECON_TX_FETCH_LIMIT,
+          });
+          const canon = mapToCanonicalTransactions(r);
+          let totalIn = 0;
+          let totalOut = 0;
+          let count = 0;
+          for (const c of canon) {
+            const t = c.data;
+            const dt = inWindow(t.date);
+            if (!dt) continue;
+            count += 1;
+            if (typeof t.amountIn === 'number') totalIn += t.amountIn;
+            if (typeof t.amountOut === 'number') totalOut += t.amountOut;
           }
-        );
+          return {
+            count,
+            total_in: Number(totalIn.toFixed(2)),
+            total_out: Number(totalOut.toFixed(2)),
+          };
+        });
         transactions = {
           action: cap.action,
           status: cap.status,
@@ -1819,10 +1772,7 @@ export function registerAggregatorTools(
 
       // Sections: invoices always; transactions only when supported.
       const cap = getCapability('GetTransactions');
-      const progress = new AggregatorProgress(
-        cap.status === 'supported' ? 2 : 1,
-        extra
-      );
+      const progress = new AggregatorProgress(cap.status === 'supported' ? 2 : 1, extra);
 
       const invoices = await safeSection('invoices', errs, [], async () => {
         const r = await whmcs.read<Record<string, unknown>>('GetInvoices', {
@@ -1871,10 +1821,10 @@ export function registerAggregatorTools(
         errs,
         [],
         async () => {
-          const r = await whmcs.read<Record<string, unknown>>(
-            'GetTransactions',
-            { clientid: cid, limitnum: RECON_TX_FETCH_LIMIT }
-          );
+          const r = await whmcs.read<Record<string, unknown>>('GetTransactions', {
+            clientid: cid,
+            limitnum: RECON_TX_FETCH_LIMIT,
+          });
           return mapToCanonicalTransactions(r).map((c) => c.data);
         }
       );
@@ -1891,8 +1841,7 @@ export function registerAggregatorTools(
       let unmatchedTransactions = 0;
 
       const entries = txnRows.map((t) => {
-        const inv =
-          t.invoiceId !== null ? invById.get(t.invoiceId) : undefined;
+        const inv = t.invoiceId !== null ? invById.get(t.invoiceId) : undefined;
         const isMatched = inv !== undefined;
         if (isMatched && t.invoiceId !== null) {
           matchedInvoiceIds.add(t.invoiceId);

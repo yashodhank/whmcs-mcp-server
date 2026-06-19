@@ -47,7 +47,7 @@ export const MCP_LOG_LEVELS = [
 export type McpLogLevel = (typeof MCP_LOG_LEVELS)[number];
 
 const SEVERITY: ReadonlyMap<McpLogLevel, number> = new Map(
-  MCP_LOG_LEVELS.map((level, index) => [level, index]),
+  MCP_LOG_LEVELS.map((level, index) => [level, index])
 );
 
 /** Default minimum level emitted before the client sends `logging/setLevel`. */
@@ -186,11 +186,7 @@ export function initMcpLogging(server: Pick<McpServer, 'server'>): McpLoggingBri
  * bridge; no-op until `initMcpLogging` has run and a logging-capable client is
  * connected. Never throws.
  */
-export function mcpLog(
-  level: McpLogLevel,
-  message: string,
-  data?: Record<string, unknown>,
-): void {
+export function mcpLog(level: McpLogLevel, message: string, data?: Record<string, unknown>): void {
   activeBridge.mcpLog(level, message, data);
 }
 

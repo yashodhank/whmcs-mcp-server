@@ -62,17 +62,36 @@ vi.mock('../../src/config.js', () => ({
 }));
 vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {} }));
 
-type Handlers = Record<string, (a: Record<string, unknown>) => Promise<{ content: { text: string }[] }>>;
+type Handlers = Record<
+  string,
+  (a: Record<string, unknown>) => Promise<{ content: { text: string }[] }>
+>;
 
 function setup(read: ReturnType<typeof vi.fn>, mutate: ReturnType<typeof vi.fn>): Handlers {
   const handlers: Handlers = {};
-  const server = { registerTool: (n: string, _c: unknown, cb: unknown) => { handlers[n] = cb as never; } };
-  const logger = { child: () => logger, logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn() };
-  registerWriteFlowTools(server as never, { mutate, read } as never, logger as never, { tryConsume: () => true } as never);
+  const server = {
+    registerTool: (n: string, _c: unknown, cb: unknown) => {
+      handlers[n] = cb as never;
+    },
+  };
+  const logger = {
+    child: () => logger,
+    logToolCall: vi.fn(),
+    logToolResult: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+  };
+  registerWriteFlowTools(
+    server as never,
+    { mutate, read } as never,
+    logger as never,
+    { tryConsume: () => true } as never
+  );
   return handlers;
 }
 const tok = { auth_token: RAW };
-const J = (r: { content: { text: string }[] }) => JSON.parse(r.content[0].text) as Record<string, unknown>;
+const J = (r: { content: { text: string }[] }) =>
+  JSON.parse(r.content[0].text) as Record<string, unknown>;
 const rec = (v: unknown) => v as Record<string, unknown>;
 
 describe('write (one-call, tiered)', () => {
@@ -94,8 +113,12 @@ describe('write (one-call, tiered)', () => {
 
   it('MEDIUM scope (domain_rename) executes in one call: precondition + read-back', async () => {
     const read = vi.fn();
-    read.mockResolvedValueOnce({ products: { product: [{ id: 9, domain: 'old.example.com', domainstatus: 'Active' }] } });
-    read.mockResolvedValueOnce({ products: { product: [{ id: 9, domain: 'new.example.com', domainstatus: 'Active' }] } });
+    read.mockResolvedValueOnce({
+      products: { product: [{ id: 9, domain: 'old.example.com', domainstatus: 'Active' }] },
+    });
+    read.mockResolvedValueOnce({
+      products: { product: [{ id: 9, domain: 'new.example.com', domainstatus: 'Active' }] },
+    });
     const mutate = vi.fn().mockResolvedValue({ result: 'success' });
     const h = setup(read, mutate);
     const body = J(
@@ -109,7 +132,10 @@ describe('write (one-call, tiered)', () => {
     );
     expect(body.executed).toBe(true);
     expect(rec(body.execution).verified).toBe(true);
-    expect(mutate).toHaveBeenCalledWith('UpdateClientProduct', { serviceid: 9, domain: 'new.example.com' });
+    expect(mutate).toHaveBeenCalledWith('UpdateClientProduct', {
+      serviceid: 9,
+      domain: 'new.example.com',
+    });
   });
 
   it('HIGH scope is validated then RETURNED for the approve ceremony — NOT executed', async () => {

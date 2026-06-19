@@ -166,9 +166,8 @@ describe('Transport selection default', () => {
     delete process.env.MCP_TRANSPORT;
     try {
       vi.resetModules();
-      const real = await vi.importActual<typeof import('../../src/config.js')>(
-        '../../src/config.js'
-      );
+      const real =
+        await vi.importActual<typeof import('../../src/config.js')>('../../src/config.js');
       expect(real.config.MCP_TRANSPORT).toBe('stdio');
     } finally {
       if (hadTransport) process.env.MCP_TRANSPORT = prev;

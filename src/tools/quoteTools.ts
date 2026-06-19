@@ -16,10 +16,7 @@
  * governedListResult / applyGovernanceOrLegacy.
  */
 import { z } from 'zod';
-import {
-  McpServer,
-  type ToolCallback,
-} from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
@@ -31,10 +28,7 @@ import {
   clientModeDenied,
   AUTH_SHAPE,
 } from '../security.js';
-import {
-  READ_ONLY_ANNOTATIONS,
-  LIST_TOOL_OUTPUT_SCHEMA,
-} from './listTools.js';
+import { READ_ONLY_ANNOTATIONS, LIST_TOOL_OUTPUT_SCHEMA } from './listTools.js';
 import {
   applyGovernanceOrLegacy,
   governedListResult,
@@ -44,10 +38,7 @@ import {
 import { normalizeToArray } from '../whmcs/normalizers.js';
 // Import directly from the module (not the barrel): the canonical barrel
 // (index.ts) does not re-export the quote mappers.
-import {
-  mapToCanonicalQuote,
-  mapToCanonicalQuotes,
-} from '../canonical/quote.js';
+import { mapToCanonicalQuote, mapToCanonicalQuotes } from '../canonical/quote.js';
 
 const TOOL_VERSION = 'v1';
 
@@ -93,24 +84,18 @@ export function registerQuoteTools(
     contract: z
       .string()
       .optional()
-      .describe(
-        'Requested data contract (honoured only if the resolved consumer permits it)'
-      ),
+      .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
   });
 
-  const handler: ToolCallback<z.ZodRawShape> = (async (
-    rawParams: Record<string, unknown>
-  ) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
     const params = rawParams as z.infer<typeof schema> & {
       auth_token?: string;
     };
     const log = logger.child();
     const t0 = Date.now();
     try {
-      const authToken =
-        typeof params.auth_token === 'string' ? params.auth_token : undefined;
-      const requestedContract =
-        typeof params.contract === 'string' ? params.contract : undefined;
+      const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+      const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
       const authErr = ensureToolAuth(params as Record<string, unknown>);
       if (authErr) return authErr;
@@ -135,15 +120,11 @@ export function registerQuoteTools(
         readParams.userid = params.clientid;
       }
 
-      const result = await whmcs.read<{ quotes?: { quote?: unknown } }>(
-        'GetQuotes',
-        readParams
-      );
+      const result = await whmcs.read<{ quotes?: { quote?: unknown } }>('GetQuotes', readParams);
 
       // Same nesting the canonical mapper unwraps (quotes.quote, with a flat
       // `quote` fallback); each raw row is mapped per-row downstream.
-      const nested =
-        result.quotes?.quote ?? (result as { quote?: unknown }).quote;
+      const nested = result.quotes?.quote ?? (result as { quote?: unknown }).quote;
       const rows = normalizeToArray<unknown>(nested);
 
       const items = mapToCanonicalQuotes(result).map((c) => c.data);

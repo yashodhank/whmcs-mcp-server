@@ -26,10 +26,19 @@ import { registerResources } from '../src/resources/index.js';
 
 function makeServer() {
   const handlers: Record<string, (uri: URL, params?: any) => Promise<any>> = {};
-  const server = { resource: (n: string, _t: unknown, cb: any) => { handlers[n] = cb; } };
+  const server = {
+    resource: (n: string, _t: unknown, cb: any) => {
+      handlers[n] = cb;
+    },
+  };
   return { server, handlers };
 }
-const childLogger: any = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => childLogger };
+const childLogger: any = {
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: () => childLogger,
+};
 const logger: any = { child: () => childLogger, info: vi.fn(), debug: vi.fn() };
 const rateLimiter: any = { tryConsume: () => true };
 
@@ -74,7 +83,9 @@ describe('client-log resource (C3)', () => {
     };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const res = await handlers['client-log'](new URL('whmcs://clients/901/log'), { clientid: '901' });
+    const res = await handlers['client-log'](new URL('whmcs://clients/901/log'), {
+      clientid: '901',
+    });
 
     // --- assert read call params ---
     const getInvoices = calls.find((c) => c.action === 'GetInvoices');
@@ -82,7 +93,12 @@ describe('client-log resource (C3)', () => {
     const getTickets = calls.find((c) => c.action === 'GetTickets');
 
     expect(getInvoices).toBeDefined();
-    expect(getInvoices!.params).toMatchObject({ userid: 901, orderby: 'date', order: 'desc', limitnum: 10 });
+    expect(getInvoices!.params).toMatchObject({
+      userid: 901,
+      orderby: 'date',
+      order: 'desc',
+      limitnum: 10,
+    });
 
     expect(getOrders).toBeDefined();
     expect(getOrders!.params).toMatchObject({ userid: 901, limitnum: 25 });

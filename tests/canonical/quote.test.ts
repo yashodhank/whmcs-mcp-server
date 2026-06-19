@@ -1,9 +1,6 @@
 /** B1 — canonical quote mapper. Synthetic fixtures only. */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalQuote,
-  mapToCanonicalQuotes,
-} from '../../src/canonical/quote.js';
+import { mapToCanonicalQuote, mapToCanonicalQuotes } from '../../src/canonical/quote.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalQuote', () => {

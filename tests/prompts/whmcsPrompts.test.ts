@@ -16,7 +16,7 @@ interface PromptConfig {
 }
 type PromptCb = (
   args: Record<string, string | undefined>,
-  extra?: unknown,
+  extra?: unknown
 ) => { messages: { role: string; content: { type: string; text: string } }[] };
 
 function makeServer() {
@@ -156,9 +156,7 @@ describe('registerWhmcsPrompts', () => {
   it('ticket_triage_to_resolution chains queue+thread+360 and uses elicitation', () => {
     const { server, prompts } = makeServer();
     registerWhmcsPrompts(server);
-    const text = firstText(
-      prompts.ticket_triage_to_resolution.cb({ clientid: '7' }),
-    );
+    const text = firstText(prompts.ticket_triage_to_resolution.cb({ clientid: '7' }));
     expect(text).toContain('get_support_snapshot');
     expect(text).toContain('get_ticket_thread');
     expect(text).toContain('get_account_360');

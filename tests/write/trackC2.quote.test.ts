@@ -4,12 +4,7 @@
  * flattening mappers, and validation. Mirrors the patterns in trackC.test.ts.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  WRITE_SCOPES,
-  SCOPE_ACTION,
-  SCOPE_RISK,
-  type WriteIntent,
-} from '../../src/write/types.js';
+import { WRITE_SCOPES, SCOPE_ACTION, SCOPE_RISK, type WriteIntent } from '../../src/write/types.js';
 import { intentToWhmcsParams } from '../../src/write/paramMapping.js';
 import { validateIntent } from '../../src/write/validation.js';
 
@@ -74,7 +69,9 @@ describe('Track C2 quote strict mappers', () => {
   });
 
   it('billing:quote:update emits quoteid + present allowlisted fields, flattens optional items', () => {
-    expect(intentToWhmcsParams('billing:quote:update', { quoteid: 2, subject: 'New', evil: 'x' })).toEqual({
+    expect(
+      intentToWhmcsParams('billing:quote:update', { quoteid: 2, subject: 'New', evil: 'x' })
+    ).toEqual({
       quoteid: 2,
       subject: 'New',
     });
@@ -126,10 +123,8 @@ describe('Track C2 quote validation', () => {
     const { userid, ...rest } = validCreate;
     void userid;
     expect(
-      validateIntent(
-        intent('billing:quote:create', { ...rest, email: 'buyer@example.test' }),
-        {}
-      ).ok
+      validateIntent(intent('billing:quote:create', { ...rest, email: 'buyer@example.test' }), {})
+        .ok
     ).toBe(true);
   });
 
@@ -182,9 +177,9 @@ describe('Track C2 quote validation', () => {
   });
 
   it('billing:quote:update accepts quoteid + an updatable field', () => {
-    expect(validateIntent(intent('billing:quote:update', { quoteid: 2, subject: 'New' }), {}).ok).toBe(
-      true
-    );
+    expect(
+      validateIntent(intent('billing:quote:update', { quoteid: 2, subject: 'New' }), {}).ok
+    ).toBe(true);
   });
 
   it('billing:quote:update accepts quoteid + non-empty items', () => {
@@ -203,17 +198,17 @@ describe('Track C2 quote validation', () => {
   });
 
   it('billing:quote:update rejects an invalid stage when present', () => {
-    const r = validateIntent(
-      intent('billing:quote:update', { quoteid: 2, stage: 'Bogus' }),
-      {}
-    );
+    const r = validateIntent(intent('billing:quote:update', { quoteid: 2, stage: 'Bogus' }), {});
     expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.code === 'invalid_quote_stage')).toBe(true);
   });
 
   it('billing:quote:update rejects a bad quoteid', () => {
     for (const qid of [0, -1, 1.5, '1', undefined]) {
-      const r = validateIntent(intent('billing:quote:update', { quoteid: qid, subject: 'New' }), {});
+      const r = validateIntent(
+        intent('billing:quote:update', { quoteid: qid, subject: 'New' }),
+        {}
+      );
       expect(r.ok).toBe(false);
     }
   });

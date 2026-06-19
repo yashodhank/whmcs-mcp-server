@@ -18,7 +18,12 @@ interface Demo {
 function demoCanonical(): Canonical<Demo> {
   return {
     entity: 'client',
-    data: { clientid: 42, email: 'jane@example.test', gatewayRef: 'txn_abc123', password: 'sk_live_secret' },
+    data: {
+      clientid: 42,
+      email: 'jane@example.test',
+      gatewayRef: 'txn_abc123',
+      password: 'sk_live_secret',
+    },
     classes: {
       clientid: 'business.identifier',
       email: 'pii.email',
@@ -70,7 +75,12 @@ describe('pickContract', () => {
 });
 
 describe('governProjection (pure core)', () => {
-  const base = { canonical: demoCanonical(), env: 'production' as const, registry: registry(), allowAnon: false };
+  const base = {
+    canonical: demoCanonical(),
+    env: 'production' as const,
+    registry: registry(),
+    allowAnon: false,
+  };
 
   it('LLM consumer: secret dropped, financial reference masked/absent', () => {
     const r = governProjection({ ...base, authToken: TOKEN_LLM });

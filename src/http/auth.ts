@@ -29,11 +29,7 @@
  */
 
 import { resolveConsumer } from '../governance/consumers.js';
-import type {
-  ConsumerProfile,
-  ConsumerResolution,
-  ProjectionEnv,
-} from '../governance/types.js';
+import type { ConsumerProfile, ConsumerResolution, ProjectionEnv } from '../governance/types.js';
 
 /** Result of the per-request authorization decision. */
 export type AuthDecision =
@@ -106,12 +102,9 @@ export function authorizeHttpRequest(params: {
   // Gate 2 — bearer auth via the EXISTING consumer registry. allowAnon:false so
   // no/unknown token can never resolve to a profile.
   const token = extractBearerToken(params.authorizationHeader);
-  const resolution: ConsumerResolution = resolveConsumer(
-    token,
-    params.env,
-    params.registry,
-    { allowAnon: false }
-  );
+  const resolution: ConsumerResolution = resolveConsumer(token, params.env, params.registry, {
+    allowAnon: false,
+  });
 
   if (!resolution.ok) {
     return {

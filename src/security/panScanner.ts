@@ -94,12 +94,7 @@ export function scanForPAN(value: unknown): string[] {
  * Internal bounded recursive scanner. Stops (fail-safe, never throws) once the
  * character budget is exhausted or {@link MAX_DEPTH} is exceeded.
  */
-function scanInto(
-  value: unknown,
-  found: string[],
-  budget: { chars: number },
-  depth: number
-): void {
+function scanInto(value: unknown, found: string[], budget: { chars: number }, depth: number): void {
   // Fail-safe: out of budget or too deep — stop scanning further.
   if (budget.chars <= 0 || depth > MAX_DEPTH) {
     return;

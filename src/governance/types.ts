@@ -81,13 +81,7 @@ export const CONTRACT_NAMES = [
 
 export type ContractName = (typeof CONTRACT_NAMES)[number];
 
-export const PROJECTION_ACTIONS = [
-  'allow',
-  'mask',
-  'drop',
-  'wrap_untrusted',
-  'summarize',
-] as const;
+export const PROJECTION_ACTIONS = ['allow', 'mask', 'drop', 'wrap_untrusted', 'summarize'] as const;
 
 export type ProjectionAction = (typeof PROJECTION_ACTIONS)[number];
 

@@ -53,10 +53,8 @@ export function registerTicketThreadTool(
     const log = logger.child();
     const t0 = Date.now();
     try {
-      const authToken =
-        typeof params.auth_token === 'string' ? params.auth_token : undefined;
-      const requestedContract =
-        typeof params.contract === 'string' ? params.contract : undefined;
+      const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+      const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
       const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
@@ -86,7 +84,10 @@ export function registerTicketThreadTool(
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ isError: true, error: 'Unable to validate ticket ownership for client access mode.' }),
+                text: JSON.stringify({
+                  isError: true,
+                  error: 'Unable to validate ticket ownership for client access mode.',
+                }),
               },
             ],
             isError: true,

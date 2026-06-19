@@ -1,6 +1,6 @@
 /**
  * WHMCS API Client
- * 
+ *
  * Provides a type-safe wrapper around the WHMCS External API.
  * Handles authentication, error handling, response normalization, and mode enforcement.
  */
@@ -182,25 +182,25 @@ export class WhmcsClient {
    */
   private transformParams(params: Record<string, unknown>): Record<string, unknown> {
     const transformed: Record<string, unknown> = {};
-    
+
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined) {
         continue;
       }
-      
+
       if (typeof value === 'boolean') {
         transformed[key] = boolToWhmcs(value);
       } else {
         transformed[key] = value;
       }
     }
-    
+
     return transformed;
   }
 
   /**
    * Make a call to the WHMCS API
-   * 
+   *
    * @param action - WHMCS API action name
    * @param params - Parameters for the action
    * @param options - Call options
@@ -225,11 +225,11 @@ export class WhmcsClient {
         params,
         mode: 'simulate',
       });
-      
+
       if (simulatedResponse) {
         return simulatedResponse as T;
       }
-      
+
       // Return a generic success response
       return {
         result: 'success',
@@ -251,7 +251,7 @@ export class WhmcsClient {
     // Default: retries allowed for reads, not for mutating operations (safety)
     const canRetry = options.allowRetry ?? !isMutating;
     const maxAttempts = canRetry ? RETRY_CONFIG.MAX_RETRIES : 1;
-    
+
     let lastError: Error | null = null;
     // Ensures the IP-allowlist self-heal runs at most once per call (no loops).
     let healAttempted = false;
@@ -259,65 +259,54 @@ export class WhmcsClient {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const response = await this.axios.post<WhmcsResponse>('', body);
-      
-      // Check HTTP status
-      if (response.status !== 200) {
-        throw new WhmcsTransportError(
-          `WHMCS returned HTTP ${response.status}`,
-          response.status
-        );
-      }
 
-      const data = response.data;
+        // Check HTTP status
+        if (response.status !== 200) {
+          throw new WhmcsTransportError(`WHMCS returned HTTP ${response.status}`, response.status);
+        }
 
-      // Check for WHMCS business error
-      if (data.result === 'error') {
-        throw new WhmcsBusinessError(
-          data.message || 'Unknown WHMCS error',
-          undefined,
-          data
-        );
-      }
+        const data = response.data;
+
+        // Check for WHMCS business error
+        if (data.result === 'error') {
+          throw new WhmcsBusinessError(data.message || 'Unknown WHMCS error', undefined, data);
+        }
 
         // Normalize response if enabled
         let result = data as unknown as T;
         if (normalize && typeof result === 'object' && result !== null) {
-          result = normalizeWhmcsResponse(
-            result as Record<string, unknown>,
-            action
-          ) as T;
+          result = normalizeWhmcsResponse(result as Record<string, unknown>, action) as T;
         }
 
         return result;
-
       } catch (error) {
         // Re-throw our custom errors that shouldn't be retried
         if (error instanceof WhmcsBusinessError) {
           throw error;
         }
-        
+
         // Store the error for potential re-throw after all retries
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         // Check if this error is retryable
         let isRetryable = false;
         let statusCode: number | undefined;
-        
+
         if (error instanceof WhmcsTransportError) {
           statusCode = error.statusCode;
-          isRetryable = statusCode !== undefined && 
-            RETRY_CONFIG.RETRYABLE_STATUS_CODES.includes(statusCode);
+          isRetryable =
+            statusCode !== undefined && RETRY_CONFIG.RETRYABLE_STATUS_CODES.includes(statusCode);
         } else if (axios.isAxiosError(error)) {
           const axiosError = error as AxiosError;
           statusCode = axiosError.response?.status;
-          
+
           // Retry on 5xx errors, network errors, or timeouts
-          isRetryable = (
-            (statusCode !== undefined && RETRY_CONFIG.RETRYABLE_STATUS_CODES.includes(statusCode)) ||
+          isRetryable =
+            (statusCode !== undefined &&
+              RETRY_CONFIG.RETRYABLE_STATUS_CODES.includes(statusCode)) ||
             axiosError.code === 'ECONNRESET' ||
             axiosError.code === 'ETIMEDOUT' ||
-            axiosError.code === 'ECONNABORTED'
-          );
+            axiosError.code === 'ECONNABORTED';
         }
 
         // IP allowlist self-heal: WHMCS returns 403 for several distinct reasons
@@ -353,7 +342,7 @@ export class WhmcsClient {
         if (!isRetryable || attempt >= maxAttempts - 1) {
           if (axios.isAxiosError(error)) {
             const axiosError = error as AxiosError;
-            
+
             if (axiosError.response) {
               const status = axiosError.response.status;
               const body = axiosError.response.data;
@@ -372,24 +361,17 @@ export class WhmcsClient {
                           : '[unserializable]',
                 });
               }
-              throw new WhmcsTransportError(
-                `WHMCS HTTP error: ${status}`,
-                status
-              );
+              throw new WhmcsTransportError(`WHMCS HTTP error: ${status}`, status);
             }
-            
+
             if (axiosError.request) {
-              throw new WhmcsTransportError(
-                `WHMCS connection error: ${axiosError.message}`
-              );
+              throw new WhmcsTransportError(`WHMCS connection error: ${axiosError.message}`);
             }
           }
-          
-          throw new WhmcsTransportError(
-            `Unexpected error calling WHMCS: ${lastError.message}`
-          );
+
+          throw new WhmcsTransportError(`Unexpected error calling WHMCS: ${lastError.message}`);
         }
-        
+
         // Calculate backoff delay and wait
         const delay = getBackoffDelay(attempt);
         this.logger.warn('WHMCS call failed, retrying...', {
@@ -400,11 +382,11 @@ export class WhmcsClient {
           delayMs: Math.round(delay),
           error: lastError.message,
         });
-        
+
         await sleep(delay);
       }
     }
-    
+
     // Should never reach here, but TypeScript needs it
     throw lastError ?? new WhmcsTransportError('Unknown error after retries');
   }
@@ -413,10 +395,7 @@ export class WhmcsClient {
    * Make a read-only API call
    * Convenience method that enforces non-mutating behavior
    */
-  async read<T>(
-    action: string,
-    params: Record<string, unknown> = {}
-  ): Promise<T> {
+  async read<T>(action: string, params: Record<string, unknown> = {}): Promise<T> {
     // Policy guard stays BEFORE the cache so a denied action is never cached
     // and a deny is never satisfied from cache.
     assertReadAction(action);
@@ -450,7 +429,7 @@ export class WhmcsClient {
   /**
    * Make a mutating API call
    * Checks mode restrictions before executing
-   * 
+   *
    * @throws Error if in read_only mode
    */
   async mutate<T>(
@@ -460,10 +439,7 @@ export class WhmcsClient {
   ): Promise<T> {
     // Block in read_only mode
     if (this.mode === 'read_only') {
-      throw new WhmcsBusinessError(
-        'Operation not allowed in read_only mode',
-        'MODE_RESTRICTED'
-      );
+      throw new WhmcsBusinessError('Operation not allowed in read_only mode', 'MODE_RESTRICTED');
     }
 
     return this.call<T>(action, params, {

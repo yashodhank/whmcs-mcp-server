@@ -118,9 +118,30 @@ const nonote = { auth_token: NONOTE_RAW };
 const overdueInvoices = {
   invoices: {
     invoice: [
-      { id: 1001, userid: 7, status: 'Overdue', total: '120.00', balance: '120.00', duedate: '2026-04-01' },
-      { id: 1002, userid: 7, status: 'Overdue', total: '50.00', balance: '50.00', duedate: '2026-03-15' },
-      { id: 1003, userid: 9, status: 'Unpaid', total: '30.00', balance: '30.00', duedate: '2026-05-01' },
+      {
+        id: 1001,
+        userid: 7,
+        status: 'Overdue',
+        total: '120.00',
+        balance: '120.00',
+        duedate: '2026-04-01',
+      },
+      {
+        id: 1002,
+        userid: 7,
+        status: 'Overdue',
+        total: '50.00',
+        balance: '50.00',
+        duedate: '2026-03-15',
+      },
+      {
+        id: 1003,
+        userid: 9,
+        status: 'Unpaid',
+        total: '30.00',
+        balance: '30.00',
+        duedate: '2026-05-01',
+      },
     ],
   },
 };
@@ -135,7 +156,13 @@ const upcomingProducts = {
 const upcomingDomains = {
   domains: {
     domain: [
-      { id: 301, clientid: 9, domainname: 'risk.example', expirydate: futureDate(5), donotrenew: '1' },
+      {
+        id: 301,
+        clientid: 9,
+        domainname: 'risk.example',
+        expirydate: futureDate(5),
+        donotrenew: '1',
+      },
     ],
   },
 };
@@ -159,7 +186,9 @@ const dupTxns = {
   },
 };
 const closeInvoices = {
-  invoices: { invoice: [{ id: 5001, userid: 7, status: 'Paid', total: '100.00', date: '2026-06-01' }] },
+  invoices: {
+    invoice: [{ id: 5001, userid: 7, status: 'Paid', total: '100.00', date: '2026-06-01' }],
+  },
 };
 
 function futureDate(days: number): string {
@@ -240,7 +269,9 @@ describe('workflow tools — DRAFT-ONLY invariant', () => {
 
   it('dunning_sweep with goodwill_credit drafts an OPTIONAL billing:credit:add (HIGH) — still no mutate', async () => {
     const { h, mutate } = harness(router());
-    const r = J(await h.workflow_dunning_sweep({ ...full, overdue_min_days: 1, goodwill_credit: true }));
+    const r = J(
+      await h.workflow_dunning_sweep({ ...full, overdue_min_days: 1, goodwill_credit: true })
+    );
     const ids = r.drafted_intent_ids as string[];
     // Find the high-risk credit draft among the drafts.
     let sawCredit = false;
@@ -332,7 +363,12 @@ describe('workflow tools — DRAFT-ONLY invariant', () => {
 
   it('a consumer-denied (bad token) run drafts nothing and never mutates', async () => {
     const { h, mutate } = harness(router());
-    const r = J(await h.workflow_dunning_sweep({ auth_token: 'EXAMPLE-unknown-SYNTHETIC', overdue_min_days: 1 }));
+    const r = J(
+      await h.workflow_dunning_sweep({
+        auth_token: 'EXAMPLE-unknown-SYNTHETIC',
+        overdue_min_days: 1,
+      })
+    );
     expect(r.drafted_intent_ids).toEqual([]);
     expect((r.skipped as unknown[]).length).toBeGreaterThan(0);
     expect(mutate).toHaveBeenCalledTimes(0);

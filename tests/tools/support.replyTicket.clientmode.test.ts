@@ -52,9 +52,7 @@ describe('reply_ticket (client mode regression)', () => {
       },
     };
 
-    const mutate = vi
-      .fn()
-      .mockResolvedValue({ result: 'success' });
+    const mutate = vi.fn().mockResolvedValue({ result: 'success' });
     const whmcsClient = {
       isReadOnly: () => false,
       read: vi.fn().mockResolvedValue({ ticketid: 100, userid: 42 }),
@@ -71,12 +69,7 @@ describe('reply_ticket (client mode regression)', () => {
     const logger = { child: () => childLogger };
     const rateLimiter = { tryConsume: () => true };
 
-    registerSupportTools(
-      server as any,
-      whmcsClient as any,
-      logger as any,
-      rateLimiter as any
-    );
+    registerSupportTools(server as any, whmcsClient as any, logger as any, rateLimiter as any);
 
     expect(handlers.reply_ticket).toBeTypeOf('function');
 

@@ -46,34 +46,29 @@ export interface CanonicalInvoice {
   transactions: CanonicalInvoiceTransaction[];
 }
 
-export function mapToCanonicalInvoice(
-  raw: unknown
-): Canonical<CanonicalInvoice> {
+export function mapToCanonicalInvoice(raw: unknown): Canonical<CanonicalInvoice> {
   const src = asRecord(raw);
 
-  const items: CanonicalInvoiceItem[] = listOf(src.items, 'item').map(
-    (i) => ({
-      itemId: num(i, 'id') ?? null,
-      type: str(i, 'type') ?? null,
-      relatedId: num(i, 'relid') ?? null,
-      description: str(i, 'description') ?? null,
-      amount: num(i, 'amount') ?? null,
-      taxed: num(i, 'taxed') === undefined ? null : num(i, 'taxed') !== 0,
+  const items: CanonicalInvoiceItem[] = listOf(src.items, 'item').map((i) => ({
+    itemId: num(i, 'id') ?? null,
+    type: str(i, 'type') ?? null,
+    relatedId: num(i, 'relid') ?? null,
+    description: str(i, 'description') ?? null,
+    amount: num(i, 'amount') ?? null,
+    taxed: num(i, 'taxed') === undefined ? null : num(i, 'taxed') !== 0,
+  }));
+
+  const transactions: CanonicalInvoiceTransaction[] = listOf(src.transactions, 'transaction').map(
+    (t) => ({
+      transactionRowId: num(t, 'id') ?? null,
+      transactionId: str(t, 'transid') ?? null,
+      date: str(t, 'date') ?? null,
+      gateway: str(t, 'gateway') ?? null,
+      amount: num(t, 'amount') ?? null,
+      amountIn: num(t, 'amountin') ?? null,
+      amountOut: num(t, 'amountout') ?? null,
     })
   );
-
-  const transactions: CanonicalInvoiceTransaction[] = listOf(
-    src.transactions,
-    'transaction'
-  ).map((t) => ({
-    transactionRowId: num(t, 'id') ?? null,
-    transactionId: str(t, 'transid') ?? null,
-    date: str(t, 'date') ?? null,
-    gateway: str(t, 'gateway') ?? null,
-    amount: num(t, 'amount') ?? null,
-    amountIn: num(t, 'amountin') ?? null,
-    amountOut: num(t, 'amountout') ?? null,
-  }));
 
   const data: CanonicalInvoice = {
     invoiceId: num(src, 'invoiceid') ?? num(src, 'id') ?? null,
@@ -100,19 +95,13 @@ export function mapToCanonicalInvoice(
     .set('clientId', 'business.identifier')
     .set('invoiceNumber', 'financial.reference')
     .set('paymentMethod', 'financial.reference')
-    .many(
-      ['subtotal', 'tax', 'tax2', 'total', 'balance', 'credit'],
-      'financial.amount'
-    )
+    .many(['subtotal', 'tax', 'tax2', 'total', 'balance', 'credit'], 'financial.amount')
     .many(['date', 'dueDate', 'datePaid', 'status'], 'public.safe')
     .set('notes', 'untrusted.free_text')
     .set('items', 'public.safe')
     .set('items[].itemId', 'business.identifier')
     .set('items[].relatedId', 'business.identifier')
-    .many(
-      ['items[].type', 'items[].description', 'items[].taxed'],
-      'public.safe'
-    )
+    .many(['items[].type', 'items[].description', 'items[].taxed'], 'public.safe')
     .set('items[].amount', 'financial.amount')
     .set('transactions', 'financial.reference')
     .set('transactions[].transactionRowId', 'business.identifier')
@@ -120,11 +109,7 @@ export function mapToCanonicalInvoice(
     .set('transactions[].gateway', 'financial.reference')
     .set('transactions[].date', 'public.safe')
     .many(
-      [
-        'transactions[].amount',
-        'transactions[].amountIn',
-        'transactions[].amountOut',
-      ],
+      ['transactions[].amount', 'transactions[].amountIn', 'transactions[].amountOut'],
       'financial.amount'
     )
     .build();

@@ -61,12 +61,8 @@ describe('mapToCanonicalSystemStats (single object only)', () => {
       orders_today: 1,
       announcement_note: 'See ops@example.com for details',
     });
-    expect(c.data.metrics.announcement_note).toBe(
-      'See ops@example.com for details'
-    );
-    expect(c.classes['metrics.announcement_note']).toBe(
-      'untrusted.free_text'
-    );
+    expect(c.data.metrics.announcement_note).toBe('See ops@example.com for details');
+    expect(c.classes['metrics.announcement_note']).toBe('untrusted.free_text');
     assertClassmapComplete(c);
   });
 

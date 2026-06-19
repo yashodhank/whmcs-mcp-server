@@ -48,15 +48,11 @@ function mapOne(src: Record<string, unknown>): CanonicalTransaction {
   };
 }
 
-export function mapToCanonicalTransaction(
-  raw: unknown
-): Canonical<CanonicalTransaction> {
+export function mapToCanonicalTransaction(raw: unknown): Canonical<CanonicalTransaction> {
   return { entity: 'transaction', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalTransactions(
-  raw: unknown
-): Canonical<CanonicalTransaction>[] {
+export function mapToCanonicalTransactions(raw: unknown): Canonical<CanonicalTransaction>[] {
   const src = asRecord(raw);
   const rows = listOf(src.transactions, 'transaction');
   return rows.map((r) => ({

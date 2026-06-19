@@ -6,7 +6,10 @@ import {
   type TestFinding,
 } from '../../src/testProgram/rca.js';
 
-const base: Omit<TestFinding, 'testId' | 'layer' | 'suite' | 'passed' | 'expected' | 'actual' | 'host' | 'mode'> = {};
+const base: Omit<
+  TestFinding,
+  'testId' | 'layer' | 'suite' | 'passed' | 'expected' | 'actual' | 'host' | 'mode'
+> = {};
 
 describe('testProgram rca', () => {
   it('maps finding severity by failure kind and pass/fail', () => {
@@ -139,7 +142,7 @@ describe('testProgram rca', () => {
       layer: 'L1',
       passed: false,
       expected: 'tool call succeeds with structured payload',
-      actual: "consumer denied: no_token",
+      actual: 'consumer denied: no_token',
       host: 'kilo',
       mode: 'admin',
       failureKind: 'harness_config_error',

@@ -15,8 +15,20 @@ import {
 
 describe('idempotencyKey', () => {
   it('is deterministic sha256 hex for identical inputs', () => {
-    const a = idempotencyKey('consumer-1', 'AddClientNote', 'client_note:write', 'client:42:note', 60000);
-    const b = idempotencyKey('consumer-1', 'AddClientNote', 'client_note:write', 'client:42:note', 60000);
+    const a = idempotencyKey(
+      'consumer-1',
+      'AddClientNote',
+      'client_note:write',
+      'client:42:note',
+      60000
+    );
+    const b = idempotencyKey(
+      'consumer-1',
+      'AddClientNote',
+      'client_note:write',
+      'client:42:note',
+      60000
+    );
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });

@@ -83,9 +83,7 @@ describe('consumerFromClaims', () => {
 
   it('returns null for a null/undefined claims object', () => {
     expect(consumerFromClaims(null as unknown as OAuthClaims, registry)).toBeNull();
-    expect(
-      consumerFromClaims(undefined as unknown as OAuthClaims, registry)
-    ).toBeNull();
+    expect(consumerFromClaims(undefined as unknown as OAuthClaims, registry)).toBeNull();
   });
 
   it('never grants a privileged profile against an empty registry', () => {
@@ -136,8 +134,6 @@ describe('consumerScopes', () => {
     // The bridge reports ONLY what the token granted.
     const claims: OAuthClaims = { client_id: 'ops-client', scopes: ['whmcs:read'] };
     expect(consumerScopes(claims)).toEqual(['whmcs:read']);
-    expect(consumerFromClaims(claims, registry)?.allowedScopes).toContain(
-      'whmcs:write:low'
-    );
+    expect(consumerFromClaims(claims, registry)?.allowedScopes).toContain('whmcs:write:low');
   });
 });

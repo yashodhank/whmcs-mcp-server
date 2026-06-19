@@ -35,10 +35,7 @@ export interface CanonicalService {
 }
 
 const CLASSES = new ClassMapBuilder()
-  .many(
-    ['serviceId', 'clientId', 'productId', 'serverId'],
-    'business.identifier'
-  )
+  .many(['serviceId', 'clientId', 'productId', 'serverId'], 'business.identifier')
   // Track B: product / group / domain are business DISPLAY labels.
   .set('productName', 'business.label')
   .set('groupName', 'business.label')
@@ -67,14 +64,13 @@ const CLASSES = new ClassMapBuilder()
   .build();
 
 function mapOne(src: Record<string, unknown>): CanonicalService {
-  const customFields: CanonicalCustomField[] = listOf(
-    src.customfields,
-    'customfield'
-  ).map((cf) => ({
-    id: num(cf, 'id') ?? null,
-    name: str(cf, 'fieldname') ?? null,
-    value: str(cf, 'value') ?? null,
-  }));
+  const customFields: CanonicalCustomField[] = listOf(src.customfields, 'customfield').map(
+    (cf) => ({
+      id: num(cf, 'id') ?? null,
+      name: str(cf, 'fieldname') ?? null,
+      value: str(cf, 'value') ?? null,
+    })
+  );
 
   return {
     serviceId: num(src, 'id') ?? num(src, 'serviceid') ?? null,
@@ -103,15 +99,11 @@ function mapOne(src: Record<string, unknown>): CanonicalService {
   };
 }
 
-export function mapToCanonicalService(
-  raw: unknown
-): Canonical<CanonicalService> {
+export function mapToCanonicalService(raw: unknown): Canonical<CanonicalService> {
   return { entity: 'service', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalServices(
-  raw: unknown
-): Canonical<CanonicalService>[] {
+export function mapToCanonicalServices(raw: unknown): Canonical<CanonicalService>[] {
   const src = asRecord(raw);
   // GetClientsProducts nests under products.product (services is an alias).
   const rows = listOf(src.products, 'product');

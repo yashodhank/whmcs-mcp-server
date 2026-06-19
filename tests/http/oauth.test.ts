@@ -42,7 +42,8 @@ import { startHttpServer, type HttpServerHandle } from '../../src/http/httpServe
 import { hashToken } from '../../src/governance/consumers.js';
 
 const logger: any = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-const buildServer = (): McpServer => new McpServer({ name: 't', version: '0' }, { capabilities: {} });
+const buildServer = (): McpServer =>
+  new McpServer({ name: 't', version: '0' }, { capabilities: {} });
 
 let handle: HttpServerHandle;
 let base: string;
