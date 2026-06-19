@@ -19,8 +19,7 @@ vi.mock('../../src/security.js', () => ({
   ensureClientAllowed: () => null,
 }));
 vi.mock('../../src/governance/pipeline.js', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('../../src/governance/pipeline.js')>();
+  const actual = await importOriginal<typeof import('../../src/governance/pipeline.js')>();
   return { ...actual, governanceEnabled: () => false };
 });
 

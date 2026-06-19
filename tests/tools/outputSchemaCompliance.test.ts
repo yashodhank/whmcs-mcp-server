@@ -15,7 +15,12 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../src/config.js', () => ({
-  config: { MCP_MAX_PAGE_SIZE: 100, MCP_GOVERNANCE_ENABLED: false, MCP_ENV: 'production', MCP_ALLOW_ANON_LLM: false },
+  config: {
+    MCP_MAX_PAGE_SIZE: 100,
+    MCP_GOVERNANCE_ENABLED: false,
+    MCP_ENV: 'production',
+    MCP_ALLOW_ANON_LLM: false,
+  },
   isToolAllowed: () => true,
   legacyWriteToolsEnabled: () => false,
 }));
@@ -51,7 +56,10 @@ function harness() {
     tool: () => {},
   };
   const childLogger: Record<string, unknown> = {
-    logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(),
+    logToolCall: vi.fn(),
+    logToolResult: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
   };
   childLogger.child = (): Record<string, unknown> => childLogger;
   const logger: Record<string, unknown> = {
@@ -79,9 +87,7 @@ function argsFor(name: string): Record<string, unknown> {
 // outputSchema may be a raw Zod shape OR an already-built ZodObject
 // (passthrough tools). Normalize for lenient structural parsing.
 function asZodSchema(os: unknown): z.ZodType {
-  return os !== null &&
-    typeof os === 'object' &&
-    (os as { _def?: unknown })._def !== undefined
+  return os !== null && typeof os === 'object' && (os as { _def?: unknown })._def !== undefined
     ? (os as z.ZodType)
     : z.object(os as z.ZodRawShape);
 }
@@ -98,9 +104,7 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
     registerDomainTools(h.server as any, h.whmcs, h.logger, h.rl);
     registerOrderTools(h.server as any, h.whmcs, h.logger, h.rl);
 
-    const names = Object.keys(h.handlers).filter(
-      (n) => h.configs[n]?.outputSchema
-    );
+    const names = Object.keys(h.handlers).filter((n) => h.configs[n]?.outputSchema);
     expect(names.length).toBeGreaterThan(15);
 
     const failures: string[] = [];
@@ -116,9 +120,7 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
         failures.push(`${name}: no structuredContent (MCP outputSchema violation)`);
         continue;
       }
-      const parsed = asZodSchema(h.configs[name].outputSchema).safeParse(
-        res.structuredContent
-      );
+      const parsed = asZodSchema(h.configs[name].outputSchema).safeParse(res.structuredContent);
       if (!parsed.success) {
         failures.push(
           `${name}: structuredContent fails its own outputSchema — ${parsed.error.issues
@@ -147,13 +149,8 @@ describe('MCP outputSchema compliance (governance OFF) — RCA #4 guardrail', ()
         res?.structuredContent,
         `${name} must return structuredContent (RCA #4)`
       ).not.toBeUndefined();
-      const parsed = asZodSchema(cfg.outputSchema).safeParse(
-        res.structuredContent
-      );
-      expect(
-        parsed.success,
-        `${name} structuredContent must validate its outputSchema`
-      ).toBe(true);
+      const parsed = asZodSchema(cfg.outputSchema).safeParse(res.structuredContent);
+      expect(parsed.success, `${name} structuredContent must validate its outputSchema`).toBe(true);
     }
   });
 });
@@ -186,9 +183,14 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
     const mcp = new McpServer({ name: 'compliance', version: '1.0.0' });
     const m = harness();
     for (const reg of [
-      registerListTools, registerClientTools, registerAggregatorTools,
-      registerCapabilityShellTools, registerSupportTools, registerBillingTools,
-      registerDomainTools, registerOrderTools,
+      registerListTools,
+      registerClientTools,
+      registerAggregatorTools,
+      registerCapabilityShellTools,
+      registerSupportTools,
+      registerBillingTools,
+      registerDomainTools,
+      registerOrderTools,
     ]) {
       try {
         reg(mcp as any, m.whmcs, m.logger, m.rl);

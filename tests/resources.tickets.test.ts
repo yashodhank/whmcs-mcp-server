@@ -21,10 +21,19 @@ import { registerResources } from '../src/resources/index.js';
 
 function makeServer() {
   const handlers: Record<string, (uri: URL, params?: any) => Promise<any>> = {};
-  const server = { resource: (n: string, _t: unknown, cb: any) => { handlers[n] = cb; } };
+  const server = {
+    resource: (n: string, _t: unknown, cb: any) => {
+      handlers[n] = cb;
+    },
+  };
   return { server, handlers };
 }
-const childLogger: any = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => childLogger };
+const childLogger: any = {
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: () => childLogger,
+};
 const logger: any = { child: () => childLogger, info: vi.fn(), debug: vi.fn() };
 const rateLimiter: any = { tryConsume: () => true };
 
@@ -41,8 +50,20 @@ describe('ticket-thread resource (#11)', () => {
         date: '2026-05-18 07:21:49',
         replies: {
           reply: [
-            { replyid: '0', name: 'Test User', date: '2026-05-18 07:21:49', message: 'Opening message body', admin: '' },
-            { replyid: '1', name: 'Support', date: '2026-05-18 07:31:27', message: 'Staff reply body', admin: 'Agent' },
+            {
+              replyid: '0',
+              name: 'Test User',
+              date: '2026-05-18 07:21:49',
+              message: 'Opening message body',
+              admin: '',
+            },
+            {
+              replyid: '1',
+              name: 'Support',
+              date: '2026-05-18 07:31:27',
+              message: 'Staff reply body',
+              admin: 'Agent',
+            },
           ],
         },
         notes: [],
@@ -50,7 +71,9 @@ describe('ticket-thread resource (#11)', () => {
     };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const res = await handlers['ticket-thread'](new URL('whmcs://tickets/1001/thread'), { ticketid: '1001' });
+    const res = await handlers['ticket-thread'](new URL('whmcs://tickets/1001/thread'), {
+      ticketid: '1001',
+    });
     const payload = JSON.parse(res.contents[0].text);
 
     expect(payload.error).toBeUndefined();
@@ -71,13 +94,19 @@ describe('ticket-thread resource (#11)', () => {
         subject: 'just opened',
         status: 'Open',
         date: '2026-05-18 08:00:00',
-        replies: { reply: [{ replyid: '0', name: 'Client', date: '2026-05-18 08:00:00', message: 'Only message' }] },
+        replies: {
+          reply: [
+            { replyid: '0', name: 'Client', date: '2026-05-18 08:00:00', message: 'Only message' },
+          ],
+        },
         notes: [],
       }),
     };
     registerResources(server as any, whmcsClient, logger, rateLimiter);
 
-    const res = await handlers['ticket-thread'](new URL('whmcs://tickets/1002/thread'), { ticketid: '1002' });
+    const res = await handlers['ticket-thread'](new URL('whmcs://tickets/1002/thread'), {
+      ticketid: '1002',
+    });
     const payload = JSON.parse(res.contents[0].text);
 
     expect(payload.initial_message).toBe('Only message');

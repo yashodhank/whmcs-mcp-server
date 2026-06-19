@@ -1,9 +1,6 @@
 /** B1 — canonical domain mapper. Synthetic fixtures only. */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalDomain,
-  mapToCanonicalDomains,
-} from '../../src/canonical/domain.js';
+import { mapToCanonicalDomain, mapToCanonicalDomains } from '../../src/canonical/domain.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalDomain', () => {

@@ -12,12 +12,7 @@
  * intentToWhmcsParams). No WHMCS calls — pure intent inspection / mapping.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  WRITE_SCOPES,
-  SCOPE_ACTION,
-  SCOPE_RISK,
-  type WriteIntent,
-} from '../../src/write/types.js';
+import { WRITE_SCOPES, SCOPE_ACTION, SCOPE_RISK, type WriteIntent } from '../../src/write/types.js';
 import { intentToWhmcsParams } from '../../src/write/paramMapping.js';
 import { validateIntent } from '../../src/write/validation.js';
 
@@ -166,9 +161,9 @@ describe('Track C2 strict mappers', () => {
 describe('Track C2 validation', () => {
   // ── client:contact:add ────────────────────────────────────────────────────
   it('client:contact:add accepts clientid + ≥1 contact field', () => {
-    expect(validateIntent(intent('client:contact:add', { clientid: 3, firstname: 'A' }), {}).ok).toBe(
-      true
-    );
+    expect(
+      validateIntent(intent('client:contact:add', { clientid: 3, firstname: 'A' }), {}).ok
+    ).toBe(true);
   });
 
   it('client:contact:add rejects clientid-only (empty_contact)', () => {
@@ -186,7 +181,10 @@ describe('Track C2 validation', () => {
   });
 
   it('client:contact:add rejects invalid email when email present', () => {
-    const r = validateIntent(intent('client:contact:add', { clientid: 3, email: 'notanemail' }), {});
+    const r = validateIntent(
+      intent('client:contact:add', { clientid: 3, email: 'notanemail' }),
+      {}
+    );
     expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.code === 'invalid_email')).toBe(true);
   });

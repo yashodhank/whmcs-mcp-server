@@ -19,10 +19,7 @@ import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { isToolAllowed } from '../config.js';
 import { ensureToolAuth, AUTH_SHAPE } from '../security.js';
-import {
-  READ_ONLY_ANNOTATIONS,
-  LIST_TOOL_OUTPUT_SCHEMA,
-} from './listTools.js';
+import { READ_ONLY_ANNOTATIONS, LIST_TOOL_OUTPUT_SCHEMA } from './listTools.js';
 import {
   applyGovernanceOrLegacy,
   governedToolResult,
@@ -42,9 +39,7 @@ const TOOL_VERSION = 'v1';
 /** Standard structured-error result for a recoverable read failure. */
 function errorResult(message: string): GovernedToolResult {
   return {
-    content: [
-      { type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) },
-    ],
+    content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) }],
     isError: true,
   };
 }
@@ -64,17 +59,13 @@ export function registerInfraTools(
         .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
 
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      rawParams: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof schema> & { auth_token?: string };
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -82,10 +73,7 @@ export function registerInfraTools(
         log.logToolCall('get_server_health', params, false);
         if (!rl.tryConsume()) throw new RateLimitError();
 
-        const result = await whmcs.read<{ servers?: { server?: unknown } }>(
-          'GetServers',
-          {}
-        );
+        const result = await whmcs.read<{ servers?: { server?: unknown } }>('GetServers', {});
         // Same nesting the canonical mapper unwraps (servers.server, with a
         // flat `server` fallback); each raw row is mapped per-row downstream.
         const nested = result.servers?.server ?? (result as { server?: unknown }).server;
@@ -160,17 +148,13 @@ export function registerInfraTools(
         .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
 
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      rawParams: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof schema> & { auth_token?: string };
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -182,19 +166,13 @@ export function registerInfraTools(
         if (params.currency !== undefined) {
           pricingParams.currencyid = params.currency;
         }
-        const pricing = await whmcs.read<Record<string, unknown>>(
-          'GetTLDPricing',
-          pricingParams
-        );
+        const pricing = await whmcs.read<Record<string, unknown>>('GetTLDPricing', pricingParams);
 
         let registrarRaw: unknown;
         if (params.include_registrar) {
           if (!rl.tryConsume()) throw new RateLimitError();
           try {
-            registrarRaw = await whmcs.read<Record<string, unknown>>(
-              'GetRegistrars',
-              {}
-            );
+            registrarRaw = await whmcs.read<Record<string, unknown>>('GetRegistrars', {});
           } catch {
             // Registrar label is best-effort enrichment; pricing is the payload.
             registrarRaw = undefined;

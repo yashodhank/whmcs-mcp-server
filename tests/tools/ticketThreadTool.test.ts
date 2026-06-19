@@ -19,7 +19,13 @@ function harness() {
       configs[n] = cfg;
     },
   };
-  const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
+  const childLogger: any = {
+    logToolCall: vi.fn(),
+    logToolResult: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    child: () => childLogger,
+  };
   const logger: any = { child: () => childLogger };
   const rateLimiter: any = { tryConsume: () => true };
   return { server, handlers, configs, logger, rateLimiter };
@@ -29,8 +35,19 @@ describe('registerTicketThreadTool', () => {
   it('registers get_ticket_thread, calls GetTicket, formats thread, read-only annotations', async () => {
     const { server, handlers, configs, logger, rateLimiter } = harness();
     const read = vi.fn().mockResolvedValue({
-      ticketid: 1001, tid: 'TST01', deptname: 'Help Desk', subject: 's', status: 'Answered', date: 'd', userid: 30,
-      replies: { reply: [{ replyid: '0', message: 'open' }, { replyid: '1', message: 'r2', admin: 'A' }] },
+      ticketid: 1001,
+      tid: 'TST01',
+      deptname: 'Help Desk',
+      subject: 's',
+      status: 'Answered',
+      date: 'd',
+      userid: 30,
+      replies: {
+        reply: [
+          { replyid: '0', message: 'open' },
+          { replyid: '1', message: 'r2', admin: 'A' },
+        ],
+      },
       notes: [],
     });
     registerTicketThreadTool(server as any, { read } as any, logger, rateLimiter);
@@ -67,11 +84,31 @@ describe('registerTicketThreadTool — governed path', () => {
     date: '2026-05-18 09:00:00',
     replies: {
       reply: [
-        { replyid: '0', name: 'Jane Client', email: 'jane@example.test', message: 'Reset my password sk_live_TOPSECRET please', date: '2026-05-18 09:00:00' },
-        { replyid: '1', admin: 'OpAlice', message: 'Looking into your account now', date: '2026-05-18 09:30:00' },
+        {
+          replyid: '0',
+          name: 'Jane Client',
+          email: 'jane@example.test',
+          message: 'Reset my password sk_live_TOPSECRET please',
+          date: '2026-05-18 09:00:00',
+        },
+        {
+          replyid: '1',
+          admin: 'OpAlice',
+          message: 'Looking into your account now',
+          date: '2026-05-18 09:30:00',
+        },
       ],
     },
-    notes: { note: [{ noteid: '5', admin: 'OpAlice', message: 'internal: escalate to L2', date: '2026-05-18 09:31:00' }] },
+    notes: {
+      note: [
+        {
+          noteid: '5',
+          admin: 'OpAlice',
+          message: 'internal: escalate to L2',
+          date: '2026-05-18 09:31:00',
+        },
+      ],
+    },
   };
 
   const registryJson = JSON.stringify([
@@ -114,12 +151,9 @@ describe('registerTicketThreadTool — governed path', () => {
       ensureClientAllowed: () => null,
       ensureClientOwnership: () => null,
     }));
-    const { registerTicketThreadTool: register } = await import(
-      '../../src/tools/ticketThreadTool.js'
-    );
-    const { __resetRegistryCacheForTests } = await import(
-      '../../src/governance/pipeline.js'
-    );
+    const { registerTicketThreadTool: register } =
+      await import('../../src/tools/ticketThreadTool.js');
+    const { __resetRegistryCacheForTests } = await import('../../src/governance/pipeline.js');
     __resetRegistryCacheForTests();
 
     const handlers: Record<string, any> = {};
@@ -128,9 +162,15 @@ describe('registerTicketThreadTool — governed path', () => {
         handlers[n] = cb;
       },
     };
-     
-    const childLogger: any = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => childLogger };
-     
+
+    const childLogger: any = {
+      logToolCall: vi.fn(),
+      logToolResult: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+      child: () => childLogger,
+    };
+
     const logger: any = { child: () => childLogger };
     const rateLimiter: any = { tryConsume: () => true };
     const read = vi.fn().mockResolvedValue(rawTicket);

@@ -50,14 +50,11 @@ export interface CanonicalClient {
   customFields: CanonicalCustomField[];
 }
 
-export function mapToCanonicalClient(
-  raw: unknown
-): Canonical<CanonicalClient> {
+export function mapToCanonicalClient(raw: unknown): Canonical<CanonicalClient> {
   const root = asRecord(raw);
   // Nested `client` wins (current WHMCS shape); root is the deprecated path.
   const nested = asRecord(root.client);
-  const src: Record<string, unknown> =
-    Object.keys(nested).length > 0 ? nested : root;
+  const src: Record<string, unknown> = Object.keys(nested).length > 0 ? nested : root;
 
   const statsSrc = asRecord(src.stats);
   const stats: CanonicalClientStats = {
@@ -67,10 +64,7 @@ export function mapToCanonicalClient(
     domainCountTotal: num(statsSrc, 'numdomains') ?? null,
   };
 
-  const customFields: CanonicalCustomField[] = listOf(
-    src.customfields,
-    'customfield'
-  ).map((cf) => {
+  const customFields: CanonicalCustomField[] = listOf(src.customfields, 'customfield').map((cf) => {
     const id = num(cf, 'id');
     const value = str(cf, 'value') ?? null;
     const whmcsName = str(cf, 'fieldname') ?? str(cf, 'name') ?? str(cf, 'label');
@@ -118,16 +112,10 @@ export function mapToCanonicalClient(
 
   const classes = new ClassMapBuilder()
     .set('clientId', 'business.identifier')
-    .many(
-      ['firstName', 'lastName', 'fullName', 'companyName'],
-      'pii.name'
-    )
+    .many(['firstName', 'lastName', 'fullName', 'companyName'], 'pii.name')
     .set('email', 'pii.email')
     .set('phoneNumber', 'pii.phone')
-    .many(
-      ['address1', 'address2', 'city', 'state', 'postcode', 'country'],
-      'pii.address'
-    )
+    .many(['address1', 'address2', 'city', 'state', 'postcode', 'country'], 'pii.address')
     .set('taxId', 'pii.tax')
     .set('creditBalance', 'financial.amount')
     .set('paymentGateway', 'financial.reference')

@@ -76,15 +76,11 @@ function mapOne(src: Record<string, unknown>): CanonicalDomain {
   };
 }
 
-export function mapToCanonicalDomain(
-  raw: unknown
-): Canonical<CanonicalDomain> {
+export function mapToCanonicalDomain(raw: unknown): Canonical<CanonicalDomain> {
   return { entity: 'domain', data: mapOne(asRecord(raw)), classes: CLASSES };
 }
 
-export function mapToCanonicalDomains(
-  raw: unknown
-): Canonical<CanonicalDomain>[] {
+export function mapToCanonicalDomains(raw: unknown): Canonical<CanonicalDomain>[] {
   const src = asRecord(raw);
   return listOf(src.domains, 'domain').map((r) => ({
     entity: 'domain' as const,

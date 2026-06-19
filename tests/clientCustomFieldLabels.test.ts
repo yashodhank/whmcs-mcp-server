@@ -47,9 +47,7 @@ describe('client custom field labels', () => {
 
   it('maps legacy custom_fields with label and name', () => {
     labels.current = { '3': 'Override' };
-    const out = mapClientCustomFieldsForLegacy([
-      { id: 3, fieldname: 'Original', value: 'v' },
-    ]);
+    const out = mapClientCustomFieldsForLegacy([{ id: 3, fieldname: 'Original', value: 'v' }]);
     expect(out).toEqual([{ id: 3, label: 'Override', name: 'Override', value: 'v' }]);
   });
 });

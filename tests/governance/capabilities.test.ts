@@ -28,10 +28,21 @@ describe('capability registry (B4)', () => {
   describe('static CAPABILITY_REGISTRY seed', () => {
     it('marks every already-allowlisted read action as supported', () => {
       const allowlisted = [
-        'GetClients', 'GetClientsDetails', 'GetClientsProducts',
-        'GetClientsDomains', 'GetInvoice', 'GetInvoices', 'GetTickets',
-        'GetTicket', 'GetSupportDepartments', 'GetOrders', 'GetProducts',
-        'GetActivityLog', 'GetAdminDetails', 'GetAdminLog', 'DomainWhois',
+        'GetClients',
+        'GetClientsDetails',
+        'GetClientsProducts',
+        'GetClientsDomains',
+        'GetInvoice',
+        'GetInvoices',
+        'GetTickets',
+        'GetTicket',
+        'GetSupportDepartments',
+        'GetOrders',
+        'GetProducts',
+        'GetActivityLog',
+        'GetAdminDetails',
+        'GetAdminLog',
+        'DomainWhois',
       ];
       for (const action of allowlisted) {
         const cap = CAPABILITY_REGISTRY[action];
@@ -60,9 +71,7 @@ describe('capability registry (B4)', () => {
     });
 
     it('maps GetTransactions to the list_client_transactions capability id', () => {
-      expect(CAPABILITY_REGISTRY.GetTransactions.capability).toBe(
-        'list_client_transactions'
-      );
+      expect(CAPABILITY_REGISTRY.GetTransactions.capability).toBe('list_client_transactions');
     });
   });
 
@@ -127,9 +136,7 @@ describe('capability registry (B4)', () => {
     });
 
     it('resolves not_authorized when WHMCS returns an access-denied error', async () => {
-      const read = vi
-        .fn()
-        .mockRejectedValue(new Error('Authentication Failed: Access Denied'));
+      const read = vi.fn().mockRejectedValue(new Error('Authentication Failed: Access Denied'));
       const result = await probeCapability('GetStats', {
         read,
         isAllowlisted: ALLOW_ALL,
@@ -141,7 +148,7 @@ describe('capability registry (B4)', () => {
     it('resolves unsupported when WHMCS reports the action is unknown', async () => {
       const read = vi
         .fn()
-        .mockRejectedValue(new Error("The requested API Action could not be found."));
+        .mockRejectedValue(new Error('The requested API Action could not be found.'));
       const result = await probeCapability('GetToDoItems', {
         read,
         isAllowlisted: ALLOW_ALL,
@@ -150,9 +157,7 @@ describe('capability registry (B4)', () => {
     });
 
     it('resolves degraded on a transport/other error', async () => {
-      const read = vi
-        .fn()
-        .mockRejectedValue(new Error('WHMCS connection error: ECONNRESET'));
+      const read = vi.fn().mockRejectedValue(new Error('WHMCS connection error: ECONNRESET'));
       const result = await probeCapability('GetAutomationLog', {
         read,
         isAllowlisted: ALLOW_ALL,
@@ -222,10 +227,7 @@ describe('capability registry (B4)', () => {
     });
 
     it('marks unsupported and not_authorized as non-retriable, with guidance', () => {
-      const nonRetriable: CapabilityStatusValue[] = [
-        'unsupported',
-        'not_authorized',
-      ];
+      const nonRetriable: CapabilityStatusValue[] = ['unsupported', 'not_authorized'];
       for (const status of nonRetriable) {
         const payload = capabilityUnavailablePayload({
           action: 'SomeAction',
@@ -279,12 +281,7 @@ describe('capability registry (B4)', () => {
  * capabilityShellTools.test.ts flaky across files.
  */
 describe('probe-cache isolation (global setupEach regression)', () => {
-  const PROMOTED = [
-    'GetTransactions',
-    'GetStats',
-    'GetToDoItems',
-    'GetAutomationLog',
-  ] as const;
+  const PROMOTED = ['GetTransactions', 'GetStats', 'GetToDoItems', 'GetAutomationLog'] as const;
 
   it('poisons probeCache for the promoted actions (no local cleanup)', async () => {
     // ALLOW_NONE ⇒ resolves `unsupported` and caches it, exactly like a

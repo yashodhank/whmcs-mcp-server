@@ -1,9 +1,6 @@
 /** B1 — canonical pay-method + credit mappers. Synthetic fixtures only. */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalPayMethods,
-  mapToCanonicalCredits,
-} from '../../src/canonical/payMethod.js';
+import { mapToCanonicalPayMethods, mapToCanonicalCredits } from '../../src/canonical/payMethod.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalPayMethods', () => {
@@ -103,12 +100,8 @@ describe('mapToCanonicalPayMethods', () => {
     const pm = c.data.payMethods[0];
     expect(pm.card).toBeNull();
     expect(pm.bankAccount?.accountNumber).toBe('000123456');
-    expect(c.classes['payMethods[].bankAccount.accountNumber']).toBe(
-      'secret.credential'
-    );
-    expect(c.classes['payMethods[].bankAccount.routingNumber']).toBe(
-      'secret.credential'
-    );
+    expect(c.classes['payMethods[].bankAccount.accountNumber']).toBe('secret.credential');
+    expect(c.classes['payMethods[].bankAccount.routingNumber']).toBe('secret.credential');
     assertClassmapComplete(c);
   });
 

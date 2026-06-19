@@ -65,9 +65,7 @@ describe('classifyFailure', () => {
   });
 
   it('maps a stdio "closed" message to transport_error', () => {
-    expect(
-      classifyFailure(new Error('transport closed'), 'connect').kind
-    ).toBe('transport_error');
+    expect(classifyFailure(new Error('transport closed'), 'connect').kind).toBe('transport_error');
   });
 
   it('maps an MCP tool error result to tool_error', () => {
@@ -81,9 +79,7 @@ describe('classifyFailure', () => {
   });
 
   it('maps an auditor throw to audit_error', () => {
-    expect(
-      classifyFailure(new Error('classmap blew up'), 'audit').kind
-    ).toBe('audit_error');
+    expect(classifyFailure(new Error('classmap blew up'), 'audit').kind).toBe('audit_error');
   });
 
   it('always returns a string message and a known kind', () => {
@@ -193,14 +189,10 @@ describe('structured failure report', () => {
 
 describe('classmap source labelling', () => {
   it('is authoritative when an audit trace is present', () => {
-    expect(classmapSourceFor({ tracePresent: true, fromTrace: true })).toBe(
-      'authoritative'
-    );
+    expect(classmapSourceFor({ tracePresent: true, fromTrace: true })).toBe('authoritative');
   });
   it('falls back & labels inference when trace absent', () => {
-    expect(
-      classmapSourceFor({ tracePresent: false, fromTrace: false })
-    ).toMatch(/inferred/);
+    expect(classmapSourceFor({ tracePresent: false, fromTrace: false })).toMatch(/inferred/);
   });
   it('labels tool-output classmap distinctly', () => {
     expect(
@@ -214,12 +206,7 @@ describe('classmap source labelling', () => {
 });
 
 describe('metrics aggregation', () => {
-  const mk = (
-    ok: boolean,
-    tool: string,
-    consumer: string,
-    kind?: string
-  ): JobOutcome => ({
+  const mk = (ok: boolean, tool: string, consumer: string, kind?: string): JobOutcome => ({
     ok,
     tool,
     consumer,

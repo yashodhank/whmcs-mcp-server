@@ -43,9 +43,7 @@ const TOOL_VERSION = 'v1';
 /** Standard structured-error result for a recoverable read failure. */
 function errorResult(message: string): GovernedToolResult {
   return {
-    content: [
-      { type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) },
-    ],
+    content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) }],
     isError: true,
   };
 }
@@ -79,17 +77,13 @@ function registerSimpleRead(
       .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
   });
 
-  const handler: ToolCallback<z.ZodRawShape> = (async (
-    rawParams: Record<string, unknown>
-  ) => {
+  const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
     const params = rawParams as z.infer<typeof schema> & { auth_token?: string };
     const log = logger.child();
     const t0 = Date.now();
     try {
-      const authToken =
-        typeof params.auth_token === 'string' ? params.auth_token : undefined;
-      const requestedContract =
-        typeof params.contract === 'string' ? params.contract : undefined;
+      const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+      const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
       const authErr = ensureToolAuth(params as Record<string, unknown>);
       if (authErr) return authErr;

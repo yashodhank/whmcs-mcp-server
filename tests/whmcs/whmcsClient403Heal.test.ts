@@ -14,7 +14,7 @@ vi.mock('../../src/config.js', () => ({
 // axios: post() is a controllable spy; isAxiosError detects our fake errors.
 const post = vi.fn();
 vi.mock('axios', () => {
-  const isAxiosError = (e: any) => !!(e?.isAxiosError);
+  const isAxiosError = (e: any) => !!e?.isAxiosError;
   const create = vi.fn(() => ({ post }));
   return { default: { create, isAxiosError }, create, isAxiosError };
 });
@@ -81,7 +81,9 @@ describe('WhmcsClient 403 auto-heal discrimination', () => {
   });
 
   it('does NOT heal on a permissions 403 (different message, same status)', async () => {
-    post.mockRejectedValue(axios403('Invalid Permissions: API action "whmcsdetails" is not allowed'));
+    post.mockRejectedValue(
+      axios403('Invalid Permissions: API action "whmcsdetails" is not allowed')
+    );
 
     const client = new WhmcsClient(cfg(), makeLogger());
     await expect(client.call('GetCurrencies', {}, { normalize: false })).rejects.toThrow();
@@ -93,7 +95,10 @@ describe('WhmcsClient 403 auto-heal discrimination', () => {
   it('does NOT heal when WHMCS_AUTO_IP_HEAL is off, even for an Invalid IP 403', async () => {
     post.mockRejectedValue(axios403('Invalid IP 117.217.28.213'));
 
-    const client = new WhmcsClient(cfg({ WHMCS_AUTO_IP_HEAL: false } as Partial<AppConfig>), makeLogger());
+    const client = new WhmcsClient(
+      cfg({ WHMCS_AUTO_IP_HEAL: false } as Partial<AppConfig>),
+      makeLogger()
+    );
     await expect(client.call('GetCurrencies', {}, { normalize: false })).rejects.toThrow();
 
     expect(attemptIpAllowlistHeal).not.toHaveBeenCalled();

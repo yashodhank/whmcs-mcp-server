@@ -38,9 +38,7 @@ const TOOL_VERSION = 'v1';
 /** Standard structured-error result for a recoverable read failure. */
 function errorResult(message: string): GovernedToolResult {
   return {
-    content: [
-      { type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) },
-    ],
+    content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, error: message }) }],
     isError: true,
   };
 }
@@ -60,17 +58,13 @@ export function registerTicketMetaTools(
         .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
 
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      rawParams: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof schema> & { auth_token?: string };
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -78,10 +72,7 @@ export function registerTicketMetaTools(
         log.logToolCall('get_ticket_counts', params, false);
         if (!rl.tryConsume()) throw new RateLimitError();
 
-        const result = await whmcs.read<Record<string, unknown>>(
-          'GetTicketCounts',
-          {}
-        );
+        const result = await whmcs.read<Record<string, unknown>>('GetTicketCounts', {});
         const canonical = mapToCanonicalTicketCounts(result);
 
         log.logToolResult('get_ticket_counts', true, Date.now() - t0);
@@ -89,8 +80,7 @@ export function registerTicketMetaTools(
         return applyGovernanceOrLegacy({
           enabled: governanceEnabled(),
           legacy: { entity: canonical.entity, data: canonical.data },
-          govern: () =>
-            governedToolResult({ canonical, authToken, requestedContract }),
+          govern: () => governedToolResult({ canonical, authToken, requestedContract }),
         });
       } catch (e) {
         log.logToolResult(
@@ -126,17 +116,13 @@ export function registerTicketMetaTools(
         .describe('Requested data contract (honoured only if the resolved consumer permits it)'),
     });
 
-    const handler: ToolCallback<z.ZodRawShape> = (async (
-      rawParams: Record<string, unknown>
-    ) => {
+    const handler: ToolCallback<z.ZodRawShape> = (async (rawParams: Record<string, unknown>) => {
       const params = rawParams as z.infer<typeof schema> & { auth_token?: string };
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -144,10 +130,7 @@ export function registerTicketMetaTools(
         log.logToolCall('list_support_statuses', params, false);
         if (!rl.tryConsume()) throw new RateLimitError();
 
-        const result = await whmcs.read<Record<string, unknown>>(
-          'GetSupportStatuses',
-          {}
-        );
+        const result = await whmcs.read<Record<string, unknown>>('GetSupportStatuses', {});
         const canonical = mapToCanonicalSupportStatuses(result);
 
         log.logToolResult('list_support_statuses', true, Date.now() - t0);
@@ -155,8 +138,7 @@ export function registerTicketMetaTools(
         return applyGovernanceOrLegacy({
           enabled: governanceEnabled(),
           legacy: { entity: canonical.entity, data: canonical.data },
-          govern: () =>
-            governedToolResult({ canonical, authToken, requestedContract }),
+          govern: () => governedToolResult({ canonical, authToken, requestedContract }),
         });
       } catch (e) {
         log.logToolResult(

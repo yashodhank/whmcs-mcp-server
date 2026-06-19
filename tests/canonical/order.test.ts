@@ -1,9 +1,6 @@
 /** B1 — canonical order mapper. Synthetic fixtures only. */
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalOrder,
-  mapToCanonicalOrders,
-} from '../../src/canonical/order.js';
+import { mapToCanonicalOrder, mapToCanonicalOrders } from '../../src/canonical/order.js';
 import { assertClassmapComplete } from './_complete.js';
 
 describe('mapToCanonicalOrder', () => {
@@ -24,7 +21,14 @@ describe('mapToCanonicalOrder', () => {
       notes: 'priority customer',
       lineitems: {
         lineitem: {
-          '0': { type: 'product', product: 'Hosting A', domain: 'site.test', billingcycle: 'Annually', amount: '100.00', status: 'Active' },
+          '0': {
+            type: 'product',
+            product: 'Hosting A',
+            domain: 'site.test',
+            billingcycle: 'Annually',
+            amount: '100.00',
+            status: 'Active',
+          },
         },
       },
     };

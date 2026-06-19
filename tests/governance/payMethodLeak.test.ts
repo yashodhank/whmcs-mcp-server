@@ -40,12 +40,7 @@ const RAW = {
   },
 };
 
-const NON_LOCAL = [
-  'llm_safe_summary',
-  'ops_operator',
-  'client_portal_self',
-  'admin_full_trusted',
-];
+const NON_LOCAL = ['llm_safe_summary', 'ops_operator', 'client_portal_self', 'admin_full_trusted'];
 
 interface ProjectedPayMethod {
   type?: unknown;

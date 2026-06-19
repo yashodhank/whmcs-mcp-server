@@ -71,9 +71,7 @@ const SHELL_OUTPUT_SHAPE = {
  * SDK-derived JSON Schema must permit additional properties or strict MCP
  * runtimes (Kilo) reject with -32602.
  */
-const SHELL_OUTPUT_SCHEMA = z
-  .object(SHELL_OUTPUT_SHAPE)
-  .catchall(z.unknown());
+const SHELL_OUTPUT_SCHEMA = z.object(SHELL_OUTPUT_SHAPE).catchall(z.unknown());
 
 /**
  * Stable, additive output schema for `get_capability_matrix`.
@@ -86,9 +84,7 @@ const SHELL_OUTPUT_SCHEMA = z
  *    validates governance ON and OFF.
  */
 const CAPABILITY_MATRIX_OUTPUT_SHAPE = {
-  whmcs_version: z
-    .object({ status: z.string(), note: z.string().optional() })
-    .optional(),
+  whmcs_version: z.object({ status: z.string(), note: z.string().optional() }).optional(),
   capabilities: z
     .array(
       z.object({
@@ -134,7 +130,7 @@ const SHELLS: readonly ShellSpec[] = [
     name: 'list_client_transactions',
     action: 'GetTransactions',
     description:
-      "Read-only client payment transactions. WHMCS GetTransactions is not yet verified/allowlisted on this build — returns a structured capability status until prod-verified.",
+      'Read-only client payment transactions. WHMCS GetTransactions is not yet verified/allowlisted on this build — returns a structured capability status until prod-verified.',
     extraSchema: {
       clientid: z.number().int().positive().optional(),
       invoiceid: z.number().int().positive().optional(),
@@ -308,7 +304,9 @@ function registerShell(
         contract: z
           .string()
           .optional()
-          .describe('Requested data contract (honoured only once the capability is verified and the consumer permits it)'),
+          .describe(
+            'Requested data contract (honoured only once the capability is verified and the consumer permits it)'
+          ),
         ...AUTH_SHAPE,
       },
       outputSchema: SHELL_OUTPUT_SCHEMA,
@@ -323,11 +321,7 @@ function registerShell(
  * Pure (no WHMCS call). Honest: WHMCS version is `unverified` (no
  * allowlisted version source probed); never fabricated.
  */
-function registerCapabilityMatrixTool(
-  server: McpServer,
-  logger: Logger,
-  rl: RateLimiter
-): void {
+function registerCapabilityMatrixTool(server: McpServer, logger: Logger, rl: RateLimiter): void {
   const name = 'get_capability_matrix';
   if (!isToolAllowed(name)) return;
 
@@ -365,12 +359,7 @@ function registerCapabilityMatrixTool(
         structuredContent: payload as unknown as Record<string, unknown>,
       };
     } catch (e) {
-      log.logToolResult(
-        name,
-        false,
-        Date.now() - t0,
-        e instanceof Error ? e.message : String(e)
-      );
+      log.logToolResult(name, false, Date.now() - t0, e instanceof Error ? e.message : String(e));
       if (e instanceof RateLimitError) {
         return {
           content: [

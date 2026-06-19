@@ -18,10 +18,7 @@ import {
   type ProjectionEnv,
 } from '../../src/governance/types.js';
 import { CONTRACTS } from '../../src/governance/contracts.js';
-import {
-  project,
-  projectWithTrace,
-} from '../../src/governance/projection.js';
+import { project, projectWithTrace } from '../../src/governance/projection.js';
 
 interface E {
   acct: string;
@@ -86,9 +83,7 @@ function fixture(): Canonical<E> {
 }
 
 function legalEnv(name: string): ProjectionEnv {
-  return CONTRACTS[name as keyof typeof CONTRACTS].envRestrictions.length
-    ? 'local'
-    : 'production';
+  return CONTRACTS[name as keyof typeof CONTRACTS].envRestrictions.length ? 'local' : 'production';
 }
 
 /**

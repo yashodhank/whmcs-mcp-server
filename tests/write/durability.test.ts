@@ -210,10 +210,7 @@ describe('DayAmountsStore durability', () => {
     // Write a record with yesterday's date directly.
     const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
     const staleKey = `AddInvoicePayment|${yesterday}`;
-    fs.writeFileSync(
-      file,
-      JSON.stringify({ key: staleKey, total: 999, date: yesterday }) + '\n'
-    );
+    fs.writeFileSync(file, JSON.stringify({ key: staleKey, total: 999, date: yesterday }) + '\n');
 
     const store = new DayAmountsStore(file);
     // Stale entry must not pollute today's total.

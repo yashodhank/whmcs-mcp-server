@@ -49,7 +49,12 @@ describe('get_ticket_counts', () => {
     const { server, handlers, logger, rateLimiter } = harness();
     const read = vi.fn().mockResolvedValue({
       result: 'success',
-      statuses: { status: [{ title: 'Open', count: '4' }, { title: 'Answered', count: 2 }] },
+      statuses: {
+        status: [
+          { title: 'Open', count: '4' },
+          { title: 'Answered', count: 2 },
+        ],
+      },
       departments: { department: [{ name: 'Support', count: '7' }] },
       awaitingreply: '5',
       total: 13,
@@ -92,7 +97,12 @@ describe('list_support_statuses', () => {
     const { server, handlers, logger, rateLimiter } = harness();
     const read = vi.fn().mockResolvedValue({
       result: 'success',
-      statuses: { status: [{ title: 'Open', count: '4' }, { title: 'Closed', count: 0 }] },
+      statuses: {
+        status: [
+          { title: 'Open', count: '4' },
+          { title: 'Closed', count: 0 },
+        ],
+      },
     });
     registerTicketMetaTools(server as any, { read } as any, logger, rateLimiter);
 

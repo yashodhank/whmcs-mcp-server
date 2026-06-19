@@ -51,8 +51,26 @@ describe('get_server_health', () => {
       result: 'success',
       servers: {
         server: [
-          { id: '1', name: 'web01', hostname: 'w1.example.net', ipaddress: '203.0.113.1', active: '1', disabled: '0', maxallowedaccounts: '500', activeservices: '120' },
-          { id: '2', name: 'web02', hostname: 'w2.example.net', ipaddress: '203.0.113.2', active: '1', disabled: '0', maxallowedaccounts: '500', activeservices: '88' },
+          {
+            id: '1',
+            name: 'web01',
+            hostname: 'w1.example.net',
+            ipaddress: '203.0.113.1',
+            active: '1',
+            disabled: '0',
+            maxallowedaccounts: '500',
+            activeservices: '120',
+          },
+          {
+            id: '2',
+            name: 'web02',
+            hostname: 'w2.example.net',
+            ipaddress: '203.0.113.2',
+            active: '1',
+            disabled: '0',
+            maxallowedaccounts: '500',
+            activeservices: '88',
+          },
         ],
       },
     });
@@ -97,7 +115,11 @@ describe('get_tld_pricing', () => {
           result: 'success',
           currency: { id: '1', code: 'USD' },
           pricing: {
-            '.com': { register: { '1': '9.95' }, renew: { '1': '11.95' }, transfer: { '1': '9.95' } },
+            '.com': {
+              register: { '1': '9.95' },
+              renew: { '1': '11.95' },
+              transfer: { '1': '9.95' },
+            },
           },
         };
       }

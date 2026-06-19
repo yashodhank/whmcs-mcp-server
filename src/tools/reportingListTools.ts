@@ -10,12 +10,7 @@ import { WhmcsClient, WhmcsBusinessError } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { config, isToolAllowed } from '../config.js';
-import {
-  ensureToolAuth,
-  isClientMode,
-  ensureClientAllowed,
-  AUTH_SHAPE,
-} from '../security.js';
+import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray, parseNumber } from '../whmcs/normalizers.js';
 import {
   READ_ONLY_ANNOTATIONS,
@@ -162,7 +157,7 @@ export function registerReportingListTools(
         .string()
         .optional()
         .describe(
-          'Opaque pagination cursor from a prior response\'s nextCursor; pages forward through ALL matched rows. When set it overrides offset.'
+          "Opaque pagination cursor from a prior response's nextCursor; pages forward through ALL matched rows. When set it overrides offset."
         ),
       fetch_limit: z.number().int().min(1).max(500).optional(),
       scan_limit: z.number().int().min(1).max(MAX_REPORTING_SCAN).optional(),
@@ -181,10 +176,8 @@ export function registerReportingListTools(
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -213,11 +206,11 @@ export function registerReportingListTools(
 
         const hasLocalDateFilters = Boolean(
           params.date_from ||
-            params.date_to ||
-            params.duedate_from ||
-            params.duedate_to ||
-            params.datepaid_from ||
-            params.datepaid_to
+          params.date_to ||
+          params.duedate_from ||
+          params.duedate_to ||
+          params.datepaid_from ||
+          params.datepaid_to
         );
         const pageSize =
           params.fetch_limit ??
@@ -244,9 +237,7 @@ export function registerReportingListTools(
           });
 
           totalResults = result.totalresults;
-          const pageInvoices = normalizeToArray<WhmcsInvoiceSummary>(
-            result.invoices?.invoice
-          );
+          const pageInvoices = normalizeToArray<WhmcsInvoiceSummary>(result.invoices?.invoice);
           rawInvoices.push(...pageInvoices);
           scanned += pageInvoices.length;
           if (pageInvoices.length === 0 || scanned >= (result.totalresults ?? scanned)) {
@@ -286,13 +277,10 @@ export function registerReportingListTools(
         // window is over the locally-filtered+sorted set, so the cursor encodes
         // the next index into that set.
         const effectiveOffset =
-          typeof params.cursor === 'string'
-            ? decodeCursor(params.cursor)
-            : params.offset;
+          typeof params.cursor === 'string' ? decodeCursor(params.cursor) : params.offset;
         const page = filtered.slice(effectiveOffset, effectiveOffset + params.limit);
         const items = page.map(mapInvoiceSummary);
-        const completeScan =
-          totalResults === undefined ? null : rawInvoices.length >= totalResults;
+        const completeScan = totalResults === undefined ? null : rawInvoices.length >= totalResults;
         // Emit a forward cursor only when more matched rows remain beyond this
         // window AND the scan was complete enough that "more rows" is honest
         // (a full page returned). REPLACES silent truncation at limit.
@@ -383,7 +371,7 @@ export function registerReportingListTools(
         .string()
         .optional()
         .describe(
-          'Opaque pagination cursor from a prior response\'s nextCursor; pages forward through ALL matched rows. When set it overrides offset.'
+          "Opaque pagination cursor from a prior response's nextCursor; pages forward through ALL matched rows. When set it overrides offset."
         ),
       fetch_limit: z.number().int().min(1).max(500).default(250),
       scan_limit: z.number().int().min(1).max(MAX_REPORTING_SCAN).default(10_000),
@@ -398,10 +386,8 @@ export function registerReportingListTools(
       const log = logger.child();
       const t0 = Date.now();
       try {
-        const authToken =
-          typeof params.auth_token === 'string' ? params.auth_token : undefined;
-        const requestedContract =
-          typeof params.contract === 'string' ? params.contract : undefined;
+        const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+        const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
         const authErr = ensureToolAuth(params as Record<string, unknown>);
         if (authErr) return authErr;
@@ -463,13 +449,10 @@ export function registerReportingListTools(
         // Cursor (opaque) supersedes offset when supplied; garbage → 0. Window
         // is over the locally-filtered set; cursor encodes the next index.
         const effectiveOffset =
-          typeof params.cursor === 'string'
-            ? decodeCursor(params.cursor)
-            : params.offset;
+          typeof params.cursor === 'string' ? decodeCursor(params.cursor) : params.offset;
         const page = filtered.slice(effectiveOffset, effectiveOffset + params.limit);
         const items = page.map(mapServiceSummary);
-        const completeScan =
-          totalResults === undefined ? null : rawServices.length >= totalResults;
+        const completeScan = totalResults === undefined ? null : rawServices.length >= totalResults;
         // Forward cursor only when more matched rows remain past this window
         // and a full page was returned. REPLACES silent truncation at limit.
         const hasMore = effectiveOffset + items.length < filtered.length;

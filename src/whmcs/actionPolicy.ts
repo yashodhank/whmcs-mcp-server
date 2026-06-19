@@ -14,30 +14,63 @@ export class WriteActionError extends Error {
 }
 
 export const READ_ALLOWLIST = new Set<string>([
-  'GetClients','GetClientsDetails','GetClientsProducts','GetClientsDomains',
-  'GetInvoice','GetInvoices','GetTickets','GetTicket','GetSupportDepartments',
-  'GetOrders','GetProducts','GetActivityLog','GetAdminDetails','GetAdminLog',
+  'GetClients',
+  'GetClientsDetails',
+  'GetClientsProducts',
+  'GetClientsDomains',
+  'GetInvoice',
+  'GetInvoices',
+  'GetTickets',
+  'GetTicket',
+  'GetSupportDepartments',
+  'GetOrders',
+  'GetProducts',
+  'GetActivityLog',
+  'GetAdminDetails',
+  'GetAdminLog',
   'DomainWhois',
   // Phase H — promoted after read-only probes confirmed `supported` on
   // Dev WHMCS 8, Dev WHMCS 9 AND production. GetUsers NOT added (degraded).
-  'GetTransactions','GetStats','GetToDoItems','GetAutomationLog',
+  'GetTransactions',
+  'GetStats',
+  'GetToDoItems',
+  'GetAutomationLog',
   // Track A — infrastructure / reference reads. Allowlisted so the governed
   // read tools (get_server_health, get_tld_pricing) can call them. Capability
   // status is `unverified` (not yet prod-probed) — see capabilities.ts.
-  'GetServers','GetHealthStatus','GetTLDPricing','GetRegistrars',
+  'GetServers',
+  'GetHealthStatus',
+  'GetTLDPricing',
+  'GetRegistrars',
   // Track A (batch 2) — client contacts, billing pay-methods/credits, ticket
   // operational metadata. Governed read tools; capability `unverified`.
-  'GetContacts','GetPayMethods','GetCredits','GetTicketCounts','GetSupportStatuses',
+  'GetContacts',
+  'GetPayMethods',
+  'GetCredits',
+  'GetTicketCounts',
+  'GetSupportStatuses',
   // Track A (batch 3) — quotes + system reference reads.
-  'GetQuotes','GetCurrencies','GetPaymentMethods','WhmcsDetails',
+  'GetQuotes',
+  'GetCurrencies',
+  'GetPaymentMethods',
+  'WhmcsDetails',
 ]);
 
-const WRITE_DENY_PREFIX = /^(Add|Update|Delete|Create|Module|Domain(Register|Renew|Transfer)|Send|Set)/i;
+const WRITE_DENY_PREFIX =
+  /^(Add|Update|Delete|Create|Module|Domain(Register|Renew|Transfer)|Send|Set)/i;
 
 const WRITE_DENY_EXACT = new Set<string>([
-  'CapturePayment','ApplyCredit','AddCredit','AddInvoicePayment','OpenTicket',
-  'AddTicketReply','UpdateTicket','SendEmail','SendAdminEmail',
-  'TriggerNotificationEvent','SetConfigurationValue',
+  'CapturePayment',
+  'ApplyCredit',
+  'AddCredit',
+  'AddInvoicePayment',
+  'OpenTicket',
+  'AddTicketReply',
+  'UpdateTicket',
+  'SendEmail',
+  'SendAdminEmail',
+  'TriggerNotificationEvent',
+  'SetConfigurationValue',
 ]);
 
 export function assertReadAction(action: string): void {

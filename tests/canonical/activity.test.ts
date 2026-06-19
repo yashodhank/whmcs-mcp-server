@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  mapToCanonicalActivity,
-  mapToCanonicalActivities,
-} from '../../src/canonical/index.js';
+import { mapToCanonicalActivity, mapToCanonicalActivities } from '../../src/canonical/index.js';
 
 describe('mapToCanonicalActivity', () => {
   it('maps a single activity row with complete fields + classmap', () => {

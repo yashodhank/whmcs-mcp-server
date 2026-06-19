@@ -150,9 +150,10 @@ describe('Track C strict mappers', () => {
   });
 
   it('domain:renew emits ONLY {domainid, regperiod}, drops extras', () => {
-    expect(
-      intentToWhmcsParams('domain:renew', { domainid: 7, regperiod: 2, evil: 'x' })
-    ).toEqual({ domainid: 7, regperiod: 2 });
+    expect(intentToWhmcsParams('domain:renew', { domainid: 7, regperiod: 2, evil: 'x' })).toEqual({
+      domainid: 7,
+      regperiod: 2,
+    });
   });
 
   it('order:accept emits ONLY {orderid}, drops fraud/provisioning flags', () => {
@@ -269,14 +270,19 @@ describe('Track C validation', () => {
   it('domain:nameservers:update requires domainid + 2..5 valid hostnames', () => {
     expect(
       validateIntent(
-        intent('domain:nameservers:update', { domainid: 7, nameservers: ['ns1.x.com', 'ns2.x.com'] }),
+        intent('domain:nameservers:update', {
+          domainid: 7,
+          nameservers: ['ns1.x.com', 'ns2.x.com'],
+        }),
         {}
       ).ok
     ).toBe(true);
     // too few
     expect(
-      validateIntent(intent('domain:nameservers:update', { domainid: 7, nameservers: ['ns1.x.com'] }), {})
-        .ok
+      validateIntent(
+        intent('domain:nameservers:update', { domainid: 7, nameservers: ['ns1.x.com'] }),
+        {}
+      ).ok
     ).toBe(false);
     // too many
     expect(
@@ -291,14 +297,20 @@ describe('Track C validation', () => {
     // malformed hostname
     expect(
       validateIntent(
-        intent('domain:nameservers:update', { domainid: 7, nameservers: ['ns1.x.com', 'http://bad'] }),
+        intent('domain:nameservers:update', {
+          domainid: 7,
+          nameservers: ['ns1.x.com', 'http://bad'],
+        }),
         {}
       ).ok
     ).toBe(false);
     // bad domainid
     expect(
       validateIntent(
-        intent('domain:nameservers:update', { domainid: 0, nameservers: ['ns1.x.com', 'ns2.x.com'] }),
+        intent('domain:nameservers:update', {
+          domainid: 0,
+          nameservers: ['ns1.x.com', 'ns2.x.com'],
+        }),
         {}
       ).ok
     ).toBe(false);
@@ -342,10 +354,7 @@ describe('Track C validation', () => {
       expect(r.ok).toBe(false);
     }
     // malformed nameserver
-    const bad = validateIntent(
-      intent('domain:register', { domainid: 7, ns1: 'http://bad' }),
-      {}
-    );
+    const bad = validateIntent(intent('domain:register', { domainid: 7, ns1: 'http://bad' }), {});
     expect(bad.ok).toBe(false);
     expect(bad.issues.some((i) => i.code === 'invalid_nameserver')).toBe(true);
   });
@@ -385,8 +394,10 @@ describe('Track C validation', () => {
     // missing required fields
     expect(validateIntent(intent('client:create', { firstname: 'Jane' }), {}).ok).toBe(false);
     expect(
-      validateIntent(intent('client:create', { firstname: '', lastname: 'Roe', email: 'a@b.test' }), {})
-        .ok
+      validateIntent(
+        intent('client:create', { firstname: '', lastname: 'Roe', email: 'a@b.test' }),
+        {}
+      ).ok
     ).toBe(false);
     // bad email shape
     const bad = validateIntent(
@@ -398,9 +409,9 @@ describe('Track C validation', () => {
   });
 
   it('client:update requires clientid plus ≥1 updatable field; rejects empty updates', () => {
-    expect(
-      validateIntent(intent('client:update', { clientid: 7, firstname: 'Jane' }), {}).ok
-    ).toBe(true);
+    expect(validateIntent(intent('client:update', { clientid: 7, firstname: 'Jane' }), {}).ok).toBe(
+      true
+    );
     // clientid only — no updatable field ⇒ empty_update
     const empty = validateIntent(intent('client:update', { clientid: 7 }), {});
     expect(empty.ok).toBe(false);
@@ -411,10 +422,7 @@ describe('Track C validation', () => {
       expect(r.ok).toBe(false);
     }
     // bad email when provided
-    const badEmail = validateIntent(
-      intent('client:update', { clientid: 7, email: 'nope' }),
-      {}
-    );
+    const badEmail = validateIntent(intent('client:update', { clientid: 7, email: 'nope' }), {});
     expect(badEmail.ok).toBe(false);
     expect(badEmail.issues.some((i) => i.code === 'invalid_email')).toBe(true);
   });

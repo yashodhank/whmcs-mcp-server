@@ -49,7 +49,12 @@ function makeServer() {
   return { server, reg };
 }
 
-const childLogger: any = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => childLogger };
+const childLogger: any = {
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: () => childLogger,
+};
 const logger: any = { child: () => childLogger, info: vi.fn(), debug: vi.fn() };
 const rateLimiter: any = { tryConsume: () => true };
 
@@ -64,19 +69,35 @@ describe('new templated resource registration', () => {
     const { server, reg } = makeServer();
     registerResources(server as any, { read: vi.fn() } as any, logger, rateLimiter);
 
-    expect(reg['client-summary-v2'].template.uriTemplate.toString()).toBe('whmcs://client/{clientid}/summary');
-    expect(reg['client-services'].template.uriTemplate.toString()).toBe('whmcs://client/{clientid}/services');
-    expect(reg['client-domains'].template.uriTemplate.toString()).toBe('whmcs://client/{clientid}/domains');
-    expect(reg['invoice-history-v2'].template.uriTemplate.toString()).toBe('whmcs://invoice/{invoiceid}/history');
-    expect(reg['ticket-thread-v2'].template.uriTemplate.toString()).toBe('whmcs://ticket/{ticketid}/thread');
+    expect(reg['client-summary-v2'].template.uriTemplate.toString()).toBe(
+      'whmcs://client/{clientid}/summary'
+    );
+    expect(reg['client-services'].template.uriTemplate.toString()).toBe(
+      'whmcs://client/{clientid}/services'
+    );
+    expect(reg['client-domains'].template.uriTemplate.toString()).toBe(
+      'whmcs://client/{clientid}/domains'
+    );
+    expect(reg['invoice-history-v2'].template.uriTemplate.toString()).toBe(
+      'whmcs://invoice/{invoiceid}/history'
+    );
+    expect(reg['ticket-thread-v2'].template.uriTemplate.toString()).toBe(
+      'whmcs://ticket/{ticketid}/thread'
+    );
   });
 
   it('keeps the existing plural URIs (backward compatible)', () => {
     const { server, reg } = makeServer();
     registerResources(server as any, { read: vi.fn() } as any, logger, rateLimiter);
-    expect(reg['client-summary'].template.uriTemplate.toString()).toBe('whmcs://clients/{clientid}/summary');
-    expect(reg['invoice-history'].template.uriTemplate.toString()).toBe('whmcs://invoices/{invoiceid}/history');
-    expect(reg['ticket-thread'].template.uriTemplate.toString()).toBe('whmcs://tickets/{ticketid}/thread');
+    expect(reg['client-summary'].template.uriTemplate.toString()).toBe(
+      'whmcs://clients/{clientid}/summary'
+    );
+    expect(reg['invoice-history'].template.uriTemplate.toString()).toBe(
+      'whmcs://invoices/{invoiceid}/history'
+    );
+    expect(reg['ticket-thread'].template.uriTemplate.toString()).toBe(
+      'whmcs://tickets/{ticketid}/thread'
+    );
   });
 });
 
@@ -88,38 +109,61 @@ describe('client/{clientid}/services resource', () => {
         expect(action).toBe('GetClientsProducts');
         expect(params.clientid).toBe(42);
         return {
-          products: { product: [
-            { id: 1, pid: 5, name: 'Hosting', domain: 'a.test', status: 'Active', billingcycle: 'Monthly', nextduedate: '2026-07-01', recurringamount: '9.00', paymentmethod: 'paypal' },
-            { id: 2, pid: 6, name: 'VPS', domain: 'b.test', status: 'Suspended' },
-          ] },
+          products: {
+            product: [
+              {
+                id: 1,
+                pid: 5,
+                name: 'Hosting',
+                domain: 'a.test',
+                status: 'Active',
+                billingcycle: 'Monthly',
+                nextduedate: '2026-07-01',
+                recurringamount: '9.00',
+                paymentmethod: 'paypal',
+              },
+              { id: 2, pid: 6, name: 'VPS', domain: 'b.test', status: 'Suspended' },
+            ],
+          },
           totalresults: 2,
         };
       }),
     };
     registerResources(server as any, whmcs, logger, rateLimiter);
 
-    const res = await reg['client-services'].handler(new URL('whmcs://client/42/services'), { clientid: '42' });
+    const res = await reg['client-services'].handler(new URL('whmcs://client/42/services'), {
+      clientid: '42',
+    });
     const payload = JSON.parse(res.contents[0].text);
     expect(payload.error).toBeUndefined();
     expect(payload.clientid).toBe(42);
     expect(payload.services).toHaveLength(2);
-    expect(payload.services[0]).toMatchObject({ serviceid: 1, product: 'Hosting', status: 'Active' });
+    expect(payload.services[0]).toMatchObject({
+      serviceid: 1,
+      product: 'Hosting',
+      status: 'Active',
+    });
   });
 
   it('filters by status when the status var is supplied', async () => {
     const { server, reg } = makeServer();
     const whmcs: any = {
       read: vi.fn().mockResolvedValue({
-        products: { product: [
-          { id: 1, name: 'A', status: 'Active' },
-          { id: 2, name: 'B', status: 'Suspended' },
-        ] },
+        products: {
+          product: [
+            { id: 1, name: 'A', status: 'Active' },
+            { id: 2, name: 'B', status: 'Suspended' },
+          ],
+        },
         totalresults: 2,
       }),
     };
     registerResources(server as any, whmcs, logger, rateLimiter);
 
-    const res = await reg['client-services'].handler(new URL('whmcs://client/42/services'), { clientid: '42', status: 'Suspended' });
+    const res = await reg['client-services'].handler(new URL('whmcs://client/42/services'), {
+      clientid: '42',
+      status: 'Suspended',
+    });
     const payload = JSON.parse(res.contents[0].text);
     expect(payload.services).toHaveLength(1);
     expect(payload.services[0].serviceid).toBe(2);
@@ -130,7 +174,9 @@ describe('client/{clientid}/services resource', () => {
     const whmcs: any = { read: vi.fn() };
     registerResources(server as any, whmcs, logger, rateLimiter);
 
-    const res = await reg['client-services'].handler(new URL('whmcs://client/0/services'), { clientid: '0' });
+    const res = await reg['client-services'].handler(new URL('whmcs://client/0/services'), {
+      clientid: '0',
+    });
     expect(JSON.parse(res.contents[0].text).error).toMatch(/positive integer/i);
     expect(whmcs.read).not.toHaveBeenCalled();
   });
@@ -142,7 +188,9 @@ describe('client/{clientid}/services resource', () => {
     const whmcs: any = { read: vi.fn() };
     registerResources(server as any, whmcs, logger, rateLimiter);
 
-    const res = await reg['client-services'].handler(new URL('whmcs://client/9/services'), { clientid: '9' });
+    const res = await reg['client-services'].handler(new URL('whmcs://client/9/services'), {
+      clientid: '9',
+    });
     expect(JSON.parse(res.contents[0].text).error).toMatch(/scope mismatch/i);
     expect(whmcs.read).not.toHaveBeenCalled();
   });
@@ -155,16 +203,29 @@ describe('client/{clientid}/domains resource', () => {
       read: vi.fn(async (action: string) => {
         expect(action).toBe('GetClientsDomains');
         return {
-          domains: { domain: [
-            { id: 11, domainname: 'x.test', registrar: 'enom', status: 'Active', regdate: '2025-01-01', expirydate: '2027-01-01', nextduedate: '2027-01-01', donotrenew: '0' },
-          ] },
+          domains: {
+            domain: [
+              {
+                id: 11,
+                domainname: 'x.test',
+                registrar: 'enom',
+                status: 'Active',
+                regdate: '2025-01-01',
+                expirydate: '2027-01-01',
+                nextduedate: '2027-01-01',
+                donotrenew: '0',
+              },
+            ],
+          },
           totalresults: 1,
         };
       }),
     };
     registerResources(server as any, whmcs, logger, rateLimiter);
 
-    const res = await reg['client-domains'].handler(new URL('whmcs://client/42/domains'), { clientid: '42' });
+    const res = await reg['client-domains'].handler(new URL('whmcs://client/42/domains'), {
+      clientid: '42',
+    });
     const payload = JSON.parse(res.contents[0].text);
     expect(payload.domains).toHaveLength(1);
     expect(payload.domains[0]).toMatchObject({ domainid: 11, domain: 'x.test', status: 'Active' });
@@ -186,7 +247,11 @@ describe('completions — {clientid}', () => {
 
   it('admin mode: bounded GetClients search returning BARE ids (no PII)', async () => {
     const { server, reg } = makeServer();
-    const many = Array.from({ length: 25 }, (_, i) => ({ id: i + 1, firstname: 'Ada', email: 'ada@x.test' }));
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      id: i + 1,
+      firstname: 'Ada',
+      email: 'ada@x.test',
+    }));
     const whmcs: any = {
       read: vi.fn(async (action: string, params: any) => {
         expect(action).toBe('GetClients');
@@ -261,26 +326,51 @@ describe('new singular invoice/ticket templates reuse the existing read path', (
     const { server, reg } = makeServer();
     const whmcs: any = {
       read: vi.fn().mockResolvedValue({
-        invoiceid: 555, userid: 7, date: '2026-01-02', duedate: '2026-01-09', datepaid: '',
-        status: 'Unpaid', total: '99.00', balance: '99.00',
-        items: { item: [{ id: 1, description: 'Hosting', amount: '99.00' }] }, transactions: { transaction: [] },
+        invoiceid: 555,
+        userid: 7,
+        date: '2026-01-02',
+        duedate: '2026-01-09',
+        datepaid: '',
+        status: 'Unpaid',
+        total: '99.00',
+        balance: '99.00',
+        items: { item: [{ id: 1, description: 'Hosting', amount: '99.00' }] },
+        transactions: { transaction: [] },
       }),
     };
     registerResources(server as any, whmcs, logger, rateLimiter);
-    const res = await reg['invoice-history-v2'].handler(new URL('whmcs://invoice/555/history'), { invoiceid: '555' });
-    expect(JSON.parse(res.contents[0].text)).toMatchObject({ invoiceid: 555, clientid: 7, status: 'Unpaid' });
+    const res = await reg['invoice-history-v2'].handler(new URL('whmcs://invoice/555/history'), {
+      invoiceid: '555',
+    });
+    expect(JSON.parse(res.contents[0].text)).toMatchObject({
+      invoiceid: 555,
+      clientid: 7,
+      status: 'Unpaid',
+    });
   });
 
   it('ticket-thread-v2 returns the formatted thread', async () => {
     const { server, reg } = makeServer();
     const whmcs: any = {
       read: vi.fn().mockResolvedValue({
-        ticketid: 1001, tid: 'TST01', deptname: 'Help Desk', subject: 's', status: 'Open', date: '2026-05-18 07:21:49',
-        replies: { reply: [{ replyid: '0', name: 'X', date: '2026-05-18 07:21:49', message: 'Body', admin: '' }] }, notes: [],
+        ticketid: 1001,
+        tid: 'TST01',
+        deptname: 'Help Desk',
+        subject: 's',
+        status: 'Open',
+        date: '2026-05-18 07:21:49',
+        replies: {
+          reply: [
+            { replyid: '0', name: 'X', date: '2026-05-18 07:21:49', message: 'Body', admin: '' },
+          ],
+        },
+        notes: [],
       }),
     };
     registerResources(server as any, whmcs, logger, rateLimiter);
-    const res = await reg['ticket-thread-v2'].handler(new URL('whmcs://ticket/1001/thread'), { ticketid: '1001' });
+    const res = await reg['ticket-thread-v2'].handler(new URL('whmcs://ticket/1001/thread'), {
+      ticketid: '1001',
+    });
     const payload = JSON.parse(res.contents[0].text);
     expect(payload.ticket_number).toBe('TST01');
     expect(payload.initial_message).toBe('Body');

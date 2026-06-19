@@ -58,9 +58,7 @@ export const DOMAIN_STATUSES = [
 /** Case-insensitive prefix filter + bound. */
 function filterBounded(values: readonly string[], value: string): string[] {
   const q = value.trim().toLowerCase();
-  const matched = q
-    ? values.filter((v) => v.toLowerCase().startsWith(q))
-    : values.slice();
+  const matched = q ? values.filter((v) => v.toLowerCase().startsWith(q)) : values.slice();
   return matched.slice(0, COMPLETION_LIMIT);
 }
 
@@ -68,9 +66,7 @@ function filterBounded(values: readonly string[], value: string): string[] {
  * Completion for an enum-ish variable (status, etc): returns the bounded,
  * prefix-filtered known set. Pure-local, no WHMCS call.
  */
-export function makeEnumCompletion(
-  values: readonly string[]
-): CompleteResourceTemplateCallback {
+export function makeEnumCompletion(values: readonly string[]): CompleteResourceTemplateCallback {
   return (value: string) => filterBounded(values, value);
 }
 
