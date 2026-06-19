@@ -41,7 +41,7 @@ import {
   type GovernedToolResult,
 } from '../governance/pipeline.js';
 // Import directly from the module (not the barrel): the canonical barrel
-// (index.ts) is owned by the main thread and adds these re-exports there.
+// (index.ts) does not re-export these pay-method and credit mappers.
 import {
   mapToCanonicalPayMethods,
   mapToCanonicalCredits,

@@ -13,7 +13,7 @@
  * - Opt-in via WHMCS_AUTO_IP_HEAL (default off).
  * - Single-flight: concurrent 403s coalesce onto one updater run.
  * - Cooldown: refuses to re-run within WHMCS_AUTO_IP_HEAL_COOLDOWN_MS, so a
- *   persistently-failing whitelist cannot spawn the updater in a tight loop.
+ *   persistently-failing allowlist cannot spawn the updater in a tight loop.
  * - Hard timeout: the updater is killed after WHMCS_AUTO_IP_HEAL_TIMEOUT_MS.
  * - Fail-soft: any error resolves to `false`; the original 403 is then surfaced.
  */
@@ -62,8 +62,7 @@ function resolveUpdaterScript(config: AppConfig): string | null {
 /**
  * Attempt to self-heal the WHMCS API IP allowlist. Returns true only if the
  * updater completed successfully (exit code 0 — IP updated or already correct).
- */
-/**
+ *
  * @param reportedIp Optional source IP WHMCS reported in the "Invalid IP" 403.
  *   When provided (and well-formed), the updater is told to use it directly
  *   (--ipv4/--ipv6) instead of detecting via public-IP providers — authoritative

@@ -851,7 +851,11 @@ function register(
 /**
  * Register the read-only aggregator tools on the MCP server:
  * get_account_360, get_billing_snapshot, get_support_snapshot,
- * get_renewal_snapshot.
+ * get_renewal_snapshot, get_domain_portfolio_snapshot,
+ * get_accounts_receivable_aging, get_activity_timeline,
+ * get_reconciliation_snapshot, get_provisioning_snapshot,
+ * get_risk_snapshot, get_service_lifecycle, get_revenue_report,
+ * get_reconciliation_export.
  */
 export function registerAggregatorTools(
   server: McpServer,

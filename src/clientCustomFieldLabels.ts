@@ -1,3 +1,15 @@
+/**
+ * Client custom-field label resolution.
+ *
+ * WHMCS returns custom fields with a numeric `id` and a name/label from the
+ * installation's field configuration. Operators can override those labels via
+ * `MCP_CLIENT_CUSTOM_FIELD_LABELS` (e.g. `"12:Tax ID,34:VAT Number"`) so the
+ * MCP surface uses stable, human-readable names independent of WHMCS field
+ * naming conventions.
+ *
+ * Resolution priority: configured env label → WHMCS `label` → `name` →
+ * `fieldname` → null (unknown field with no usable label).
+ */
 import { config } from './config.js';
 import { normalizeToArray } from './whmcs/normalizers.js';
 

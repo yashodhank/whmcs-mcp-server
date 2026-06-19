@@ -1,10 +1,15 @@
 /**
- * Security helpers for MCP access control
- * - Optional shared-secret auth for TOOL CALLS (auth_token param). This server
- *   is stdio-only; MCP resources are NOT authenticated via a URI-query token
- *   (the SDK's $-anchored URI matching makes that unworkable, and on stdio the
- *   spawning process is the trust boundary). Resources are gated by
- *   MCP_ACCESS_MODE / client-scope only.
+ * Security helpers for MCP access control.
+ *
+ * Used by BOTH the stdio and HTTP transports (the HTTP transport adds its own
+ * per-request bearer/OAuth gate in `src/http/auth.ts` and `src/http/httpServer.ts`
+ * before handing off to these helpers).
+ *
+ * - Optional shared-secret auth for TOOL CALLS (auth_token param). MCP
+ *   resources are NOT authenticated via a URI-query token (the SDK's
+ *   $-anchored URI matching makes that unworkable; on stdio the spawning
+ *   process is the trust boundary; on HTTP the bearer gate runs earlier).
+ *   Resources are gated by MCP_ACCESS_MODE / client-scope only.
  * - Access mode (admin vs client) gating
  * - Client scope enforcement
  * - Constant-time token comparison (SEC-001)
