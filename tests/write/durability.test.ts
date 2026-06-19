@@ -118,6 +118,67 @@ describe('IdempotencyLedger durability', () => {
     const l2 = new IdempotencyLedger(1000, clock, file);
     expect(l2.seen('old')).toBe(false);
   });
+
+  // A WriteToolResult-shaped object carrying a PII sentinel in params; only the
+  // redacted envelope (intent_id / action / scope / executed / verified / at)
+  // may ever reach disk.
+  const writeResult = {
+    intent: {
+      intent_id: 'intent-1',
+      action: 'AddClientNote',
+      scope: 'client_note:write',
+      risk: 'low',
+      params: { note: 'do-not-persist-me' },
+    },
+    executed: true,
+    execution: { verified: true },
+    would_call: { action: 'AddClientNote', params: { note: 'do-not-persist-me' } },
+  };
+
+  it('cross-restart replay recalls the redacted envelope (not undefined)', () => {
+    const file = path.join(tmp, 'idem.jsonl');
+    const at = 1_700_000_000_000;
+    const clock = () => at;
+    const l1 = new IdempotencyLedger(5 * 60 * 1000, clock, file);
+    l1.record('env-key', writeResult);
+
+    // Simulated restart: a fresh instance off the same file.
+    const l2 = new IdempotencyLedger(5 * 60 * 1000, clock, file);
+    expect(l2.seen('env-key')).toBe(true);
+    expect(l2.getResult('env-key')).toEqual({
+      intent_id: 'intent-1',
+      action: 'AddClientNote',
+      scope: 'client_note:write',
+      executed: true,
+      verified: true,
+      at: new Date(at).toISOString(),
+    });
+  });
+
+  it('persisted JSONL never contains params / would_call / the PII sentinel', () => {
+    const file = path.join(tmp, 'idem.jsonl');
+    const l = new IdempotencyLedger(60_000, Date.now, file);
+    l.record('pii-key', writeResult);
+    const raw = fs.readFileSync(file, 'utf8');
+    // Safe, non-PII facts may appear.
+    expect(raw).toContain('"intent_id":"intent-1"');
+    expect(raw).toContain('AddClientNote');
+    expect(raw).toContain('client_note:write');
+    // But never the caller payload / free-form fields.
+    expect(raw).not.toContain('params');
+    expect(raw).not.toContain('would_call');
+    expect(raw).not.toContain('do-not-persist-me');
+  });
+
+  it('old-format {key, expiresAt} lines still load (getResult undefined)', () => {
+    const file = path.join(tmp, 'idem.jsonl');
+    const future = Date.now() + 10 * 60 * 1000;
+    fs.writeFileSync(file, JSON.stringify({ key: 'legacy', expiresAt: future }) + '\n');
+
+    const l = new IdempotencyLedger(5 * 60 * 1000, Date.now, file);
+    expect(l.seen('legacy')).toBe(true);
+    expect(l.getResult('legacy')).toBeUndefined();
+  });
 });
 
 describe('DayAmountsStore durability', () => {

@@ -51,15 +51,62 @@ interface LedgerEntry {
 }
 
 /**
+ * Redacted, persistence-safe summary of a prior write result. This is the ONLY
+ * result-derived data ever written to the idempotency JSONL. It deliberately
+ * omits `params`, `would_call`, and any free-form strings that could carry
+ * PII / secrets — it answers "this key already executed before" with the
+ * minimum non-sensitive facts a replaying caller needs.
+ */
+export interface PersistedReplay {
+  readonly intent_id: string;
+  readonly action: string;
+  readonly scope: string;
+  readonly executed: boolean;
+  readonly verified: boolean;
+  readonly at: string;
+}
+
+/**
+ * Derive a PersistedReplay from a write result using a FIXED field allowlist.
+ * Returns undefined when `result` is not a WriteToolResult-shaped object
+ * (e.g. the `{ executing: true }` / `{ ok: true }` markers some callers and
+ * tests record) — in that case nothing extra is persisted. NEVER spreads the
+ * whole object; only the listed fields are read.
+ */
+export function toPersistedReplay(result: unknown, atIso: string): PersistedReplay | undefined {
+  if (typeof result !== 'object' || result === null) return undefined;
+  const r = result as Record<string, unknown>;
+  const intent = r.intent;
+  if (typeof intent !== 'object' || intent === null) return undefined;
+  const i = intent as Record<string, unknown>;
+  if (typeof i.intent_id !== 'string') return undefined;
+  const exec = r.execution;
+  const verified =
+    typeof exec === 'object' && exec !== null
+      ? (exec as Record<string, unknown>).verified === true
+      : false;
+  return {
+    intent_id: i.intent_id,
+    action: typeof i.action === 'string' ? i.action : '',
+    scope: typeof i.scope === 'string' ? i.scope : '',
+    executed: r.executed === true,
+    verified,
+    at: atIso,
+  };
+}
+
+/**
  * Idempotency ledger with per-key windowed expiry and OPTIONAL durable
  * backing. Detects a duplicate/replayed key and recalls the prior result.
  * Pure — never calls WHMCS.
  *
  * Durability: constructed with NO path ⇒ pure in-memory (byte-identical to
- * the legacy ledger; existing call sites/tests unaffected). With a path, only
- * `{ key, expiresAt }` is persisted as JSONL (NEVER the result payload — it
- * may carry sensitive data, and replay denial only needs the key+window).
- * Reloaded on startup so a replay is still caught across the deploy restart.
+ * the legacy ledger; existing call sites/tests unaffected). With a path,
+ * `{ key, expiresAt }` plus a REDACTED `PersistedReplay` envelope (intent_id /
+ * action / scope / executed / verified / at — never `params`, never
+ * `would_call`, never free-form strings) is persisted as JSONL. The raw result
+ * payload is NEVER written. Reloaded on startup so a cross-restart replay is
+ * both denied AND can recall the safe summary.
  */
 export class IdempotencyLedger {
   private readonly entries = new Map<string, LedgerEntry>();
@@ -91,7 +138,8 @@ export class IdempotencyLedger {
     const file = this.filePath;
     if (file !== undefined) {
       try {
-        this.persist(file, key, expiresAt);
+        const replay = toPersistedReplay(result, new Date(this.now()).toISOString());
+        this.persist(file, key, expiresAt, replay);
       } catch {
         /* best-effort durability: in-memory dedupe still holds this run */
       }
@@ -121,11 +169,17 @@ export class IdempotencyLedger {
     return entry;
   }
 
-  private persist(file: string, key: string, expiresAt: number): void {
+  private persist(
+    file: string,
+    key: string,
+    expiresAt: number,
+    replay?: PersistedReplay
+  ): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const fd = fs.openSync(file, 'a');
     try {
-      fs.writeSync(fd, JSON.stringify({ key, expiresAt }) + '\n');
+      const record = replay === undefined ? { key, expiresAt } : { key, expiresAt, replay };
+      fs.writeSync(fd, JSON.stringify(record) + '\n');
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
@@ -140,11 +194,17 @@ export class IdempotencyLedger {
       const trimmed = line.trim();
       if (trimmed === '') continue;
       try {
-        const rec = JSON.parse(trimmed) as { key: string; expiresAt: number };
+        const rec = JSON.parse(trimmed) as {
+          key: string;
+          expiresAt: number;
+          replay?: PersistedReplay;
+        };
         // Last write wins; drop already-expired keys at load.
         if (typeof rec.key === 'string' && rec.expiresAt > t) {
-          // result is intentionally not persisted; undefined on reload.
-          this.entries.set(rec.key, { result: undefined, expiresAt: rec.expiresAt });
+          // Only the redacted replay envelope is ever persisted; the full
+          // result is not. Old-format lines have no `replay` ⇒ undefined,
+          // identical to legacy behaviour.
+          this.entries.set(rec.key, { result: rec.replay, expiresAt: rec.expiresAt });
         }
       } catch {
         /* skip a torn final line rather than fail startup */
