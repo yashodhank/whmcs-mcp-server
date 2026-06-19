@@ -223,6 +223,14 @@ const configSchema = z
       (val) => (typeof val === 'string' ? val : ''),
       z.string().default('')
     ),
+    // Empty ⇒ pure in-memory (legacy — tally resets on restart). Operators
+    // who set MCP_PROD_HIGH_RISK_DAILY_CAP SHOULD set this path so that a
+    // restart does not reset the daily cap and allow cap-bypass via crash-loop.
+    // Missing path is fail-safe: the cap still enforces per-run.
+    MCP_WRITE_DAY_AMOUNTS_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
     // High-risk (money) caps. Default 0 ⇒ every high-risk action denied until
     // explicitly configured.
     MCP_PROD_HIGH_RISK_PER_ACTION_CAP: z.coerce.number().min(0).default(0),

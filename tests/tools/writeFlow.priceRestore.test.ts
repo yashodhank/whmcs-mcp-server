@@ -9,6 +9,7 @@ import { executePriceRestoreBatch, registerWriteFlowTools } from '../../src/tool
 import { createDraftIntent, IntentStore } from '../../src/write/intents.js';
 import { AuditLog } from '../../src/write/audit.js';
 import { IdempotencyLedger } from '../../src/write/idempotency.js';
+import { DayAmountsStore } from '../../src/write/dayAmountsStore.js';
 import type { WriteIntent } from '../../src/write/types.js';
 
 function approvedBatch(
@@ -68,7 +69,7 @@ describe('executePriceRestoreBatch — Phase 1 (snapshot + precondition)', () =>
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -88,7 +89,7 @@ describe('executePriceRestoreBatch — Phase 1 (snapshot + precondition)', () =>
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -105,7 +106,7 @@ describe('executePriceRestoreBatch — Phase 1 (snapshot + precondition)', () =>
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -136,7 +137,7 @@ describe('executePriceRestoreBatch — dry_run', () => {
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(true);
     expect(res.dry_run).toBe(true);
@@ -170,7 +171,7 @@ describe('executePriceRestoreBatch — Phase 2', () => {
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(true);
     expect(h.mutate).toHaveBeenCalledTimes(1);
@@ -197,7 +198,7 @@ describe('executePriceRestoreBatch — Phase 2', () => {
       ledger: h.ledger,
       caps: { perAction: 0, daily: 0 },
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('target_amount_cap_exceeded');
@@ -235,7 +236,7 @@ describe('executePriceRestoreBatch — Phase 2', () => {
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(true);
     expect(res.phase_2?.halted_after).toBe(569);
@@ -259,7 +260,7 @@ describe('executePriceRestoreBatch — Phase 2', () => {
       ledger: h.ledger,
       caps: { perAction: 20000, daily: 50000 },
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('target_amount_cap_exceeded');
@@ -274,9 +275,8 @@ describe('executePriceRestoreBatch — Phase 2', () => {
     h.read.mockResolvedValueOnce({
       products: { product: [{ id: 555, recurringamount: '45000', domainstatus: 'Active' }] },
     });
-    const dayAmounts = new Map<string, number>();
-    const todayKey = `UpdateClientProduct|${new Date().toISOString().slice(0, 10)}`;
-    dayAmounts.set(todayKey, 40000);
+    const dayAmounts = new DayAmountsStore();
+    dayAmounts.add('UpdateClientProduct', 40000);
 
     const res = await executePriceRestoreBatch({
       intent,
@@ -320,7 +320,7 @@ describe('executePriceRestoreBatch — Phase 2', () => {
       ledger: h.ledger,
       caps: CAPS,
       approval: APPROVAL,
-      dayAmounts: new Map(),
+      dayAmounts: new DayAmountsStore(),
     });
     expect(res.allowed).toBe(true);
     expect(h.mutate).toHaveBeenCalledTimes(1);

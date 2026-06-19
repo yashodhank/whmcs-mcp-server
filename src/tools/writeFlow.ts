@@ -46,6 +46,7 @@ import {
 import { createDraftIntent, IntentStore } from '../write/intents.js';
 import { validateIntent } from '../write/validation.js';
 import { IdempotencyLedger } from '../write/idempotency.js';
+import { DayAmountsStore } from '../write/dayAmountsStore.js';
 import { AuditLog, AuditPersistError, auditEvent } from '../write/audit.js';
 import { defaultExecutionAuthorizer, preAuthorizeIntent } from '../write/executionGate.js';
 import {
@@ -185,17 +186,14 @@ const audit = new AuditLog(config.MCP_WRITE_AUDIT_PATH || undefined);
  */
 const approvals = new Map<string, HumanApprovalRecord>();
 
-/** Per-(action,UTC-day) executed-amount tally for high-risk daily caps. */
-const dayAmounts = new Map<string, number>();
-function dayKey(action: string): string {
-  return `${action}|${new Date().toISOString().slice(0, 10)}`;
-}
-function dayTotalFor(action: string): number {
-  return dayAmounts.get(dayKey(action)) ?? 0;
-}
-function addDayAmount(action: string, amount: number): void {
-  dayAmounts.set(dayKey(action), dayTotalFor(action) + amount);
-}
+/**
+ * Per-(action,UTC-day) executed-amount tally for high-risk daily caps.
+ * Constructed with a path ⇒ durable (survives restart); without ⇒ pure
+ * in-memory (byte-identical to the legacy Map singleton when unset).
+ */
+const dayAmountsStore = new DayAmountsStore(
+  config.MCP_WRITE_DAY_AMOUNTS_PATH || undefined
+);
 
 /** Build the high-risk monetary context from intent params, if numeric. */
 function amountContextFor(
@@ -205,12 +203,13 @@ function amountContextFor(
   const raw = params.amount;
   const amount = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
   if (!Number.isFinite(amount) || amount <= 0) return undefined;
-  return { amount: Math.abs(amount), dayTotal: dayTotalFor(action) };
+  return { amount: Math.abs(amount), dayTotal: dayAmountsStore.getTotal(action) };
 }
 
 /** Test-only: reset framework state. */
 export function __resetWriteFlowForTests(): void {
   store.prune();
+  dayAmountsStore.reset();
 }
 
 const WRITE_FLOW_ANNOTATIONS = {
@@ -523,7 +522,7 @@ interface PriceRestoreBatchArgs {
   readonly ledger: IdempotencyLedger;
   readonly caps: HighRiskCaps;
   readonly approval: HumanApprovalRecord;
-  readonly dayAmounts: Map<string, number>;
+  readonly dayAmounts: DayAmountsStore;
 }
 
 /**
@@ -626,8 +625,8 @@ export async function executePriceRestoreBatch(
   }[] = [];
   let halted_after: number | null = null;
 
-  const dayKey = `UpdateClientProduct|${new Date().toISOString().slice(0, 10)}`;
-  let dayRunning = dayAmounts.get(dayKey) ?? 0;
+  const dayKey = dayAmounts.dayKey('UpdateClientProduct');
+  let dayRunning = dayAmounts.getMap().get(dayKey) ?? 0;
 
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
@@ -758,7 +757,7 @@ export async function executePriceRestoreBatch(
     });
 
     dayRunning += delta;
-    dayAmounts.set(dayKey, dayRunning);
+    dayAmounts.getMap().set(dayKey, dayRunning);
     audit.append(
       auditEvent(
         verified ? 'intent.verified' : 'intent.executed',
@@ -1031,7 +1030,7 @@ export function registerWriteFlowTools(
             daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
           },
           approval,
-          dayAmounts,
+          dayAmounts: dayAmountsStore,
         });
         if (!batchRes.allowed) {
           const blocked = store.transition(intent.intent_id, 'execution_blocked');
@@ -1195,7 +1194,7 @@ export function registerWriteFlowTools(
       }
       // Executed — tally the high-risk amount toward the daily cap.
       if (isHigh && amountContext !== undefined) {
-        addDayAmount(intent.action, amountContext.amount);
+        dayAmountsStore.add(intent.action, amountContext.amount);
       }
 
       // Post-action verification: best-effort read-back. Never fails the

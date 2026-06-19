@@ -1,6 +1,7 @@
 /**
- * Phase G+ — durable audit + idempotency: survive the deploy restart,
- * fail-closed audit, and byte-for-byte legacy parity when no path is set.
+ * Phase G+ — durable audit + idempotency + day-amounts: survive the deploy
+ * restart, fail-closed audit, and byte-for-byte legacy parity when no path
+ * is set.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -9,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AuditLog, AuditPersistError, auditEvent } from '../../src/write/audit.js';
 import { IdempotencyLedger } from '../../src/write/idempotency.js';
+import { DayAmountsStore } from '../../src/write/dayAmountsStore.js';
 import { createDraftIntent } from '../../src/write/intents.js';
 
 let tmp: string;
@@ -115,5 +117,55 @@ describe('IdempotencyLedger durability', () => {
 
     const l2 = new IdempotencyLedger(1000, clock, file);
     expect(l2.seen('old')).toBe(false);
+  });
+});
+
+describe('DayAmountsStore durability', () => {
+  it('no path ⇒ in-memory, writes no file (legacy parity)', () => {
+    const store = new DayAmountsStore();
+    store.add('AddInvoicePayment', 50);
+    expect(store.getTotal('AddInvoicePayment')).toBe(50);
+    // No file should have been created in tmp
+    expect(fs.readdirSync(tmp)).toHaveLength(0);
+  });
+
+  it('persists + reloads same-day total across a simulated restart', () => {
+    const file = path.join(tmp, 'day.jsonl');
+    const s1 = new DayAmountsStore(file);
+    s1.add('AddInvoicePayment', 100);
+    s1.add('AddInvoicePayment', 75);
+
+    // Simulated restart: new instance from same file.
+    const s2 = new DayAmountsStore(file);
+    expect(s2.getTotal('AddInvoicePayment')).toBe(175);
+
+    // JSONL file should exist and have two lines.
+    const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(2);
+  });
+
+  it('stale prior-day entry is ignored on reload (getTotal returns 0)', () => {
+    const file = path.join(tmp, 'day-stale.jsonl');
+    // Write a record with yesterday's date directly.
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const staleKey = `AddInvoicePayment|${yesterday}`;
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ key: staleKey, total: 999, date: yesterday }) + '\n'
+    );
+
+    const store = new DayAmountsStore(file);
+    // Stale entry must not pollute today's total.
+    expect(store.getTotal('AddInvoicePayment')).toBe(0);
+  });
+
+  it('write error on unwritable path is swallowed (no throw)', () => {
+    // Parent is a regular file ⇒ mkdir/open fails.
+    const blocker = path.join(tmp, 'blocker3');
+    fs.writeFileSync(blocker, 'x');
+    const store = new DayAmountsStore(path.join(blocker, 'sub', 'day.jsonl'));
+    // Must not throw; in-memory tally still increments.
+    expect(() => store.add('AddInvoicePayment', 10)).not.toThrow();
+    expect(store.getTotal('AddInvoicePayment')).toBe(10);
   });
 });
