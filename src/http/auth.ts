@@ -1,14 +1,18 @@
 /**
  * MCP Adoption #10 — HTTP transport AUTH BRIDGE (security-critical).
  *
- * The Streamable HTTP transport reuses the SAME per-consumer bearer tokens as
- * stdio: every HTTP request must carry `Authorization: Bearer <token>`, which we
- * validate against the EXISTING consumer registry via `resolveConsumer(...,
- * { allowAnon: false })` BEFORE any bytes reach the SDK transport. This is a
- * thin, in-house bridge — NOT an OAuth2.1 authorization server. Full
- * OAuth2.1/PRM/CIMD is a documented follow-up (docs/design/mcp-adoption.md #9).
+ * Pure extraction/decision helpers shared by `httpServer.ts`. Two primitives:
  *
- * Two gates, both fail-closed, evaluated per request:
+ *  1. `extractBearerToken` — parse the `Authorization: Bearer <token>` header.
+ *  2. `isOriginAllowed` — DNS-rebinding guard (Origin allowlist gate).
+ *
+ * The composite per-request decision (`authorizeHttpRequest`) is available
+ * for the registry-bearer path; `httpServer.ts` calls it when OAuth is OFF, and
+ * inlines the OAuth JWT path directly when `MCP_OAUTH_ENABLED` is true (using
+ * `createTokenVerifier` + `consumerFromClaims`). The two auth paths share these
+ * helpers.
+ *
+ * Two gates, both fail-closed, evaluated per request (in `httpServer.ts`):
  *  1. Origin (DNS-rebinding guard, spec). If the request carries an `Origin`
  *     header it MUST be in the allowlist, else 403. Absent Origin (native/CLI
  *     clients) is allowed through to the auth gate. An empty allowlist ⇒ NO
@@ -20,7 +24,8 @@
  *  - The raw token is NEVER logged, returned, or placed in any error/response.
  *  - Origin is checked BEFORE auth so a cross-origin attacker cannot probe
  *    token validity.
- *  - resolveConsumer is the single source of truth — same code path as stdio.
+ *  - resolveConsumer is the single source of truth for the registry-bearer path
+ *    — same code path as stdio.
  */
 
 import { resolveConsumer } from '../governance/consumers.js';

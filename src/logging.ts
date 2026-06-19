@@ -25,11 +25,8 @@ interface LogEntry {
 }
 
 /**
- * Fields that should be redacted in logs
- */
-/**
- * Fields that should be redacted in logs
- * Includes common sensitive data patterns for security
+ * Fields that should be redacted in logs.
+ * Includes common sensitive data patterns for security (API creds, PCI data, session).
  */
 const SENSITIVE_FIELDS = [
   // API credentials
