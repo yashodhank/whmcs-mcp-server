@@ -108,6 +108,17 @@ class AppConfig:
     provider_timeout: int
     no_stability_check: bool
 
+    def __repr__(self) -> str:
+        def mask(v: Optional[str]) -> str:
+            return "***" if v else "None"
+        return (
+            f"AppConfig(mode={self.mode!r}, ssh_host={self.ssh_host!r}, "
+            f"ssh_user={self.ssh_user!r}, whmcs_root={self.whmcs_root!r}, "
+            f"ssh_key={mask(self.ssh_key)}, "
+            f"whmcs_api_identifier={mask(self.whmcs_api_identifier)}, "
+            f"whmcs_api_secret={mask(self.whmcs_api_secret)})"
+        )
+
 
 class StateStore:
     def __init__(self, path: Path) -> None:
@@ -140,11 +151,13 @@ class StateStore:
                 }
 
     def write(self, state: Dict[str, Any]) -> None:
-        with self.path.open("w", encoding="utf-8") as fh:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=2, sort_keys=True)
             fh.write("\n")
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, self.path)  # atomic on POSIX
 
 
 class ExecutionLock:
@@ -457,6 +470,9 @@ def run_read_remote(cfg: AppConfig, ssh: SshClient) -> Dict[str, Any]:
 def run_test_api(cfg: AppConfig, logger: logging.Logger) -> Dict[str, Any]:
     if not cfg.whmcs_api_url or not cfg.whmcs_api_identifier or not cfg.whmcs_api_secret:
         raise RuntimeError("test-api requires WHMCS API url/identifier/secret")
+
+    if urllib.parse.urlparse(cfg.whmcs_api_url).scheme != "https":
+        raise RuntimeError("WHMCS_API_URL must use https (refusing to send credentials over cleartext)")
 
     endpoint = cfg.whmcs_api_url.rstrip("/") + "/includes/api.php"
     payload = {
