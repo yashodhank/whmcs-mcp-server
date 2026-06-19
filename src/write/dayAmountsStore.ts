@@ -74,18 +74,6 @@ export class DayAmountsStore {
     this.totals.clear();
   }
 
-  /**
-   * Expose the underlying map for callers (e.g. executePriceRestoreBatch)
-   * that need direct Map<string,number> access for backwards-compatible
-   * get/set operations.  Note: mutations to this map bypass durable persist;
-   * treat as a read-only shim where full refactor is deferred.
-   *
-   * @debt Replace with `getTotal`/`add` call-sites in a follow-up.
-   */
-  getMap(): Map<string, number> {
-    return this.totals;
-  }
-
   private persist(file: string, key: string, total: number): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const fd = fs.openSync(file, 'a');

@@ -625,8 +625,10 @@ export async function executePriceRestoreBatch(
   }[] = [];
   let halted_after: number | null = null;
 
-  const dayKey = dayAmounts.dayKey('UpdateClientProduct');
-  let dayRunning = dayAmounts.getMap().get(dayKey) ?? 0;
+  // Running daily total for the batch's high-risk action. Read + increment go
+  // through the store's getTotal()/add() so each step is DURABLY persisted
+  // (a restart mid-batch must not reset the daily-cap tally).
+  let dayRunning = dayAmounts.getTotal('UpdateClientProduct');
 
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
@@ -757,7 +759,7 @@ export async function executePriceRestoreBatch(
     });
 
     dayRunning += delta;
-    dayAmounts.getMap().set(dayKey, dayRunning);
+    dayAmounts.add('UpdateClientProduct', delta); // persists each increment
     audit.append(
       auditEvent(
         verified ? 'intent.verified' : 'intent.executed',
