@@ -100,9 +100,55 @@ required"` (that one is pre-credential; see §1).
 - All such access is READ-ONLY for diagnosis. Never echo secrets; reference
   `file:line` + credential type only.
 
+## 403 Forbidden — three distinct causes (don't assume IP)
+
+A WHMCS API `403` is one of three things. The client now appends a classified
+hint to the thrown error (`WHMCS HTTP error: 403 — …`); identify which BEFORE acting:
+
+1. **Edge/WAF/proxy or stuck-connection block** — a security layer (or a flagged
+   keep-alive socket) rejects the request, not the IP. **Tell-tale:** `curl` (or a
+   *fresh* `node`/axios process) from the *same IP* returns 200 while the
+   long-running MCP client gets 403, with **no nginx/modsec entry and no WHMCS
+   error body**.
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST "https://BASE/includes/api.php" \
+     -d "identifier=$WHMCS_IDENTIFIER" -d "secret=$WHMCS_SECRET" \
+     -d "responsetype=json" -d "action=GetAdminDetails"
+   ```
+   The client auto-recovers a *transient* connection-level flag: on an edge 403
+   (no WHMCS body) it destroys its keep-alive sockets and retries once on a fresh
+   connection. If it persists, fix is **server-side** (WAF/fail2ban allowlist) —
+   the IP auto-heal CANNOT fix this. As a stop-gap, reconnect the MCP server
+   (`/mcp` → reconnect) to get a fresh process + sockets.
+2. **IP not in `APIAllowedIPs`** — WHMCS returns 403 with body `{"message":"Invalid
+   IP <X>"}`. This is the ONLY 403 the auto-heal handles.
+3. **Permission/role ACL** — credential's API role lacks the action; fix the role.
+
+## IP-allowlist auto-heal — scope, limits, why it may not fire
+
+`WHMCS_AUTO_IP_HEAL=true` self-heals **only** cause #2. It triggers only when the
+403 body matches `Invalid IP <X>`, then SSHes (`WHMCS_SSH_HOST/USER/KEY/KNOWN_HOSTS`,
+user defaults `whmcs-ip-updater`) and compare-and-swaps the IP into `APIAllowedIPs`;
+single-flight + cooldown + hard timeout; any failure → "not healed". It will look
+like it "didn't detect/apply" when: the 403 was a WAF/permission 403 (correctly
+skipped); the IP was **already** allowlisted (no-op); the flag is off / cooldown
+active; or the spawned updater couldn't SSH. The reason is now in the surfaced 403
+hint and the server stderr.
+
 ## History
 First diagnosed 2026-06-19: a total API outage where the env value had been set
 to the full `https://my.securiace.com/includes/api.php`. Hours were spent on the
 credential, admin account, admin roles, and IP allowlist (all fine) before the
 doubled path was found in the access log. This runbook + the `resolveWhmcsApiEndpoint`
 guard exist so it never costs that again.
+
+Later the same day: after the URL fix, the MCP client hit a **403** that `curl`
+and a *fresh* axios process from the same allowlisted IP did NOT — i.e. a
+**transient connection-level block** (most likely fail2ban/WAF reacting to the
+earlier doubled-path error storm; corroborated by a brief SSH port-22
+refused→recovered blip). nginx config had no UA/JA3/modsec rule. Root cause: the
+long-lived MCP process reused a **flagged keep-alive socket** (Node ≥19 defaults
+`keepAlive=true`) and 403'd for its whole lifetime. The IP auto-heal correctly
+did NOT fire (not an `Invalid IP` 403, and the IP was already listed). Fixes:
+the client now resets sockets + retries once on an edge 403, and surfaces a
+classified hint; operationally, reconnect the MCP server to get fresh sockets.

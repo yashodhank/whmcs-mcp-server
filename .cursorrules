@@ -7,6 +7,10 @@ Your sole objective is to produce **production-grade, clean, secure, and idiomat
 > almost always a **doubled API path** (`WHMCS_API_URL` must be the base origin, NOT the
 > full `/includes/api.php` endpoint), not a credential/permission issue. Check the URL
 > shape first — see `docs/runbooks/api-connectivity-troubleshooting.md`.
+> A WHMCS API **403** is one of: edge/WAF or a stuck keep-alive socket (curl / a fresh
+> process from the same IP works — reconnect the MCP or fix the WAF; IP auto-heal can't),
+> IP not in `APIAllowedIPs` (auto-heal fixes this one), or a permission/role ACL. See the
+> runbook's "403 Forbidden — three distinct causes".
 
 ==================================================
 1. GENERAL BEHAVIOR
