@@ -319,9 +319,6 @@ function registerShell(
 }
 
 /**
- * Register the five Phase-C capability-shell read tools.
- */
-/**
  * get_capability_matrix — machine-readable capability + version status.
  * Pure (no WHMCS call). Honest: WHMCS version is `unverified` (no
  * allowlisted version source probed); never fabricated.
@@ -399,6 +396,11 @@ function registerCapabilityMatrixTool(
   );
 }
 
+/**
+ * Register the five Phase-C capability-shell read tools
+ * (list_client_transactions, get_stats, list_users, get_todo_items,
+ * get_automation_log) plus the pure get_capability_matrix tool.
+ */
 export function registerCapabilityShellTools(
   server: McpServer,
   whmcs: WhmcsClient,
