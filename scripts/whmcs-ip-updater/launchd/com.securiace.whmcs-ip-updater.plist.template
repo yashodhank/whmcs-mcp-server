@@ -36,7 +36,7 @@
     <integer>300</integer>
 
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 
     <key>StandardOutPath</key>
     <string>/Users/REPLACE/.local/state/whmcs-ip-updater/launchd.out.log</string>

@@ -93,6 +93,8 @@ Use `launchd` for production scheduling (every 5 minutes). The plist now delegat
 `run-oneshot.sh`, which sources `.env.production` and bridges credential key names before
 executing the updater. Post-update API validation is **enabled** — no `--no-validate-api-after-update`.
 
+`RunAtLoad` is set to `true` in the template, so the agent runs once immediately at load (login/wake) in addition to the 5-minute `StartInterval`.
+
 **Setup steps (operator):**
 
 1. Copy `launchd/run-oneshot.sh` to the machine alongside `whmcs_ip_updater.py`:
