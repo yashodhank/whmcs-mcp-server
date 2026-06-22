@@ -857,6 +857,12 @@ export function intentToWhmcsParams(
         'service:price_restore is batch-shaped; call mapServicePriceRestoreTarget per target'
       );
     }
+    case 'service:transfer_owner':
+    case 'billing:invoice:reassign': {
+      // DB-direct scopes — not routed through WHMCS API mapper. These are
+      // executed via the direct DB path, which accepts intent.params as-is.
+      return { ...params };
+    }
     default: {
       // Exhaustiveness guard — typescript will flag any new scope here.
       const _exhaustive: never = scope;
