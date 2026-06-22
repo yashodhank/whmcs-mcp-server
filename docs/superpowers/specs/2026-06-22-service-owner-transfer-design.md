@@ -127,8 +127,11 @@ status filter; `none` → empty). Any failure → `precondition_mismatch`, nothi
 all services + invoices; if any statement throws or any guarded UPDATE for the service row
 itself affects 0 rows, **roll back the whole batch** and return `transfer_rolled_back` with
 the offending service. `invoice_mode:all` emits an explicit audit warning (settled history).
-After commit, read-back verify each service's `userid === dest`. Per-item idempotency via
-the ledger keeps a re-run from double-applying (guarded UPDATEs are already idempotent).
+After commit, read-back verify each service's `userid === dest`. **Replay safety comes from
+the source guard, not the ledger:** a re-run of an already-applied transfer fails preflight
+(`owner !== source` → `precondition_mismatch`); even if it reached Phase 2, the
+`AND userid = <source>` guard affects 0 rows → `transfer_rolled_back`. No ledger record is
+written for transfers — the source-guarded move is naturally idempotent without one.
 
 > Atomicity is **stronger** than the original API design: the whole batch is one DB
 > transaction, so there is no partial-move state to reconcile.
