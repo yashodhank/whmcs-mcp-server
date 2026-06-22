@@ -55,3 +55,8 @@ cursor-mcp-config.json
 # synthetic values dumped under AUDIT_LOCAL_VALUES=1). NEVER committed.
 .audit-local/
 *.audit-raw.json
+
+# Generated codebase-intelligence indexes (graphify / repowise). Local-only;
+# rebuilt from source with `graphify update .` / `repowise update`.
+graphify-out/
+.repowise/
