@@ -94,13 +94,20 @@ function fakeDb(opts: { owner?: number; status?: string; destStatus?: string; sr
 const dbConfigured = () => true;
 
 describe('executeServiceTransferBatch', () => {
-  it('returns unsupported_capability when DB not configured', async () => {
+  it('returns unsupported_capability when DB not configured AND never opens DB', async () => {
+    // Mirror the BATCH_TOO_LARGE spy pattern: inject a getDb that records if it
+    // was called so we can prove the capability gate fires BEFORE any DB access.
+    const getDbCalled = { value: false };
     const res = await executeServiceTransferBatch({
       intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none' }),
-      audit: audit(), isDbConfigured: () => false, getDb: () => { throw new Error('should not be called'); },
+      audit: audit(),
+      isDbConfigured: () => false,
+      getDb: () => { getDbCalled.value = true; throw new Error('should not be called'); },
     } as any);
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('unsupported_capability');
+    // The DB capability gate must fire before any DB access.
+    expect(getDbCalled.value).toBe(false);
   });
 
   it('aborts when service not owned by source', async () => {
@@ -334,7 +341,9 @@ describe('service:transfer_owner — full-flow gate tests', () => {
 
 // ── Invoice-mode SQL assertions (unit-level via executeServiceTransferBatch) ──
 
-function fakeDbForInvoiceMode() {
+// invoicesByServiceId: map from serviceid → list of invoice ids the fake DB returns
+// for the invoice SELECT. Defaults to empty (no invoices) when not specified.
+function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}) {
   const calls: { sql: string; params: unknown[] }[] = [];
   const tx: DbTx = {
     async query(sql, params) {
@@ -344,8 +353,12 @@ function fakeDbForInvoiceMode() {
         return { affectedRows: 0, rows: [{ id: params[0], userid: 1, domainstatus: 'Active' }] };
       if (s.startsWith('select') && s.includes('tblclients'))
         return { affectedRows: 0, rows: [{ id: params[0], status: 'Active', currency_code: 'USD' }] };
-      if (s.startsWith('select') && s.includes('tblinvoice'))
-        return { affectedRows: 0, rows: [] };
+      if (s.startsWith('select') && s.includes('tblinvoice')) {
+        // params[0] is the serviceid (relid) from the WHERE it.relid = ? clause.
+        const svcId = params[0] as number;
+        const ids = invoicesByServiceId[svcId] ?? [];
+        return { affectedRows: 0, rows: ids.map((id) => ({ id })) };
+      }
       if (s.startsWith('update') && s.includes('tblhosting '))
         return { affectedRows: 1, rows: [] };
       return { affectedRows: 1, rows: [] };
@@ -376,7 +389,7 @@ function intentForMode(invoice_mode: string) {
 }
 
 describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
-  it('invoice_mode=none: no invoice SELECT is issued', async () => {
+  it('invoice_mode=none: no invoice SELECT or UPDATE is issued', async () => {
     const { db, calls } = fakeDbForInvoiceMode();
     await executeServiceTransferBatch({
       intent: intentForMode('none'),
@@ -386,26 +399,47 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
     } as any);
     const invoiceCalls = calls.filter((c) => c.sql.toLowerCase().includes('tblinvoice'));
     expect(invoiceCalls).toHaveLength(0);
+    // No UPDATE tblinvoices or UPDATE tblinvoiceitems must be issued.
+    const invoiceUpdates = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoice'),
+    );
+    expect(invoiceUpdates).toHaveLength(0);
   });
 
-  it('invoice_mode=unpaid_only: invoice SELECT contains AND i.status = \'Unpaid\'', async () => {
-    const { db, calls } = fakeDbForInvoiceMode();
+  it('invoice_mode=unpaid_only: invoice SELECT has Unpaid filter AND only those invoices are UPDATEd', async () => {
+    // The fake DB returns invoice id=100 for service 10. The cascade must then
+    // issue exactly one UPDATE tblinvoices and one UPDATE tblinvoiceitems for
+    // id=100, with params [dest=2, invoiceid=100, source=1].
+    const { db, calls } = fakeDbForInvoiceMode({ 10: [100] });
     await executeServiceTransferBatch({
       intent: intentForMode('unpaid_only'),
       audit: auditForMode(),
       isDbConfigured: () => true,
       getDb: () => db as any,
     } as any);
-    const invoiceCalls = calls.filter((c) => c.sql.toLowerCase().includes('tblinvoice'));
-    expect(invoiceCalls.length).toBeGreaterThan(0);
-    // Must include the Unpaid status filter.
-    expect(invoiceCalls[0].sql).toMatch(/i\.status\s*=\s*'Unpaid'/i);
-    // Must NOT be missing the status filter (i.e. no 'all' mode variant).
-    expect(invoiceCalls[0].sql).not.toMatch(/AND\s+i\.status\s*=\s*'Unpaid'.*AND\s+i\.status/i);
+    const invoiceSelectCalls = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice'),
+    );
+    expect(invoiceSelectCalls.length).toBeGreaterThan(0);
+    // Must include exactly one status clause for Unpaid.
+    expect(invoiceSelectCalls[0].sql).toMatch(/i\.status\s*=\s*'Unpaid'/i);
+    // Assert the enumerated invoice (id=100) is actually UPDATEd.
+    const invoiceUpdates = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoices '),
+    );
+    expect(invoiceUpdates).toHaveLength(1);
+    expect(invoiceUpdates[0].params).toEqual([2, 100, 1]); // [dest, invoiceid, source]
+    const invoiceItemUpdates = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoiceitems '),
+    );
+    expect(invoiceItemUpdates).toHaveLength(1);
+    expect(invoiceItemUpdates[0].params).toEqual([2, 100, 1]); // [dest, invoiceid, source]
   });
 
-  it('invoice_mode=all: invoice SELECT has no status filter AND audit emits settled-history WARNING', async () => {
-    const { db, calls } = fakeDbForInvoiceMode();
+  it('invoice_mode=all: no status filter, both enumerated invoices UPDATEd, audit warns', async () => {
+    // The fake DB returns invoice ids 100 and 200 for service 10. The cascade
+    // must issue UPDATE tblinvoices + UPDATE tblinvoiceitems for each.
+    const { db, calls } = fakeDbForInvoiceMode({ 10: [100, 200] });
     const auditLog = auditForMode();
     await executeServiceTransferBatch({
       intent: intentForMode('all'),
@@ -413,10 +447,25 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
       isDbConfigured: () => true,
       getDb: () => db as any,
     } as any);
-    const invoiceCalls = calls.filter((c) => c.sql.toLowerCase().includes('tblinvoice'));
-    expect(invoiceCalls.length).toBeGreaterThan(0);
+    const invoiceSelectCalls = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice'),
+    );
+    expect(invoiceSelectCalls.length).toBeGreaterThan(0);
     // The 'all' mode must NOT have the Unpaid status filter.
-    expect(invoiceCalls[0].sql).not.toMatch(/i\.status\s*=\s*'Unpaid'/i);
+    expect(invoiceSelectCalls[0].sql).not.toMatch(/i\.status\s*=\s*'Unpaid'/i);
+    // Assert both enumerated invoices (100 and 200) are UPDATEd.
+    const invoiceUpdates = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoices '),
+    );
+    expect(invoiceUpdates).toHaveLength(2);
+    const updatedInvoiceIds = invoiceUpdates.map((c) => c.params[1]);
+    expect(updatedInvoiceIds).toEqual(expect.arrayContaining([100, 200]));
+    const invoiceItemUpdates = calls.filter(
+      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoiceitems '),
+    );
+    expect(invoiceItemUpdates).toHaveLength(2);
+    const updatedItemInvoiceIds = invoiceItemUpdates.map((c) => c.params[1]);
+    expect(updatedItemInvoiceIds).toEqual(expect.arrayContaining([100, 200]));
     // Audit must contain the settled-history warning.
     const warningEvent = auditLog.events.find(
       (e: Record<string, unknown>) =>
