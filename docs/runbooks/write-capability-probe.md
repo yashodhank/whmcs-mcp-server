@@ -333,3 +333,49 @@ Notes:
 - Residue on dev: each writes run adds a small account credit to client 1 and a
   cancelled test invoice (`DeleteInvoice` is not a WHMCS API action, so test
   invoices are Cancelled, not deleted). Harmless on the scrubbed dev copy.
+
+---
+
+## Service / invoice owner transfer (2026-06-22)
+
+**Target:** WHMCS 9.0.5 devbox (`whmcs-devbox-whmcs9-1`, `http://localhost:8090`)  
+**Method:** Empirical API probe + DB read-back (all source files are ionCube-encrypted).  
+**Seed:** clientA=1, clientB=2, serviceid=1 (Active, `probe.example.test`), invoiceid=1 (Unpaid, $25.00).
+
+### Bindings
+
+```
+SERVICE_OWNER_MOVE_ACTION  = UNSUPPORTED
+INVOICE_REASSIGN_ACTION    = UNSUPPORTED
+```
+
+### Service-owner reassignment probe
+
+`UpdateClientProduct {serviceid:1, clientid:2}` → `{"result":"success","serviceid":1}` — **owner unchanged** (DB: `tblhosting.userid` still `1`).
+
+`UpdateClientProduct {serviceid:1, userid:2}` → `{"result":"success","serviceid":1}` — **owner unchanged**.
+
+All alternative field names tried (`newclientid`, `ownerid`, `client_id`, `owner_id`, `newuserid`) — all returned `success`, none changed `tblhosting.userid`.
+
+All alternative action names tried — `MoveProduct`, `TransferProduct`, `UpdateHosting`, `MoveClientProduct`, `AssignProduct`, `ReassignProduct`, `ChangeProductOwner`, `MoveService`, `TransferService` — all returned `"Invalid API Action: … is not a valid API action"`.
+
+**Conclusion:** `UpdateClientProduct` silently accepts but ignores any owner field. No WHMCS API action for service owner reassignment exists. Only a direct DB `UPDATE tblhosting SET userid=<newclientid> WHERE id=<serviceid>` works — outside the API surface entirely.
+
+### Invoice reassignment probe
+
+`UpdateInvoice {invoiceid:1, userid:2}` → `{"result":"success","invoiceid":1}` — **owner unchanged** (DB: `tblinvoices.userid` still `1`; `GetInvoice.userid` still `1`).
+
+`UpdateInvoice {invoiceid:1, clientid:2}` and `{invoiceid:1, newuserid:2}` — same silent-ignore behavior.
+
+**Conclusion:** `UpdateInvoice` silently ignores all owner fields. No WHMCS API action for invoice owner reassignment exists. Only a direct DB `UPDATE tblinvoices SET userid=<newclientid> WHERE id=<invoiceid>` works.
+
+### Ownership read-back fields
+
+- **Service:** `GetClientsProducts` → `products.product[0].clientid` (maps to `tblhosting.userid`)
+- **Invoice:** `GetInvoice` → `.userid` (maps to `tblinvoices.userid`)
+
+### Side-effect notes
+
+- Direct DB service-owner move (`tblhosting.userid`) does **not** cascade to linked `tbldomains`, `tblhostingaddons`, or `tblhostingconfigoptions` rows — each table stores its own `userid` FK independently. A full owner transfer would require updating all four tables.
+- Direct DB invoice move (`tblinvoices.userid`) has no observed cascade; `tblinvoiceitems` does not store a `userid` FK.
+- Since neither operation is reachable via the WHMCS API, both scopes must be set to `UNSUPPORTED_ACTION` in the write-scope constants (Task 2). The executor must surface a descriptive `unsupported_scope` error if either is attempted rather than silently succeeding.
