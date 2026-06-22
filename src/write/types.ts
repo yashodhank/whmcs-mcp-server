@@ -467,7 +467,11 @@ export type ExecutionDeniedReason =
   | 'scope_not_allowed' // SCOPE-3: consumer's write-scope grant revoked after approval
   | 'halt_after_target'
   | 'target_amount_cap_exceeded'
-  | 'target_output_assertion_failed';
+  | 'target_output_assertion_failed'
+  // DB-direct / composed-only scopes.
+  | 'unsupported_capability'
+  | 'transfer_rolled_back'
+  | 'batch_too_large';
 
 export type ExecutionDecision =
   | { readonly allowed: false; readonly reason: ExecutionDeniedReason }
