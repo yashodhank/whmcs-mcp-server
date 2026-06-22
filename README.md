@@ -388,6 +388,30 @@ These tools perform **no WHMCS mutation** until execution passes the full tiered
 
 See [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) for scope definitions and the gate specification.
 
+**High-risk scopes (direct-DB opt-in):**
+
+| Scope | Risk | Sealed | Notes |
+|-------|------|--------|-------|
+| `service:transfer_owner` | high | yes | Batch move services (+ optionally invoices) from one client to another via direct DB writes. Requires opt-in `MCP_WHMCS_DB_*` DSN config; returns `unsupported_capability` when unset. Bypasses WHMCS hooks by necessity (API cannot reassign owners). Cross-currency transfers blocked in preflight. |
+| `billing:invoice:reassign` | high | yes | Single-invoice owner reassignment (primitive for compose via transfer executor). Same DB-backed mechanism and opt-in requirement as `service:transfer_owner`. |
+
+### Service owner transfer
+
+Moves one or more services (plus optionally associated invoices) from a source client to a destination client in a single, governed, transactional operation. The feature is **opt-in** via `MCP_WHMCS_DB_*` environment variables:
+
+- **When disabled (default):** both `service:transfer_owner` and `billing:invoice:reassign` scopes return `unsupported_capability` at execution. No DB connection is attempted.
+- **When enabled:** requires operator to set `MCP_WHMCS_DB_HOST`, `MCP_WHMCS_DB_USER`, `MCP_WHMCS_DB_PASSWORD`, `MCP_WHMCS_DB_NAME` (and optionally `MCP_WHMCS_DB_PORT`, `MCP_WHMCS_DB_SSL`, `MCP_TRANSFER_MAX_BATCH`). See `.env.example` for the full documented block.
+
+**Key properties:**
+- **Atomicity:** all-or-nothing preflight (read-only precondition checks) followed by a single DB transaction that either fully commits or rolls back.
+- **Guarded updates:** every `UPDATE` is guarded by `AND userid=<source_clientid>` so concurrent changes or wrong preconditions result in 0 affected rows (detected and treated as a mismatch), never a cross-tenant clobber.
+- **Invoice control:** per-transfer operator selection: `invoice_mode ∈ {none, unpaid_only, all}`.
+- **Cross-currency blocked:** preflight rejects transfers between clients with different billing currencies.
+- **Bypass of hooks:** direct DB writes are used because the WHMCS External API cannot reassign ownership (capability-probed 2026-06-04). This is acceptable for pure relational re-parenting but means operators must accept that the MCP host reaches the WHMCS DB.
+- **High-risk governance:** sealed by default (empty allowlist keystone), requires human approval, separation of duties enforced (approver ≠ drafter).
+
+Cascade tables moved in a single transaction: `tblhosting`, `tblhostingaddons`, `tblsslorders`, `tblinvoices`, `tblinvoiceitems` (invoice_mode-filtered).
+
 ### Workflow Tools (Composite DRAFT-ONLY)
 
 These tools orchestrate multi-step read + draft in a single call. They **always return `executed: false`** — they read WHMCS data, compute candidates, and emit governed `draft_write_intent` drafts. Nothing reaches WHMCS until a human runs the `approve_write_intent` → `execute_write_intent` ceremony on the resulting draft IDs.
