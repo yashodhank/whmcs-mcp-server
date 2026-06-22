@@ -1,153 +1,144 @@
 # Service Owner Transfer — Design Spec
 
 - **Date:** 2026-06-22
-- **Status:** Draft (awaiting capability probe to bind execution)
+- **Status:** Revised after capability probe — **direct-DB approach, opt-in DSN, sealed by default**
 - **Author:** brainstormed via Claude Code
 - **Project:** whmcs-mcp-server
 
+> **Revision note (2026-06-22):** The capability probe (Task 1, commit `c42d005`) proved
+> the WHMCS **API cannot** reassign a service or invoice owner — `UpdateClientProduct`
+> and `UpdateInvoice` accept owner fields, return `success`, and silently ignore them; no
+> alternative API action exists. The **only** working mechanism is a direct database write.
+> This spec therefore replaces the original API-action design with a transactional,
+> schema-aware **direct-DB executor** that is **opt-in** (enabled only when an operator
+> sets a `MCP_WHMCS_DB_*` DSN) and otherwise returns `unsupported_capability` — preserving
+> the project's sealed, API-mediated default posture.
+
 ## 1. Problem
 
-Operators need to move one or more services (a, b, … n) from a **source client**
-to a **destination client** in WHMCS, optionally bringing the associated invoices
-along. Today this is a manual, error-prone admin-UI task with no governed,
-auditable, batchable path through the MCP server.
+Operators need to move one or more services (a…n) from a **source client** to a
+**destination client** in WHMCS, optionally bringing the associated invoices. The admin
+UI can do it; the public API cannot. Today this is a manual, error-prone task with no
+governed, auditable, batchable path.
 
 ## 2. Goals / Non-goals
 
 **Goals**
-- Move N services from `source_clientid` → `dest_clientid` in one governed,
-  auditable operation.
-- Per-transfer control over invoices: `none`, `unpaid_only`, or `all`.
-- All-or-nothing *preflight* (validate everything before mutating), fail-fast
-  commit, and a precise per-item outcome report.
-- Reuse the existing tiered write-intent governance (draft → validate → approve
-  → execute), high-risk gate, idempotency ledger, and fail-closed audit.
+- Move N services from `source_clientid` → `dest_clientid` in one governed, auditable,
+  **transactional** operation.
+- Per-transfer invoice control: `none`, `unpaid_only`, or `all`.
+- All-or-nothing preflight, then a single DB transaction that either fully commits or
+  rolls back (true atomicity — unlike the API's per-call model).
+- Reuse the existing tiered write-intent governance (draft → validate → approve → execute),
+  high-risk gate, idempotency ledger, and fail-closed audit.
+- **Default-safe:** with no DB DSN configured, the feature is fully defined/validated/
+  audited but returns `unsupported_capability` at execute (the `ticket:merge` posture).
 
 **Non-goals**
-- Merging clients, deleting clients, or moving non-service assets (tickets,
-  domains-as-domains, quotes). Out of scope for v1.
-- Re-issuing / credit-noting invoices when WHMCS cannot re-own them directly
-  (the probe decides whether that fallback is even needed; if so it is a
-  separate future spec).
-- Cross-currency transfers (explicitly blocked — see §6).
+- Moving domains-as-domains, addons-as-independent-products, tickets, or quotes.
+  (Addons and SSL orders attached to a moved service DO follow it — see cascade §6.)
+- Merging or deleting clients.
+- Re-issuing / credit-noting invoices.
+- Providing DB access in production by default — operators opt in explicitly and own that
+  deployment/security decision.
 
-## 3. Key decisions (from brainstorming)
+## 3. Key decisions
 
 | Decision | Choice |
 |---|---|
-| Move mechanism | **Capability-probe the devbox first**; bind `SCOPE_ACTION` from verified findings. |
-| Invoice handling | Operator-selected per transfer: `invoice_mode ∈ {none, unpaid_only, all}`. |
-| Partial failure | **Preflight-then-commit**: validate all items + destination in a read-only pass; only commit if everything passes; commit phase is sequential **fail-fast (stop-on-error)**. |
-| Risk / sealing | **High-risk**, full deny-by-default gate. **All invoice modes executable** in prod once an operator opts in (not in `PROD_NEVER_EXECUTABLE`). |
-| Cross-currency | **Hard block** in preflight (source/dest currency mismatch is a precondition failure). |
-| Scope granularity | **Two scopes**: `service:transfer_owner` + reusable `billing:invoice:reassign`, composed by the transfer executor. |
+| Mechanism | **Direct DB** (API proven incapable by Task 1). |
+| Enablement | **Opt-in** via `MCP_WHMCS_DB_*` DSN config. Unset ⇒ `unsupported_capability`. |
+| Invoice handling | Operator-selected: `invoice_mode ∈ {none, unpaid_only, all}`. |
+| Atomicity | **Preflight (read-only) → single DB transaction** (commit-or-rollback). |
+| Risk / sealing | **High-risk** gate (allowlist + `HumanApprovalRecord` + separation of duties). Not in `PROD_NEVER_EXECUTABLE`; all invoice modes executable once opted in. |
+| Cross-currency | **Hard block** in preflight. |
+| Scope granularity | **Two scopes**: `service:transfer_owner` (batch) + `billing:invoice:reassign` (single-invoice primitive), both DB-backed. |
+| Domains | Out of scope v1 (separate products); documented non-goal. |
 
-## 4. Capability probe (prerequisite)
+## 4. Verified WHMCS schema (probe, WHMCS 9)
 
-Run a `docs/runbooks/write-capability-probe.md`-style probe on **whmcs-devbox**
-before binding any executor. Questions to answer:
+Owner column is `userid` on every relevant table. Confirmed columns:
 
-1. **Service owner reassignment** — does `UpdateClientProduct` accept a
-   `clientid`/`userid` to change ownership? (Likely **no** on stock WHMCS.)
-   If not, is there an admin/internal action (e.g. a `moveproduct`-style call)
-   reachable via the API role, or a documented alternative?
-2. **Invoice reassignment** — is there a supported action to change an invoice's
-   owning client (e.g. `UpdateInvoice` with `userid`)? If not, `unpaid_only` /
-   `all` may be infeasible without credit-note + re-issue (out of scope v1).
-3. **Side-effects** — what happens to addons, configurable options, and the
-   service's linked domain on a move? Capture for validation rules.
-
-**Probe outcome binds the design:** the discovered action(s) populate
-`SCOPE_ACTION`. If no clean action exists, the scope(s) ship
-**defined + validating + drafting**, but the executor returns
-`unsupported_capability` until an install proves the action — the same posture
-the repo already uses for `ticket:merge` (see `src/write/types.ts`).
+| Table | Owner col | Links to service | Action on move |
+|-------|-----------|------------------|----------------|
+| `tblhosting` | `userid` | `id` = serviceid | UPDATE userid |
+| `tblhostingaddons` | `userid` | `hostingid` = serviceid | UPDATE userid |
+| `tblsslorders` | `userid` | `serviceid` | UPDATE userid |
+| `tblhostingconfigoptions` | *(none)* | `relid` = serviceid | none — follows service |
+| `tblinvoices` | `userid` | (via items) | UPDATE userid (in-scope invoices) |
+| `tblinvoiceitems` | `userid` | `invoiceid`, `relid` = serviceid | UPDATE userid |
 
 ## 5. Scopes (`src/write/types.ts`)
 
-Add two entries to `WRITE_SCOPES`:
+Add `'service:transfer_owner'` and `'billing:invoice:reassign'` to `WRITE_SCOPES`.
+- `SCOPE_RISK`: both **`high`**.
+- `SCOPE_ACTION`: there is **no WHMCS API action** — set both to the sentinel
+  `DB_DIRECT_ACTION = '__db_direct__'` (a new exported const). The execute path routes
+  these scopes to the DB executor instead of `whmcs.mutate`; `SCOPE_ACTION` is retained
+  only so the frozen-map invariant holds and audit records a stable action label.
+- Both **sealed by default** (empty allowlist keystone). **Not** in `PROD_NEVER_EXECUTABLE`.
 
-### 5.1 `service:transfer_owner`
-- `SCOPE_ACTION`: bound from probe (placeholder until then).
-- `SCOPE_RISK`: **`high`** → allowlist (`MCP_PROD_WRITE_AUTHORIZED`) +
-  `HumanApprovalRecord` + `HighRiskCaps`. **Not** in `PROD_NEVER_EXECUTABLE`.
+## 6. DB layer (new) — `src/whmcs/WhmcsDb.ts`
 
-### 5.2 `billing:invoice:reassign`
-- `SCOPE_ACTION`: bound from probe (e.g. `UpdateInvoice`).
-- `SCOPE_RISK`: **`high`** — re-owning an invoice (especially a settled one
-  under `invoice_mode:all`) changes a financial record's ownership. Reusable on
-  its own; also invoked by the transfer executor per service.
+A small, lazily-constructed `mysql2/promise` pool, configured from new env in `config.ts`:
+`MCP_WHMCS_DB_HOST`, `MCP_WHMCS_DB_PORT` (default 3306), `MCP_WHMCS_DB_USER`,
+`MCP_WHMCS_DB_PASSWORD`, `MCP_WHMCS_DB_NAME`, `MCP_WHMCS_DB_SSL` (optional).
 
-Both are sealed by default by the existing keystone (empty
-`MCP_PROD_WRITE_AUTHORIZED`); no change to the seal mechanism.
+- `isDbConfigured(): boolean` — true only when host+user+name are all set.
+- `getWhmcsDb(): WhmcsDb` — returns a wrapper exposing `withTransaction(fn)` and
+  `query(sql, params)`; throws if not configured (callers must check `isDbConfigured()`).
+- The pool is **never created** unless a transfer executes with a configured DSN — so the
+  default deployment opens no DB connection and carries no DB credentials.
+- Credentials are referenced only via env; never logged (audit records ids + counts, never
+  connection details).
 
-## 6. Params & validation
+## 7. Cascade move — `src/write/transferCascade.ts`
 
-### `service:transfer_owner` (batch-shaped, mirrors `PriceRestoreBatchArgs`)
-```jsonc
-{
-  "source_clientid": 123,            // positive int
-  "dest_clientid":   456,            // positive int, != source
-  "service_ids":     [11, 12, 13],   // non-empty array of positive ints (a…n)
-  "invoice_mode":    "unpaid_only",  // 'none' | 'unpaid_only' | 'all'
-  "dry_run":         false           // boolean (optional)
-}
+Pure SQL-builder + a transactional runner, isolated from the tool layer for testability.
+
+`buildServiceMoveStatements(serviceid, source, dest, invoiceIds)` → ordered list of
+`{ sql, params }`:
 ```
-
-### `billing:invoice:reassign`
-```jsonc
-{
-  "invoice_id":    9001,   // positive int
-  "dest_clientid": 456     // positive int
-}
+UPDATE tblhosting          SET userid=? WHERE id=?         AND userid=?   -- service
+UPDATE tblhostingaddons    SET userid=? WHERE hostingid=?  AND userid=?   -- addons
+UPDATE tblsslorders        SET userid=? WHERE serviceid=?  AND userid=?   -- ssl
+-- per in-scope invoice id:
+UPDATE tblinvoices         SET userid=? WHERE id=?         AND userid=?
+UPDATE tblinvoiceitems     SET userid=? WHERE invoiceid=?  AND userid=?
 ```
+Every statement is guarded by `AND userid=<source>` so a concurrent change or a wrong
+precondition results in 0 affected rows (detected and treated as a mismatch), never a
+cross-tenant clobber. `tblhostingconfigoptions` needs no update (no owner column).
 
-**Validation (`src/write/validation.ts`)** — positive-int checks, non-empty
-`service_ids`, `source_clientid != dest_clientid`, `invoice_mode` enum,
-`dry_run` boolean. Strict mappers in `src/write/paramMapping.ts` emit only the
-WHMCS fields the bound action accepts (no high-impact field passthrough), the
-same discipline as the existing `service:price_restore` / `client:update`
-mappers.
+## 8. Two-phase executor `executeServiceTransferBatch`
 
-## 7. Two-phase executor `executeServiceTransferBatch`
+**Capability gate (first):** if `!isDbConfigured()` → audit `unsupported_capability`, return
+`{ allowed:false, reason:'unsupported_capability' }`. No DB connection attempted.
 
-Cloned from `executePriceRestoreBatch` (`src/tools/writeFlow.ts:597`).
+**Phase 1 — preflight (read-only, abort-all-on-any-failure):** for each service confirm via
+SELECT that it exists, `tblhosting.userid === source_clientid`, and status not
+`Terminated`/`Cancelled`; confirm dest client exists + Active + **same currency** as source
+(`tblclients`); enumerate in-scope invoices (`invoice_mode`: `unpaid_only` → join
+`tblinvoiceitems` on `relid=serviceid` AND `tblinvoices.status='Unpaid'`; `all` → drop the
+status filter; `none` → empty). Any failure → `precondition_mismatch`, nothing mutates.
+`dry_run:true` returns the preview and stops.
 
-**Phase 1 — preflight (read-only; abort-all on any failure):** for each
-`service_id`:
-- `GetClientsProducts` → service exists, **currently owned by `source_clientid`**,
-  status not `Terminated`/`Cancelled`.
-- (once) `GetClients`/`GetClientsDetails` → `dest_clientid` exists and is `Active`.
-- **Currency match** between source and dest client → mismatch is a hard
-  `precondition_mismatch` (WHMCS ties service/invoice currency to the client).
-- If `invoice_mode != none`, enumerate in-scope invoices (`GetInvoices` filtered
-  by service / status) — `unpaid_only` → `Unpaid`/open statuses; `all` →
-  unpaid + paid.
+**Phase 2 — commit (single transaction):** `withTransaction` runs all cascade statements for
+all services + invoices; if any statement throws or any guarded UPDATE for the service row
+itself affects 0 rows, **roll back the whole batch** and return `transfer_rolled_back` with
+the offending service. `invoice_mode:all` emits an explicit audit warning (settled history).
+After commit, read-back verify each service's `userid === dest`. Per-item idempotency via
+the ledger keeps a re-run from double-applying (guarded UPDATEs are already idempotent).
 
-Any failure → append `intent.execution_blocked` audit event with the failing
-service/invoice ids and return `{ allowed:false, reason:'precondition_mismatch', phase_1 }`.
-`dry_run === true` → return the full preview (services + invoices that *would*
-move) and stop; **no Phase 2, no mutations**.
+> Atomicity is **stronger** than the original API design: the whole batch is one DB
+> transaction, so there is no partial-move state to reconcile.
 
-**Phase 2 — commit (sequential, fail-fast):** per service, in order:
-1. Per-item idempotency key `${intent.idempotency_key}|${serviceid}`; if seen →
-   mark `skipped`.
-2. Per-action + daily cap check (`HighRiskCaps`).
-3. **Fail-closed durable audit append _before_ mutate.**
-4. Reassign service owner (bound action).
-5. Reassign that service's in-scope invoices via the `billing:invoice:reassign`
-   path, per `invoice_mode`. `invoice_mode:all` emits an explicit audit warning
-   that **settled financial history is being re-owned**.
-6. Read-back verify (ownership now `dest_clientid`).
-7. Halt on first failure; record `halted_after`.
+## 9. Result shape
 
-## 8. Result shape
-
-Extend `PriceRestoreBatchResult`:
 ```ts
-interface ServiceTransferBatchResult {
+export interface ServiceTransferBatchResult {
   allowed: boolean;
-  reason?: string;
+  reason?: string;            // unsupported_capability | precondition_mismatch | transfer_rolled_back | audit_write_failed | batch_too_large
   dry_run?: boolean;
   phase_1?: {
     services: { serviceid: number; owned_by: number; status: string }[];
@@ -156,53 +147,52 @@ interface ServiceTransferBatchResult {
     ok: boolean;
   };
   phase_2?: {
-    outcomes: {
-      serviceid: number;
-      status: 'verified' | 'executed' | 'failed' | 'skipped';
-      invoices_moved: number;
-    }[];
-    halted_after?: number | null;
+    committed: boolean;
+    outcomes: { serviceid: number; status: 'verified' | 'committed' | 'skipped'; invoices_moved: number }[];
   };
 }
 ```
 
-## 9. Tool surface
+## 10. Tool surface
 
-Both scopes flow through the **existing generic** write-intent MCP tools
-(`draft_write_intent` → `validate_write_intent` → `approve_write_intent` →
-`execute_write_intent`, with `get_write_intent`). `service:transfer_owner` gets
-a typed batch draft entry in `writeFlow.ts` alongside the price-restore batch
-draft (`PriceRestoreBatchArgs` precedent). No bespoke top-level tool is added.
+Both scopes flow through the existing generic write-intent tools (`draft → validate →
+approve → execute`). `service:transfer_owner` is batch-shaped (mirrors `PriceRestoreBatchArgs`).
+No bespoke top-level tool.
 
-## 10. Testing (Vitest, mirroring `tests/tools/` price-restore coverage)
+## 11. Params & validation (unchanged from original)
 
-- Preflight rejections: wrong/foreign owner, missing or inactive dest,
-  **currency mismatch**, terminated/cancelled service, empty `service_ids`,
-  `source == dest`.
-- `dry_run` preview returns services + invoices, mutates nothing.
-- Idempotent re-run: already-moved service → `skipped`.
-- Fail-fast: failure on service k halts; services > k untouched; `halted_after === k`.
-- Each `invoice_mode` (`none` moves no invoices; `unpaid_only` moves only open;
-  `all` moves paid + emits the settled-history audit warning).
-- High-risk gate: sealed without allowlist + `HumanApprovalRecord`; cap
-  enforcement.
-- Devbox integration test, gated on the probe outcome (skipped/`unsupported_capability`
-  until the action is proven on an install).
+`service:transfer_owner`: `{ source_clientid, dest_clientid, service_ids[], invoice_mode, dry_run? }`.
+`billing:invoice:reassign`: `{ invoice_id, dest_clientid }`. Validation: positive ints,
+non-empty `service_ids`, `source ≠ dest`, `invoice_mode` enum, `dry_run` boolean. Blast
+radius bounded by `MCP_TRANSFER_MAX_BATCH` (default 50).
 
-## 11. Files touched
+## 12. Testing
 
-- `src/write/types.ts` — two new scopes in `WRITE_SCOPES`, `SCOPE_ACTION`,
-  `SCOPE_RISK`.
-- `src/write/validation.ts` — required params + rules for both scopes.
-- `src/write/paramMapping.ts` — strict mappers for both scopes.
-- `src/tools/writeFlow.ts` — `executeServiceTransferBatch`, batch draft entry,
-  result type.
-- `docs/runbooks/write-capability-probe.md` — add the owner/invoice-move probe.
-- `tests/tools/` + `tests/write/` — coverage per §10.
+- Unit: validation, cascade SQL builder (exact statements + params + source-guard), executor
+  with a **fake DB** (preflight rejections incl. currency mismatch + wrong owner; dry_run;
+  rollback on mid-transaction failure; idempotent re-run; each invoice_mode).
+- Capability gate: with no DSN configured, execute returns `unsupported_capability` and opens
+  no connection.
+- High-risk gate: sealed without allowlist + approval; self-approval forbidden.
+- Integration (opt-in, gated on a configured test DSN against the devbox DB): real move +
+  read-back. Skipped when no test DSN — never runs in CI by default.
 
-## 12. Open items (resolved by the probe, before implementation)
+## 13. Files
 
-- Exact WHMCS action(s) for service-owner and invoice reassignment → binds
-  `SCOPE_ACTION`.
-- Behavior of addons / configurable options / linked domain on a move → may add
-  preflight checks or an explicit "stays with source" note.
+- `src/write/types.ts` — scopes, risk, `DB_DIRECT_ACTION` sentinel.
+- `src/config.ts` — `MCP_WHMCS_DB_*` + `MCP_TRANSFER_MAX_BATCH`.
+- `src/whmcs/WhmcsDb.ts` *(new)* — lazy pool, `isDbConfigured`, `withTransaction`.
+- `src/write/transferCascade.ts` *(new)* — SQL builder + transactional runner.
+- `src/write/validation.ts`, `src/write/paramMapping.ts` — param rules + (DB-target) mappers.
+- `src/tools/writeFlow.ts` — `executeServiceTransferBatch`, execute-path routing, preview.
+- `tests/write/*`, `tests/tools/writeFlow.transferOwner.test.ts` — per §12.
+- `package.json` — add `mysql2`.
+- `README.md`, `.env.example` — document the opt-in DSN + scopes.
+
+## 14. Security posture
+
+Direct DB writes **bypass WHMCS hooks/business logic** by design (no API action exists). This
+is acceptable for ownership reassignment (a pure relational re-parenting) but means: (a) the
+feature is opt-in and high-risk-gated; (b) every UPDATE is `source`-guarded; (c) the whole
+move is one transaction; (d) operators accept that the MCP host must reach the WHMCS DB. The
+default deployment (no DSN) is unchanged from today — no DB driver connection, no credentials.
