@@ -57,6 +57,8 @@ import {
   normalizeDomain,
   PRICE_RESTORE_RECURRING_FIELD,
 } from '../write/paramMapping.js';
+import { isDbConfigured as realIsDbConfigured, getWhmcsDb, type DbTx, type WhmcsDb } from '../whmcs/WhmcsDb.js';
+import { runServiceMoves, TransferRollback } from '../write/transferCascade.js';
 
 /** Defense-in-depth: ensures the per-target mapper never leaks extra keys. */
 export class PriceRestoreOutputAssertionError extends Error {
@@ -831,6 +833,149 @@ export async function executePriceRestoreBatch(
     phase_1: { snapshots, ok: true },
     phase_2: { outcomes, halted_after },
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// service:transfer_owner — two-phase direct-DB executor
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ServiceTransferBatchResult {
+  readonly allowed: boolean;
+  readonly reason?: string;
+  readonly dry_run?: boolean;
+  readonly phase_1?: {
+    readonly services: { serviceid: number; owned_by: number; status: string }[];
+    readonly invoices_in_scope?: { serviceid: number; invoice_ids: number[] }[];
+    readonly failed?: { serviceid?: number; invoice_id?: number; why: string }[];
+    readonly ok: boolean;
+  };
+  readonly phase_2?: {
+    readonly committed: boolean;
+    readonly outcomes: { serviceid: number; status: 'verified' | 'committed' | 'skipped'; invoices_moved: number }[];
+  };
+}
+
+interface TransferArgs {
+  intent: WriteIntent;
+  audit: AuditLog;
+  isDbConfigured?: () => boolean;
+  getDb?: () => WhmcsDb;
+}
+
+/**
+ * Two-phase direct-DB executor for `service:transfer_owner`.
+ *
+ * Capability gate: if DB not configured → immediate `unsupported_capability`.
+ * Phase 1 (preflight, inside the same transaction): SELECT validations for
+ * ownership, currency match, and invoice enumeration. A failed precondition
+ * or dry_run returns from inside the transaction (all-SELECT tx, harmless).
+ * Phase 2 (commit, same transaction): runServiceMoves + read-back verify.
+ * TransferRollback → `transfer_rolled_back`; any other error propagates.
+ *
+ * Injectable seam: `isDbConfigured` and `getDb` default to the real WhmcsDb
+ * exports so unit tests can pass a fake DB without a live DSN.
+ */
+export async function executeServiceTransferBatch(args: TransferArgs): Promise<ServiceTransferBatchResult> {
+  const { intent, audit } = args;
+  const dbConfigured = args.isDbConfigured ?? realIsDbConfigured;
+  const getDb = args.getDb ?? getWhmcsDb;
+
+  if (!dbConfigured()) {
+    audit.append(auditEvent('intent.execution_blocked', intent, 'unsupported_capability'));
+    return { allowed: false, reason: 'unsupported_capability' };
+  }
+
+  const source = intent.params.source_clientid as number;
+  const dest = intent.params.dest_clientid as number;
+  const serviceIds = intent.params.service_ids as readonly number[];
+  const mode = intent.params.invoice_mode as 'none' | 'unpaid_only' | 'all';
+  const dryRun = intent.params.dry_run === true;
+
+  if (serviceIds.length > config.MCP_TRANSFER_MAX_BATCH) {
+    audit.append(auditEvent('intent.execution_blocked', intent, 'batch_too_large'));
+    return { allowed: false, reason: 'batch_too_large' };
+  }
+
+  interface Outcome { serviceid: number; status: 'verified' | 'committed' | 'skipped'; invoices_moved: number }
+
+  return getDb().withTransaction(async (tx: DbTx) => {
+    // ── PHASE 1: preflight SELECTs in the same tx (one consistent snapshot) ──
+    const services: { serviceid: number; owned_by: number; status: string }[] = [];
+    const invoicesInScope: { serviceid: number; invoice_ids: number[] }[] = [];
+    const failed: { serviceid?: number; invoice_id?: number; why: string }[] = [];
+
+    const srcRow = (await tx.query('SELECT id, currency_code, status FROM tblclients WHERE id = ?', [source])).rows[0] as
+      | { id: number; currency_code: string; status: string }
+      | undefined;
+    const dstRow = (await tx.query('SELECT id, currency_code, status FROM tblclients WHERE id = ?', [dest])).rows[0] as
+      | { id: number; currency_code: string; status: string }
+      | undefined;
+    if (dstRow?.status !== 'Active') failed.push({ why: `dest_client_not_active:${dest}` });
+    if (srcRow?.currency_code !== undefined && dstRow?.currency_code !== undefined && srcRow.currency_code !== dstRow.currency_code)
+      failed.push({ why: `currency_mismatch:${srcRow.currency_code}->${dstRow.currency_code}` });
+
+    for (const serviceid of serviceIds) {
+      const row = (await tx.query('SELECT id, userid, domainstatus FROM tblhosting WHERE id = ?', [serviceid])).rows[0] as
+        | { id: number; userid: number; domainstatus: string }
+        | undefined;
+      if (!row) { failed.push({ serviceid, why: 'service_not_found' }); continue; }
+      const owner = row.userid;
+      const status = row.domainstatus;
+      if (owner !== source) failed.push({ serviceid, why: `not_owned_by_source:${owner}` });
+      if (status === 'Terminated' || status === 'Cancelled') failed.push({ serviceid, why: `bad_status:${status}` });
+      services.push({ serviceid, owned_by: owner, status });
+      if (mode !== 'none') {
+        const sql =
+          'SELECT DISTINCT i.id AS id FROM tblinvoices i JOIN tblinvoiceitems it ON it.invoiceid = i.id ' +
+          "WHERE it.relid = ? AND it.type = 'Hosting'" + (mode === 'unpaid_only' ? " AND i.status = 'Unpaid'" : '');
+        const invRows = (await tx.query(sql, [serviceid])).rows as { id: number }[];
+        invoicesInScope.push({ serviceid, invoice_ids: invRows.map((r) => r.id) });
+      }
+    }
+
+    if (failed.length > 0) {
+      audit.append(auditEvent('intent.execution_blocked', intent, `precondition_mismatch: ${JSON.stringify(failed)}`));
+      // Return inside the transaction — this commits an all-SELECT tx (no writes occurred), which is harmless.
+      return { allowed: false, reason: 'precondition_mismatch', phase_1: { services, failed, ok: false } } as ServiceTransferBatchResult;
+    }
+
+    if (dryRun) {
+      audit.append(auditEvent('intent.execution_blocked', intent, 'dry_run_completed'));
+      return { allowed: true, dry_run: true, phase_1: { services, invoices_in_scope: invoicesInScope, ok: true } } as ServiceTransferBatchResult;
+    }
+
+    if (mode === 'all') audit.append(auditEvent('intent.executed', intent, 'WARNING invoice_mode=all re-owns SETTLED invoices'));
+
+    // ── PHASE 2: commit (same tx) ──
+    audit.appendDurable(auditEvent('intent.executed', intent, `transfer commit src=${source} dest=${dest} services=${serviceIds.length}`));
+    try {
+      await runServiceMoves(
+        tx,
+        invoicesInScope.length
+          ? services.map((s) => ({ serviceid: s.serviceid, invoiceIds: invoicesInScope.find((x) => x.serviceid === s.serviceid)?.invoice_ids ?? [] }))
+          : services.map((s) => ({ serviceid: s.serviceid, invoiceIds: [] })),
+        source,
+        dest,
+      );
+    } catch (e) {
+      if (e instanceof TransferRollback) {
+        audit.append(auditEvent('intent.execution_blocked', intent, `transfer_rolled_back svc=${String(e.serviceid)}`));
+        return { allowed: false, reason: 'transfer_rolled_back', phase_1: { services, invoices_in_scope: invoicesInScope, ok: true }, phase_2: { committed: false, outcomes: [] } } as ServiceTransferBatchResult;
+      }
+      throw e;
+    }
+
+    const outcomes: Outcome[] = [];
+    for (const s of services) {
+      const rb = (await tx.query('SELECT userid FROM tblhosting WHERE id = ?', [s.serviceid])).rows[0] as
+        | { userid: number }
+        | undefined;
+      const verified = Number(rb?.userid) === dest;
+      const moved = invoicesInScope.find((x) => x.serviceid === s.serviceid)?.invoice_ids.length ?? 0;
+      outcomes.push({ serviceid: s.serviceid, status: verified ? 'verified' : 'committed', invoices_moved: moved });
+    }
+    return { allowed: true, phase_1: { services, invoices_in_scope: invoicesInScope, ok: true }, phase_2: { committed: true, outcomes } } as ServiceTransferBatchResult;
+  });
 }
 
 /**
