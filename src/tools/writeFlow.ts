@@ -434,6 +434,8 @@ function toToolResult(
           new_amount: t.new_amount,
         }),
       }));
+    } else if (intentRec.scope === 'service:transfer_owner' || intentRec.scope === 'billing:invoice:reassign') {
+      whmcsParams = [{ action: '__db_direct__', params: { note: 'direct DB ownership move; no WHMCS API call' } }];
     } else {
       whmcsParams = intentToWhmcsParams(
         intentRec.scope,
@@ -1276,6 +1278,106 @@ export function registerWriteFlowTools(
         approval,
         dayAmounts: dayAmountsStore,
       });
+      if (!batchRes.allowed) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, batchRes.reason ?? 'unknown'));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: {
+              attempted: false,
+              blocked_reason: batchRes.reason,
+              phase_1: batchRes.phase_1,
+              phase_2: batchRes.phase_2,
+            } as WriteToolResult['execution'],
+          })
+        );
+      }
+      if (batchRes.dry_run) {
+        return out(
+          toToolResult(intent, 'execute', {
+            executed: false,
+            execution: {
+              attempted: false,
+              dry_run: true,
+              phase_1: batchRes.phase_1,
+            } as WriteToolResult['execution'],
+          })
+        );
+      }
+      const finalState = store.transition(intent.intent_id, 'executed');
+      return out(
+        toToolResult(finalState, 'execute', {
+          executed: true,
+          execution: {
+            attempted: true,
+            phase_1: batchRes.phase_1,
+            phase_2: batchRes.phase_2,
+          } as WriteToolResult['execution'],
+        })
+      );
+    }
+    // billing:invoice:reassign is COMPOSED-ONLY in v1 — it has no standalone
+    // executor and must never fall through to whmcs.mutate with a DB_DIRECT_ACTION
+    // sentinel. Return unsupported_capability explicitly.
+    if (intent.scope === 'billing:invoice:reassign') {
+      const blocked = store.transition(intent.intent_id, 'execution_blocked');
+      audit.append(auditEvent('intent.execution_blocked', blocked, 'unsupported_capability'));
+      return out(
+        toToolResult(blocked, 'execute', {
+          execution: { attempted: false, blocked_reason: 'unsupported_capability' },
+        })
+      );
+    }
+    // service:transfer_owner — two-phase direct-DB executor.
+    // Branched BEFORE the single-call authorizer/mutate path so it can NEVER
+    // fall through to whmcs.mutate (DB_DIRECT_ACTION sentinel protection).
+    if (intent.scope === 'service:transfer_owner') {
+      // Steps 1–7 gate (kill switch, mode, consumer execution capability,
+      // idempotency, permanently-blocked, prod/runtime allowlist) — verbatim
+      // copy from the price_restore branch above.
+      const pre = preAuthorizeIntent(
+        {
+          intent,
+          env: getProjectionEnv(),
+          mcpMode: config.MCP_MODE,
+          consumerWriteCapability: consumerWriteCapability(res.profile),
+          runtimeAuthorizedActions: runtimeAuthorizedActions(),
+          killSwitch: config.MCP_WRITE_KILL_SWITCH,
+          prodAuthorizedActions: config.MCP_PROD_WRITE_AUTHORIZED,
+          strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
+          strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+        },
+        (k) => ledger.seen(k)
+      );
+      if (!pre.allowed) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, pre.reason));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: pre.reason },
+          })
+        );
+      }
+      const approval = approvals.get(intent.intent_id);
+      if (!approval) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, 'human_approval_required'));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: 'human_approval_required' },
+          })
+        );
+      }
+      if (approval.approver_consumer_id === intent.consumer_id) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(auditEvent('intent.execution_blocked', blocked, 'self_approval_forbidden'));
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: 'self_approval_forbidden' },
+          })
+        );
+      }
+      const batchRes = await executeServiceTransferBatch({ intent, audit });
       if (!batchRes.allowed) {
         const blocked = store.transition(intent.intent_id, 'execution_blocked');
         audit.append(auditEvent('intent.execution_blocked', blocked, batchRes.reason ?? 'unknown'));
