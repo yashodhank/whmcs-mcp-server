@@ -318,6 +318,19 @@ const configSchema = z
         .map((s) => s.trim())
         .filter(Boolean);
     }, z.array(z.string()).default([])),
+
+    // ── Direct database access for service/invoice owner transfer ──────────
+    // DB connection parameters (optional; required when transfer scopes are enabled)
+    MCP_TRANSFER_MAX_BATCH: z.coerce.number().int().min(1).default(50),
+    MCP_WHMCS_DB_HOST: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_PORT: z.coerce.number().int().min(1).max(65535).default(3306),
+    MCP_WHMCS_DB_USER: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_PASSWORD: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_NAME: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_SSL: z.preprocess(
+      (val) => (typeof val === 'string' ? val.toLowerCase() === 'true' : false),
+      z.boolean().default(false)
+    ),
   })
   .superRefine((val, ctx) => {
     // Phase G+ fail-fast misconfiguration guards.

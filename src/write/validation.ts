@@ -97,6 +97,11 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'billing:quote:accept': ['quoteid'],
   'ticket:note': ['ticketid', 'message'],
   'ticket:merge': ['ticketid', 'mergeticketids'],
+  // ── DB-direct scopes (owner transfer) ──────────────────────────────────
+  // service:transfer_owner — direct DB write; params defined by the executor.
+  'service:transfer_owner': [],
+  // billing:invoice:reassign — direct DB write; params defined by the executor.
+  'billing:invoice:reassign': [],
 };
 
 /** Contact fields the contact:add / contact:update ≥1-field rules accept. */
