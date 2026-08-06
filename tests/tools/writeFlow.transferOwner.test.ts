@@ -93,6 +93,7 @@ function fakeDb(
     srcCur?: string;
     destCur?: string;
     serviceGuard?: number;
+    mixedInvoice?: boolean;
   } = {}
 ) {
   const calls: { sql: string; params: unknown[] }[] = [];
@@ -110,14 +111,40 @@ function fakeDb(
         const currency = currencyCode === 'EUR' ? 2 : 1;
         return { affectedRows: 0, rows: [{ id: params[0], status: 'Active', currency }] };
       }
+      if (s.startsWith('select') && s.includes('tblinvoiceitems') && s.includes('distinct i.id')) {
+        return { affectedRows: 0, rows: opts.mixedInvoice ? [{ id: 100 }] : [] };
+      }
+      if (s.startsWith('select') && s.includes('tblinvoiceitems')) {
+        return {
+          affectedRows: 0,
+          rows: opts.mixedInvoice
+            ? [
+                { serviceid: 10, type: 'Hosting' },
+                { serviceid: 999, type: 'Domain' },
+              ]
+            : [],
+        };
+      }
       if (s.startsWith('select') && s.includes('tblinvoice')) return { affectedRows: 0, rows: [] };
       if (s.startsWith('update') && s.includes('tblhosting '))
         return { affectedRows: opts.serviceGuard ?? 1, rows: [] };
       return { affectedRows: 1, rows: [] };
     },
   };
-  const db = { withTransaction: async <T>(fn: (t: DbTx) => Promise<T>) => fn(tx) };
-  return { db, calls };
+  const transaction = { committed: false, rolledBack: false };
+  const db = {
+    withTransaction: async <T>(fn: (t: DbTx) => Promise<T>) => {
+      try {
+        const result = await fn(tx);
+        transaction.committed = true;
+        return result;
+      } catch (error) {
+        transaction.rolledBack = true;
+        throw error;
+      }
+    },
+  };
+  return { db, calls, transaction };
 }
 const dbConfigured = () => true;
 
@@ -179,6 +206,24 @@ describe('executeServiceTransferBatch', () => {
     expect(res.reason).toBe('precondition_mismatch');
   });
 
+  it('rejects invoices containing unrelated item types before any update', async () => {
+    const { db, calls } = fakeDb({ mixedInvoice: true });
+    const res = await executeServiceTransferBatch({
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'unpaid_only',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
+    } as any);
+    expect(res.allowed).toBe(false);
+    expect(res.reason).toBe('precondition_mismatch');
+    expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
+  });
+
   it('dry_run previews, no UPDATE issued', async () => {
     const { db, calls } = fakeDb();
     const res = await executeServiceTransferBatch({
@@ -215,7 +260,7 @@ describe('executeServiceTransferBatch', () => {
   });
 
   it('rolls back when a service guard affects 0 rows', async () => {
-    const { db } = fakeDb({ serviceGuard: 0 });
+    const { db, transaction } = fakeDb({ serviceGuard: 0 });
     const res = await executeServiceTransferBatch({
       intent: intent({
         source_clientid: 1,
@@ -229,6 +274,8 @@ describe('executeServiceTransferBatch', () => {
     } as any);
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('transfer_rolled_back');
+    expect(transaction.rolledBack).toBe(true);
+    expect(transaction.committed).toBe(false);
   });
 
   it('BATCH_TOO_LARGE: service_ids > MCP_TRANSFER_MAX_BATCH → batch_too_large, no DB transaction opened', async () => {
@@ -503,8 +550,15 @@ function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}
       if (s.startsWith('select') && s.includes('tblclients'))
         return {
           affectedRows: 0,
-          rows: [{ id: params[0], status: 'Active', currency_code: 'USD' }],
+          rows: [{ id: params[0], status: 'Active', currency: 1 }],
         };
+      if (s.startsWith('select') && s.includes('tblinvoiceitems') && s.includes('distinct i.id')) {
+        const svcId = params[0] as number;
+        const ids = invoicesByServiceId[svcId] ?? [];
+        return { affectedRows: 0, rows: ids.map((id) => ({ id })) };
+      }
+      if (s.startsWith('select') && s.includes('tblinvoiceitems'))
+        return { affectedRows: 0, rows: [{ serviceid: 10, type: 'Hosting' }] };
       if (s.startsWith('select') && s.includes('tblinvoice')) {
         // params[0] is the serviceid (relid) from the WHERE it.relid = ? clause.
         const svcId = params[0] as number;
