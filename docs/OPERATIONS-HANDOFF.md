@@ -124,7 +124,7 @@ interim responsibility model:
 | Production operations | Securiace infrastructure/operator — **name and host inventory pending** | Own runtime, secrets, process health, backups, deployment, and rollback |
 | Approval authority | Separate authorized operator/approver — **name/group pending** | Approve production write intents; do not self-approve high-risk work |
 | Security review | Securiace security owner — **name pending** | Review auth, secret handling, direct DB access, and production write changes |
-| WHMCS administration | Haikawa/client WHMCS administrator or designated client operator | Own WHMCS roles, API credentials, IP allowlist, and WHMCS-side changes |
+| WHMCS administration | Client WHMCS administrator or designated client operator | Own WHMCS roles, API credentials, IP allowlist, and WHMCS-side changes |
 | Customer delivery records | Client/proposal workspace, not this public repository | Keep quotes, billing identifiers, PII, and private execution evidence private |
 
 Required assignments before the next production deployment:
@@ -203,12 +203,12 @@ editing `MCP_WRITE_KILL_SWITCH` does not affect an existing process. Restart an
 HTTP service/process, or respawn the stdio child, before claiming the emergency
 seal is active.
 
-The Haikawa client and ₹65,000 discovery quote were prepared in production as
-an unsent draft through the governed flow. Customer identifiers, production
-record IDs, billing address, GSTIN, PO requirement, and execution evidence are
-kept in the private audit ledger and client/proposal workspace, not this public
-repository. Before a final invoice, obtain the billing legal name, billing
-address, GSTIN if applicable, and PO requirement.
+A production discovery quote was prepared as an unsent draft through the
+governed flow. Customer identity, commercial terms, production record IDs,
+billing details, and execution evidence are kept in the private audit ledger
+and client/proposal workspace, not this public repository. Any remaining
+billing prerequisites must be confirmed in that private workspace before a
+final invoice.
 
 ## Handoff-update rule
 
