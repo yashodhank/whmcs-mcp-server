@@ -1800,7 +1800,8 @@ unset MCP_PROD_HIGH_RISK_PER_ACTION_CAP
 unset MCP_PROD_HIGH_RISK_DAILY_CAP
 ```
 
-Or `MCP_WRITE_KILL_SWITCH=1` instantly re-seals everything.
+Or set `MCP_WRITE_KILL_SWITCH=1` and restart the MCP service/process to re-seal
+everything after the new process loads the environment.
 ```
 
 - [ ] **Step 9.2: Commit**
@@ -2036,7 +2037,8 @@ Brainstorming round complete; design approved by user before build.
 
 With no new env configured, production stays sealed. Authorizer gate ordering
 unchanged. PROD_NEVER_EXECUTABLE unchanged. `MCP_WRITE_KILL_SWITCH=1` still
-re-seals everything instantly.
+re-seals everything after the MCP service/process restarts and loads the new
+environment.
 
 ## Out of scope
 

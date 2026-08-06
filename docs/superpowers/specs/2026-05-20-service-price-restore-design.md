@@ -241,7 +241,8 @@ the merge of this PR alone changes no production behaviour.
 7. Approve via `approve_write_intent` with a real human approver identity; execute (real).
 8. After completion, clear `MCP_PROD_WRITE_AUTHORIZED` and caps to re-seal.
 
-`MCP_WRITE_KILL_SWITCH=1` re-seals everything instantly at any point.
+`MCP_WRITE_KILL_SWITCH=1` re-seals everything after the MCP service/process is
+restarted and the new process loads the environment.
 
 ## 9. Risks
 
