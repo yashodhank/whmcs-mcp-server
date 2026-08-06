@@ -98,6 +98,7 @@ function fakeDb(
       relid: number | null;
       type: string;
       addon_hostingid: number | null;
+      addon_userid: number | null;
     }[];
   } = {}
 ) {
@@ -129,8 +130,8 @@ function fakeDb(
             opts.invoiceItems ??
             (opts.mixedInvoice
               ? [
-                  { relid: 10, type: 'Hosting', addon_hostingid: null },
-                  { relid: 999, type: 'Domain', addon_hostingid: null },
+                  { relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null },
+                  { relid: 999, type: 'Domain', addon_hostingid: null, addon_userid: null },
                 ]
               : []),
         };
@@ -237,8 +238,8 @@ describe('executeServiceTransferBatch', () => {
   it('accepts Addon invoice lines joined to a selected hosting service', async () => {
     const { db, calls } = fakeDb({
       invoiceItems: [
-        { relid: 10, type: 'Hosting', addon_hostingid: null },
-        { relid: 501, type: 'Addon', addon_hostingid: 10 },
+        { relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null },
+        { relid: 501, type: 'Addon', addon_hostingid: 10, addon_userid: 1 },
       ],
     });
     const res = await executeServiceTransferBatch({
@@ -261,8 +262,8 @@ describe('executeServiceTransferBatch', () => {
   it('rejects Addon invoice lines joined to an unselected hosting service', async () => {
     const { db, calls } = fakeDb({
       invoiceItems: [
-        { relid: 10, type: 'Hosting', addon_hostingid: null },
-        { relid: 502, type: 'Addon', addon_hostingid: 11 },
+        { relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null },
+        { relid: 502, type: 'Addon', addon_hostingid: 11, addon_userid: 1 },
       ],
     });
     const res = await executeServiceTransferBatch({
@@ -285,8 +286,32 @@ describe('executeServiceTransferBatch', () => {
   it('rejects Addon invoice lines without a proven hosting relationship', async () => {
     const { db, calls } = fakeDb({
       invoiceItems: [
-        { relid: 10, type: 'Hosting', addon_hostingid: null },
-        { relid: 503, type: 'Addon', addon_hostingid: null },
+        { relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null },
+        { relid: 503, type: 'Addon', addon_hostingid: null, addon_userid: null },
+      ],
+    });
+    const res = await executeServiceTransferBatch({
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'unpaid_only',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
+    } as any);
+
+    expect(res.allowed).toBe(false);
+    expect(res.reason).toBe('precondition_mismatch');
+    expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
+  });
+
+  it('rejects Addon invoice lines owned by a different client', async () => {
+    const { db, calls } = fakeDb({
+      invoiceItems: [
+        { relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null },
+        { relid: 504, type: 'Addon', addon_hostingid: 10, addon_userid: 99 },
       ],
     });
     const res = await executeServiceTransferBatch({
@@ -642,7 +667,7 @@ function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}
       if (s.startsWith('select') && s.includes('tblinvoiceitems'))
         return {
           affectedRows: 0,
-          rows: [{ relid: 10, type: 'Hosting', addon_hostingid: null }],
+          rows: [{ relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null }],
         };
       if (s.startsWith('select') && s.includes('tblinvoice')) {
         // params[0] is the serviceid (relid) from the WHERE it.relid = ? clause.
