@@ -214,11 +214,13 @@ rewrite on 2026-08-06. Remote branch heads and known fork heads were verified
 to contain no matches for the removed customer/commercial text. GitHub-hosted
 pull-request references and cached views still require Support-side
 dereferencing and garbage collection: **PENDING — Support ticket/date needed**.
-Collaborators must rebase onto the rewritten `main` or use a fresh clone; never
-merge a pre-rewrite branch back into the repository. Before a final invoice,
-the client/proposal workspace owner must confirm the billing legal name,
-billing address, GSTIN applicability, and PO requirement: **PENDING — workspace
-owner/date needed**.
+Collaborators with a pre-rewrite clone must start from a fresh clone and
+cherry-pick only collaborator-owned commits after inspecting each patch for the
+removed material. Never merge or normally rebase a pre-rewrite branch onto the
+new history, because that can make the disclosure reachable again. Before a
+final invoice, the client/proposal workspace owner must confirm the billing
+legal name, billing address, GSTIN applicability, and PO requirement:
+**PENDING — workspace owner/date needed**.
 
 ## Handoff-update rule
 
