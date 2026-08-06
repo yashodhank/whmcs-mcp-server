@@ -938,89 +938,120 @@ export async function executeServiceTransferBatch(
     invoices_moved: number;
   }
 
-  return getDb().withTransaction(async (tx: DbTx) => {
-    // ── PHASE 1: preflight SELECTs in the same tx (one consistent snapshot) ──
-    const services: { serviceid: number; owned_by: number; status: string }[] = [];
-    const invoicesInScope: { serviceid: number; invoice_ids: number[] }[] = [];
-    const failed: { serviceid?: number; invoice_id?: number; why: string }[] = [];
+  try {
+    return await getDb().withTransaction(async (tx: DbTx) => {
+      // ── PHASE 1: preflight SELECTs in the same tx (one consistent snapshot) ──
+      const services: { serviceid: number; owned_by: number; status: string }[] = [];
+      const invoicesInScope: { serviceid: number; invoice_ids: number[] }[] = [];
+      const failed: { serviceid?: number; invoice_id?: number; why: string }[] = [];
 
-    const srcRow = (
-      await tx.query('SELECT id, currency_code, status FROM tblclients WHERE id = ?', [source])
-    ).rows[0] as { id: number; currency_code: string; status: string } | undefined;
-    const dstRow = (
-      await tx.query('SELECT id, currency_code, status FROM tblclients WHERE id = ?', [dest])
-    ).rows[0] as { id: number; currency_code: string; status: string } | undefined;
-    if (dstRow?.status !== 'Active') failed.push({ why: `dest_client_not_active:${dest}` });
-    if (
-      srcRow?.currency_code !== undefined &&
-      dstRow?.currency_code !== undefined &&
-      srcRow.currency_code !== dstRow.currency_code
-    )
-      failed.push({ why: `currency_mismatch:${srcRow.currency_code}->${dstRow.currency_code}` });
+      const srcRow = (
+        await tx.query('SELECT id, currency, status FROM tblclients WHERE id = ?', [source])
+      ).rows[0] as { id: number; currency: number; status: string } | undefined;
+      const dstRow = (
+        await tx.query('SELECT id, currency, status FROM tblclients WHERE id = ?', [dest])
+      ).rows[0] as { id: number; currency: number; status: string } | undefined;
+      if (dstRow?.status !== 'Active') failed.push({ why: `dest_client_not_active:${dest}` });
+      if (
+        srcRow?.currency !== undefined &&
+        dstRow?.currency !== undefined &&
+        srcRow.currency !== dstRow.currency
+      )
+        failed.push({
+          why: 'currency_mismatch:' + String(srcRow.currency) + '->' + String(dstRow.currency),
+        });
 
-    for (const serviceid of serviceIds) {
-      const row = (
-        await tx.query('SELECT id, userid, domainstatus FROM tblhosting WHERE id = ?', [serviceid])
-      ).rows[0] as { id: number; userid: number; domainstatus: string } | undefined;
-      if (!row) {
-        failed.push({ serviceid, why: 'service_not_found' });
-        continue;
+      for (const serviceid of serviceIds) {
+        const row = (
+          await tx.query('SELECT id, userid, domainstatus FROM tblhosting WHERE id = ?', [
+            serviceid,
+          ])
+        ).rows[0] as { id: number; userid: number; domainstatus: string } | undefined;
+        if (!row) {
+          failed.push({ serviceid, why: 'service_not_found' });
+          continue;
+        }
+        const owner = row.userid;
+        const status = row.domainstatus;
+        if (owner !== source) failed.push({ serviceid, why: `not_owned_by_source:${owner}` });
+        if (status === 'Terminated' || status === 'Cancelled')
+          failed.push({ serviceid, why: 'bad_status:' + status });
+        services.push({ serviceid, owned_by: owner, status });
+        if (mode !== 'none') {
+          const sql =
+            'SELECT DISTINCT i.id AS id FROM tblinvoices i JOIN tblinvoiceitems it ON it.invoiceid = i.id ' +
+            "WHERE it.relid = ? AND it.type = 'Hosting'" +
+            (mode === 'unpaid_only' ? " AND i.status = 'Unpaid'" : '');
+          const invRows = (await tx.query(sql, [serviceid])).rows as { id: number }[];
+          invoicesInScope.push({ serviceid, invoice_ids: invRows.map((r) => r.id) });
+        }
       }
-      const owner = row.userid;
-      const status = row.domainstatus;
-      if (owner !== source) failed.push({ serviceid, why: `not_owned_by_source:${owner}` });
-      if (status === 'Terminated' || status === 'Cancelled')
-        failed.push({ serviceid, why: `bad_status:${status}` });
-      services.push({ serviceid, owned_by: owner, status });
-      if (mode !== 'none') {
-        const sql =
-          'SELECT DISTINCT i.id AS id FROM tblinvoices i JOIN tblinvoiceitems it ON it.invoiceid = i.id ' +
-          "WHERE it.relid = ? AND it.type = 'Hosting'" +
-          (mode === 'unpaid_only' ? " AND i.status = 'Unpaid'" : '');
-        const invRows = (await tx.query(sql, [serviceid])).rows as { id: number }[];
-        invoicesInScope.push({ serviceid, invoice_ids: invRows.map((r) => r.id) });
-      }
-    }
 
-    if (failed.length > 0) {
-      audit.append(
+      if (failed.length > 0) {
+        audit.append(
+          auditEvent(
+            'intent.execution_blocked',
+            intent,
+            `precondition_mismatch: ${JSON.stringify(failed)}`
+          )
+        );
+        // Return inside the transaction — this commits an all-SELECT tx (no writes occurred), which is harmless.
+        return {
+          allowed: false,
+          reason: 'precondition_mismatch',
+          phase_1: { services, failed, ok: false },
+        } as ServiceTransferBatchResult;
+      }
+
+      const selectedServiceIds = new Set(serviceIds);
+      const invoiceIds = [...new Set(invoicesInScope.flatMap((entry) => entry.invoice_ids))];
+      for (const invoiceid of invoiceIds) {
+        const hostingLines = (
+          await tx.query(
+            "SELECT DISTINCT relid AS serviceid FROM tblinvoiceitems WHERE invoiceid = ? AND type = 'Hosting'",
+            [invoiceid]
+          )
+        ).rows as { serviceid: number }[];
+        const mixed = hostingLines.some((line) => !selectedServiceIds.has(line.serviceid));
+        if (mixed) failed.push({ invoice_id: invoiceid, why: 'mixed_invoice_scope' });
+      }
+      if (failed.length > 0) {
+        audit.append(
+          auditEvent(
+            'intent.execution_blocked',
+            intent,
+            'precondition_mismatch: ' + JSON.stringify(failed)
+          )
+        );
+        return {
+          allowed: false,
+          reason: 'precondition_mismatch',
+          phase_1: { services, invoices_in_scope: invoicesInScope, failed, ok: false },
+        } as ServiceTransferBatchResult;
+      }
+
+      if (dryRun) {
+        audit.append(auditEvent('intent.execution_blocked', intent, 'dry_run_completed'));
+        return {
+          allowed: true,
+          dry_run: true,
+          phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
+        } as ServiceTransferBatchResult;
+      }
+
+      if (mode === 'all')
+        audit.append(
+          auditEvent('intent.executed', intent, 'WARNING invoice_mode=all re-owns SETTLED invoices')
+        );
+
+      // ── PHASE 2: commit (same tx) ──
+      audit.appendDurable(
         auditEvent(
-          'intent.execution_blocked',
+          'intent.executed',
           intent,
-          `precondition_mismatch: ${JSON.stringify(failed)}`
+          `transfer commit src=${source} dest=${dest} services=${serviceIds.length}`
         )
       );
-      // Return inside the transaction — this commits an all-SELECT tx (no writes occurred), which is harmless.
-      return {
-        allowed: false,
-        reason: 'precondition_mismatch',
-        phase_1: { services, failed, ok: false },
-      } as ServiceTransferBatchResult;
-    }
-
-    if (dryRun) {
-      audit.append(auditEvent('intent.execution_blocked', intent, 'dry_run_completed'));
-      return {
-        allowed: true,
-        dry_run: true,
-        phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
-      } as ServiceTransferBatchResult;
-    }
-
-    if (mode === 'all')
-      audit.append(
-        auditEvent('intent.executed', intent, 'WARNING invoice_mode=all re-owns SETTLED invoices')
-      );
-
-    // ── PHASE 2: commit (same tx) ──
-    audit.appendDurable(
-      auditEvent(
-        'intent.executed',
-        intent,
-        `transfer commit src=${source} dest=${dest} services=${serviceIds.length}`
-      )
-    );
-    try {
       await runServiceMoves(
         tx,
         invoicesInScope.length
@@ -1033,44 +1064,44 @@ export async function executeServiceTransferBatch(
         source,
         dest
       );
-    } catch (e) {
-      if (e instanceof TransferRollback) {
-        audit.append(
-          auditEvent(
-            'intent.execution_blocked',
-            intent,
-            `transfer_rolled_back svc=${String(e.serviceid)}`
-          )
-        );
-        return {
-          allowed: false,
-          reason: 'transfer_rolled_back',
-          phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
-          phase_2: { committed: false, outcomes: [] },
-        } as ServiceTransferBatchResult;
-      }
-      throw e;
-    }
 
-    const outcomes: Outcome[] = [];
-    for (const s of services) {
-      const rb = (await tx.query('SELECT userid FROM tblhosting WHERE id = ?', [s.serviceid]))
-        .rows[0] as { userid: number } | undefined;
-      const verified = Number(rb?.userid) === dest;
-      const moved =
-        invoicesInScope.find((x) => x.serviceid === s.serviceid)?.invoice_ids.length ?? 0;
-      outcomes.push({
-        serviceid: s.serviceid,
-        status: verified ? 'verified' : 'committed',
-        invoices_moved: moved,
-      });
+      const outcomes: Outcome[] = [];
+      for (const s of services) {
+        const rb = (await tx.query('SELECT userid FROM tblhosting WHERE id = ?', [s.serviceid]))
+          .rows[0] as { userid: number } | undefined;
+        const verified = Number(rb?.userid) === dest;
+        const moved =
+          invoicesInScope.find((x) => x.serviceid === s.serviceid)?.invoice_ids.length ?? 0;
+        outcomes.push({
+          serviceid: s.serviceid,
+          status: verified ? 'verified' : 'committed',
+          invoices_moved: moved,
+        });
+      }
+      return {
+        allowed: true,
+        phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
+        phase_2: { committed: true, outcomes },
+      } as ServiceTransferBatchResult;
+    });
+  } catch (e) {
+    if (e instanceof TransferRollback) {
+      audit.append(
+        auditEvent(
+          'intent.execution_blocked',
+          intent,
+          'transfer_rolled_back svc=' + String(e.serviceid)
+        )
+      );
+      return {
+        allowed: false,
+        reason: 'transfer_rolled_back',
+        phase_1: { services: [], ok: true },
+        phase_2: { committed: false, outcomes: [] },
+      };
     }
-    return {
-      allowed: true,
-      phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
-      phase_2: { committed: true, outcomes },
-    } as ServiceTransferBatchResult;
-  });
+    throw e;
+  }
 }
 
 /**
