@@ -247,9 +247,9 @@ const configSchema = z
       (val) => val === 'true' || val === '1',
       z.boolean().default(true)
     ),
-    // Empty ⇒ pure in-memory (legacy). A non-empty prod allowlist REQUIRES a
-    // durable audit path (enforced below) so a production mutation is never
-    // unauditable.
+    // Empty ⇒ pure in-memory (legacy). A non-empty inline or live-file prod
+    // allowlist REQUIRES a durable audit path (enforced below) so a production
+    // mutation is never unauditable.
     MCP_WRITE_AUDIT_PATH: z.preprocess(
       (val) => (typeof val === 'string' ? val : ''),
       z.string().default('')
@@ -341,14 +341,17 @@ const configSchema = z
   })
   .superRefine((val, ctx) => {
     // Phase G+ fail-fast misconfiguration guards.
-    if (val.MCP_PROD_WRITE_AUTHORIZED.length > 0) {
+    if (
+      val.MCP_PROD_WRITE_AUTHORIZED.length > 0 ||
+      Boolean(val.MCP_PROD_WRITE_AUTHORIZED_FILE?.trim())
+    ) {
       // No production execution without a durable audit trail (fail-closed).
       if (val.MCP_WRITE_AUDIT_PATH.trim() === '') {
         ctx.addIssue({
           code: 'custom',
           path: ['MCP_WRITE_AUDIT_PATH'],
           message:
-            'MCP_WRITE_AUDIT_PATH is required when MCP_PROD_WRITE_AUTHORIZED is non-empty (production mutations must be durably auditable)',
+            'MCP_WRITE_AUDIT_PATH is required when production write authorization is configured (production mutations must be durably auditable)',
         });
       }
       // A permanently-blocked action must never be allowlisted, even though the
