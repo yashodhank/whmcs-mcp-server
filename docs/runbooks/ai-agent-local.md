@@ -67,6 +67,11 @@ Do not proceed to reporting workflows until all 4 checks pass.
 - Use `simulate` or `full` only in approved windows or local disposable stacks.
 - Prefer client-scoped mode for customer-facing assistants.
 - Keep write-intent flows audited; avoid direct mutating calls for high-risk operations.
+- Production approval changes do not require an MCP restart when
+  MCP_PROD_WRITE_AUTHORIZED_FILE is configured. Edit the owner-only (0600)
+  JSON file atomically; the next governed execution rereads it. Use a JSON
+  array of action/scope strings, or {"authorized":[...]}. Never weaken the
+  file permissions or bypass the draft → validate → approve → execute ceremony.
 
 ## 6) Dev Workflow Recommendations
 

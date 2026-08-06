@@ -4,10 +4,12 @@ Purpose: orient an AI agent fast so it does NOT re-scan the repo. Update only on
 architectural change.
 
 ## What this is
+
 MCP server fronting the WHMCS API. Read-heavy, governed. Default posture is
 read-only + audited; mutations flow through a tiered governance model.
 
 ## Layers (frozen seams — don't redesign unless task says so)
+
 - **Reads**: `src/whmcs/actionPolicy.ts` (READ_ALLOWLIST + deny-by-default) →
   `src/canonical/*` (raw→canonical + field-class map, `_shared.ts` helpers) →
   `src/governance/{contracts,projection,pipeline}.ts` (per-consumer field-class
@@ -21,7 +23,7 @@ read-only + audited; mutations flow through a tiered governance model.
   never call WHMCS; promoted via probe → `src/governance/capabilities.ts`.
   (Many newer reads are capability `unverified` pending prod-probe.)
 - **Writes (tiered governance)**: `src/write/{types,validation,paramMapping,
-  executionGate,idempotency,audit,intents}.ts` + `src/tools/writeFlow.ts`.
+executionGate,idempotency,audit,intents}.ts` + `src/tools/writeFlow.ts`.
   Flow: draft → validate → approve → execute, PLUS one-call `write` tool
   (auto-approve low/med; high routes to the explicit ceremony). PCI PAN input
   guard (`assertNoPAN`) + optional MCP Elicitation inline-confirm (medium) in
@@ -40,6 +42,7 @@ read-only + audited; mutations flow through a tiered governance model.
   exist; a few — client:create/update — still pending governed equivalents.)
 
 ## Write model (current)
+
 - Scopes: `src/write/types.ts` WRITE_SCOPES / SCOPE_ACTION / SCOPE_RISK.
 - **Tiered friction (active):** the per-env allowlist + human approval + caps
   apply to **HIGH-RISK only**. LOW/MEDIUM are audit-gated (consumer
@@ -49,12 +52,19 @@ read-only + audited; mutations flow through a tiered governance model.
 - Keystone (now high-risk): empty `MCP_PROD_WRITE_AUTHORIZED` ⇒ high-risk prod
   money/destruction sealed.
 - Allowlist entry = WHMCS action (broad, all scopes on it) OR scope (narrow).
+- Live approval: set MCP_PROD_WRITE_AUTHORIZED_FILE to an owner-only (0600)
+  JSON file containing an array of action/scope strings (or
+  {"authorized":[...]}). It is reread on every production execution, so
+  grants/revocations take effect without restarting the MCP. Missing, malformed,
+  or lax files fail closed. When set, it replaces the static
+  MCP_PROD_WRITE_AUTHORIZED allowlist.
 - Idempotency key: `consumer | action | scope | naturalKey | window`.
 - **No new direct `whmcs.mutate()` paths** — all mutations go through the flow.
   (Legacy direct-write tools in clients/billing/domains/services.ts predate the
   flow; migration is backlog Track C/D3.)
 
 ## Adding things (cheat-sheet)
+
 - New READ: allowlist action → canonical mapper → capability shell → probe →
   promote in capabilities.ts → governed tool.
 - New WRITE scope: types.ts (3 maps) → validation.ts REQUIRED_PARAMS + checks →
@@ -63,12 +73,14 @@ read-only + audited; mutations flow through a tiered governance model.
   allowedWriteScopes. Risk tier decides friction.
 
 ## Tests / validation
+
 - Targeted first; full suite (`npx vitest run`, ~1000+ pass) only when
   governance/canonical/projection/write-flow/shared-client change.
 - `npx tsc --noEmit`, `npx eslint`, `npm run build`.
 - Patterns to mirror: `tests/write/*.test.ts`, `tests/tools/writeFlow*.test.ts`.
 
 ## Roadmap
+
 See approved plan + backlog in `~/.claude/plans/flickering-pondering-feather.md`
 (Phase 0 governance rebalance → A reads → B composites → accounting → C write
 migration). `docs/design/decisions.md` records posture choices.

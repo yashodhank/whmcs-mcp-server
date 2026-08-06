@@ -195,6 +195,13 @@ const configSchema = z
           .filter(Boolean),
       z.array(z.string()).default([])
     ),
+    // Optional live production allowlist control plane. When set, the file
+    // is read at execution time so approved scopes can be changed without
+    // restarting the MCP process. The file loader fails closed.
+    MCP_PROD_WRITE_AUTHORIZED_FILE: z.preprocess(
+      preprocessOptionalEnvString,
+      z.string().optional()
+    ),
     // Non-prod runtime execution allowlist (dev/staging). Default [] ⇒ no
     // action authorized at runtime — sealed posture preserved. Mirrors the
     // MCP_PROD_WRITE_AUTHORIZED parser; consumed by writeFlow.runtimeAuthorizedActions().
