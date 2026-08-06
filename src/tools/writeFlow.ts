@@ -1012,7 +1012,7 @@ export async function executeServiceTransferBatch(
               'ha.userid AS addon_userid ' +
               'FROM tblinvoiceitems it ' +
               "LEFT JOIN tblhostingaddons ha ON it.type = 'Addon' AND ha.id = it.relid " +
-              'WHERE it.invoiceid = ?',
+              'WHERE it.invoiceid = ? FOR UPDATE',
             [invoiceid]
           )
         ).rows as {

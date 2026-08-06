@@ -256,7 +256,12 @@ describe('executeServiceTransferBatch', () => {
 
     expect(res.allowed).toBe(true);
     expect(res.phase_2?.committed).toBe(true);
-    expect(calls.some((call) => call.sql.toLowerCase().includes('tblhostingaddons'))).toBe(true);
+    const addonPreflight = calls.find(
+      (call) =>
+        call.sql.toLowerCase().startsWith('select') &&
+        call.sql.toLowerCase().includes('tblhostingaddons')
+    );
+    expect(addonPreflight?.sql).toMatch(/\bFOR\s+UPDATE\b/i);
   });
 
   it('rejects Addon invoice lines joined to an unselected hosting service', async () => {
