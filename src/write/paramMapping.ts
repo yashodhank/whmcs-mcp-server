@@ -648,9 +648,8 @@ export function mapBillableItemParams(params: Record<string, unknown>): Record<s
 }
 
 /**
- * STRICT allowlist of top-level WHMCS `CreateQuote` fields (beyond the flattened
- * line-item keys this mapper builds from `items`). `proposal`/raw HTML and any
- * other unknown key are dropped.
+ * STRICT allowlist of top-level WHMCS `CreateQuote` fields. Line items are
+ * encoded separately as WHMCS's base64 PHP-serialized `lineitems` payload.
  */
 const QUOTE_CREATE_FIELD_ALLOWLIST: readonly string[] = [
   'subject',
@@ -666,23 +665,45 @@ const QUOTE_CREATE_FIELD_ALLOWLIST: readonly string[] = [
   'customernotes',
 ];
 
+function phpSerializeString(value: string): string {
+  return `s:${Buffer.byteLength(value, 'utf8')}:"${value}";`;
+}
+
+/** Encode the exact base64(PHP serialize(array(...))) shape required by WHMCS. */
+function encodeQuoteLineItems(items: readonly unknown[]): string {
+  const serializedItems = items.map((item, index) => {
+    const it = asRecord(item);
+    const description = typeof it.description === 'string' ? it.description : '';
+    const amount = typeof it.amount === 'number' ? it.amount : 0;
+    const taxable = it.taxed === true;
+    return (
+      `i:${index};a:5:{` +
+      phpSerializeString('desc') +
+      phpSerializeString(description) +
+      phpSerializeString('qty') +
+      'i:1;' +
+      phpSerializeString('up') +
+      `d:${String(amount)};` +
+      phpSerializeString('discount') +
+      'd:0;' +
+      phpSerializeString('taxable') +
+      `b:${taxable ? 1 : 0};}`
+    );
+  });
+  const serialized = `a:${serializedItems.length}:{${serializedItems.join('')}}`;
+  return Buffer.from(serialized, 'utf8').toString('base64');
+}
+
 /**
  * `billing:quote:create` `{subject, stage, validuntil, items:[{description,
- * amount, taxed}], ...}` → WHMCS `CreateQuote`. Flattens `items` into
- * `lineitemdescription{N}` / `lineitemamount{N}` / `lineitemtaxed{N}` (1-based)
- * — the WHMCS CreateQuote line-item shape — and copies only allowlisted
- * top-level fields. The original `items` key is consumed, never copied.
+ * amount, taxed}], ...}` → WHMCS `CreateQuote`. WHMCS requires `lineitems`
+ * to be a base64-encoded PHP-serialized array with desc/qty/up/discount/taxable
+ * keys; the original `items` key is consumed, never copied.
  */
 export function mapQuoteCreateParams(params: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = pickFields(params, QUOTE_CREATE_FIELD_ALLOWLIST);
   const items = Array.isArray(params.items) ? params.items : [];
-  items.forEach((item, i) => {
-    const idx = i + 1;
-    const it = asRecord(item);
-    out[`lineitemdescription${idx}`] = it.description;
-    out[`lineitemamount${idx}`] = it.amount;
-    if (it.taxed !== undefined) out[`lineitemtaxed${idx}`] = it.taxed ? 1 : 0;
-  });
+  out.lineitems = encodeQuoteLineItems(items);
   return out;
 }
 
@@ -701,19 +722,13 @@ const QUOTE_UPDATE_FIELD_ALLOWLIST: readonly string[] = [
 
 /**
  * `billing:quote:update` `{quoteid, ...≥1 field}` → WHMCS `UpdateQuote`. STRICT:
- * quoteid + allowlisted fields; optional `items` flattened to the
- * lineitem{field}{N} shape. Extras dropped.
+ * quoteid + allowlisted fields; optional `items` encoded as WHMCS's
+ * base64 PHP-serialized `lineitems` payload. Extras dropped.
  */
 export function mapQuoteUpdateParams(params: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = pickFields(params, QUOTE_UPDATE_FIELD_ALLOWLIST);
   if (Array.isArray(params.items)) {
-    params.items.forEach((item, i) => {
-      const idx = i + 1;
-      const it = asRecord(item);
-      out[`lineitemdescription${idx}`] = it.description;
-      out[`lineitemamount${idx}`] = it.amount;
-      if (it.taxed !== undefined) out[`lineitemtaxed${idx}`] = it.taxed ? 1 : 0;
-    });
+    out.lineitems = encodeQuoteLineItems(params.items);
   }
   return out;
 }
