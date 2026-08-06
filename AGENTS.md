@@ -26,28 +26,28 @@ MCP host → src/index.ts
 
 ## Tool families (where to edit)
 
-| Family | Module | Examples |
-|--------|--------|----------|
-| Legacy CRUD | `clients.ts`, `billing.ts`, `orders.ts`, `services.ts`, `domains.ts`, `support.ts` | `search_clients`, `get_invoice`, `suspend_service` |
-| Governed lists | `listTools.ts`, `reportingListTools.ts` | `list_client_invoices`, `list_invoices`, `list_services` |
-| Aggregators | `aggregators.ts` | `get_account_360`, `get_billing_snapshot` |
-| Capability / probes | `capabilityShellTools.ts` | `get_capability_matrix`, `get_stats`, `list_users` (unverified) |
-| Ticket read | `ticketThreadTool.ts` | `get_ticket_thread` |
-| Write flow | `writeFlow.ts` | `draft_write_intent`, `execute_write_intent` |
+| Family              | Module                                                                             | Examples                                                        |
+| ------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Legacy CRUD         | `clients.ts`, `billing.ts`, `orders.ts`, `services.ts`, `domains.ts`, `support.ts` | `search_clients`, `get_invoice`, `suspend_service`              |
+| Governed lists      | `listTools.ts`, `reportingListTools.ts`                                            | `list_client_invoices`, `list_invoices`, `list_services`        |
+| Aggregators         | `aggregators.ts`                                                                   | `get_account_360`, `get_billing_snapshot`                       |
+| Capability / probes | `capabilityShellTools.ts`                                                          | `get_capability_matrix`, `get_stats`, `list_users` (unverified) |
+| Ticket read         | `ticketThreadTool.ts`                                                              | `get_ticket_thread`                                             |
+| Write flow          | `writeFlow.ts`                                                                     | `draft_write_intent`, `execute_write_intent`                    |
 
 Register new tools in the matching module, then wire registration from `src/index.ts`. Prefer **zod** input/output schemas and return **`structuredContent`** when `outputSchema` is declared (see `tests/tools/outputSchemaCompliance.test.ts`).
 
 ## Resources (read-only URIs)
 
-| URI | Purpose |
-|-----|---------|
-| `whmcs://clients/{clientid}/summary` | Client identity + counts |
-| `whmcs://clients/{clientid}/log` | Recent client activity |
-| `whmcs://invoices/{invoiceid}/history` | Invoice + transactions |
-| `whmcs://tickets/{ticketid}/thread` | Ticket thread |
-| `whmcs://system/activity` | Global activity (admin) |
-| `whmcs://docs/ops-playbook` | Agent behavioral playbook |
-| `whmcs://docs/compat-9x` | WHMCS 8.13 / 9.x compatibility notes |
+| URI                                    | Purpose                              |
+| -------------------------------------- | ------------------------------------ |
+| `whmcs://clients/{clientid}/summary`   | Client identity + counts             |
+| `whmcs://clients/{clientid}/log`       | Recent client activity               |
+| `whmcs://invoices/{invoiceid}/history` | Invoice + transactions               |
+| `whmcs://tickets/{ticketid}/thread`    | Ticket thread                        |
+| `whmcs://system/activity`              | Global activity (admin)              |
+| `whmcs://docs/ops-playbook`            | Agent behavioral playbook            |
+| `whmcs://docs/compat-9x`               | WHMCS 8.13 / 9.x compatibility notes |
 
 Resources do **not** use `auth_token` query params; scope is process + `MCP_ACCESS_MODE` / client allowlist.
 
@@ -62,32 +62,32 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 > [docs/runbooks/api-connectivity-troubleshooting.md](docs/runbooks/api-connectivity-troubleshooting.md) §1 first (2-minute fix).
 >
 > **WHMCS API 403** is one of: (1) edge/WAF/proxy or a stuck keep-alive socket
-> (curl / a *fresh* process from the same IP works) — fix server-side, or reconnect
+> (curl / a _fresh_ process from the same IP works) — fix server-side, or reconnect
 > the MCP for fresh sockets; the IP auto-heal can't; (2) IP not in `APIAllowedIPs`
 > (the only case auto-heal fixes); (3) permission/role ACL. The client surfaces a
 > classified hint; see the runbook's "403 Forbidden — three distinct causes".
 
-| Variable | Notes |
-|----------|--------|
-| `MCP_ENV` | Layers `.env.<profile>`; `WHMCS_API_URL` must be HTTPS unless `WHMCS_ALLOW_HTTP=true` (local stack only). |
-| `MCP_MODE` | `read_only` (default), `simulate`, `full` — legacy direct mutators. |
-| `MCP_ACCESS_MODE` | `admin` or scoped `client` + `MCP_ALLOWED_CLIENT_IDS`. |
-| `MCP_GOVERNANCE_ENABLED` | Opt-in projection boundary. |
-| `MCP_CONSUMER_REGISTRY` | JSON array with `token_sha256` — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md). |
-| `MCP_CLIENT_CUSTOM_FIELD_LABELS` | `id:label` pairs for stable custom-field names in client output. |
-| `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. |
+| Variable                           | Notes                                                                                                                                                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_ENV`                          | Layers `.env.<profile>`; `WHMCS_API_URL` must be HTTPS unless `WHMCS_ALLOW_HTTP=true` (local stack only).                                                                                                 |
+| `MCP_MODE`                         | `read_only` (default), `simulate`, `full` — legacy direct mutators.                                                                                                                                       |
+| `MCP_ACCESS_MODE`                  | `admin` or scoped `client` + `MCP_ALLOWED_CLIENT_IDS`.                                                                                                                                                    |
+| `MCP_GOVERNANCE_ENABLED`           | Opt-in projection boundary.                                                                                                                                                                               |
+| `MCP_CONSUMER_REGISTRY`            | JSON array with `token_sha256` — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md).                                                                          |
+| `MCP_CLIENT_CUSTOM_FIELD_LABELS`   | `id:label` pairs for stable custom-field names in client output.                                                                                                                                          |
+| `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. `MCP_PROD_WRITE_AUTHORIZED_FILE` is the live owner-only JSON allowlist; edit it to change approved actions/scopes without restarting the MCP. |
 
 ## Scripts & verification
 
-| Script | Purpose |
-|--------|---------|
-| `npm run build` | Produce `dist/index.js` (required before MCP hosts connect). |
-| `npm test` | Vitest unit/integration suite. |
-| `npm run mcp:test:production-program` | L0–L6 production test program. |
-| `scripts/mcp-governed-smoke.mjs` | Governed read smoke. |
-| `scripts/mcp-capability-probe.mjs` | Capability probe report. |
-| `scripts/mcp-exposure-audit.mjs` | Exposure audit harness. |
-| `scripts/whmcs-ip-updater/` | Optional API IP allowlist updater (ops). |
+| Script                                | Purpose                                                      |
+| ------------------------------------- | ------------------------------------------------------------ |
+| `npm run build`                       | Produce `dist/index.js` (required before MCP hosts connect). |
+| `npm test`                            | Vitest unit/integration suite.                               |
+| `npm run mcp:test:production-program` | L0–L6 production test program.                               |
+| `scripts/mcp-governed-smoke.mjs`      | Governed read smoke.                                         |
+| `scripts/mcp-capability-probe.mjs`    | Capability probe report.                                     |
+| `scripts/mcp-exposure-audit.mjs`      | Exposure audit harness.                                      |
+| `scripts/whmcs-ip-updater/`           | Optional API IP allowlist updater (ops).                     |
 
 Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md). Operator troubleshooting: [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md).
 
@@ -102,16 +102,16 @@ Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/loc
 
 ## Documentation map
 
-| Doc | When to read |
-|-----|----------------|
-| [README.md](README.md) | Install, MCP config, tool catalog summary |
-| [docs/README.md](docs/README.md) | Full doc-map index (design / runbooks / reference / archive) |
-| [docs/design/governance.md](docs/design/governance.md) | Consumer contracts & projection |
-| [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md) | Promoting verified capabilities |
-| [docs/design/controlled-writes-phase-i.md](docs/design/controlled-writes-phase-i.md) | Production write GO/NO-GO |
-| [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program |
-| [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md) | Recommended Cursor skills |
-| [examples/README.md](examples/README.md) | `structuredContent` integration patterns |
+| Doc                                                                                  | When to read                                                 |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| [README.md](README.md)                                                               | Install, MCP config, tool catalog summary                    |
+| [docs/README.md](docs/README.md)                                                     | Full doc-map index (design / runbooks / reference / archive) |
+| [docs/design/governance.md](docs/design/governance.md)                               | Consumer contracts & projection                              |
+| [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)               | Promoting verified capabilities                              |
+| [docs/design/controlled-writes-phase-i.md](docs/design/controlled-writes-phase-i.md) | Production write GO/NO-GO                                    |
+| [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program                               |
+| [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   | Recommended Cursor skills                                    |
+| [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                     |
 
 ## Cursor / rules
 
