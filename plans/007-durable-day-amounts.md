@@ -1,6 +1,9 @@
 # Plan 007: Durable daily-cap tally (`dayAmounts`) for the write-flow money-gate
 
-> Executor: follow step by step, run every verification, honor STOP conditions, do not improvise. Do NOT update `plans/README.md` (reviewer maintains it).
+> Executor: follow step by step, run every verification, honor STOP conditions, do not improvise. This plan is historical evidence and **must not** be re-executed.
+
+> Historical disposition: implemented and shipped in PR #58 (`eeb102a`). For operational
+> execution use current source/tests and runbooks; treat this file as archival proof only.
 >
 > **Scope note (read first):** this plan was deliberately NARROWED from the original investigation. The original also proposed persisting the `approvals` map — that was DROPPED. Reason: the IntentStore is intentionally ephemeral (15-min TTL, re-drafted on loss), so on a restart the intent is gone and `execute_write_intent` rejects with "intent not found" before any persisted approval is consulted — making approval-persistence moot, while adding a forged-approval-file attack surface the "approve in the same process" rule exists to prevent. Approvals stay process-local. ONLY `dayAmounts` is made durable here, because a restart zeroing the daily-cap tally is a real cap-bypass (restart → full daily budget available again).
 

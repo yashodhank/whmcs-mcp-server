@@ -204,6 +204,10 @@ semantics identified in the post-merge PR #77 review. Quarantined local
 workspace artifacts are excluded from both Git tracking and Docker build
 contexts.
 
+Historical plans 001–021 have been reconciled against their merged outcomes.
+Their local source files are preserved by hash but are not active backlog;
+current code, tests, decisions, and runbooks are authoritative.
+
 All operator-facing kill-switch references must preserve the startup boundary:
 editing `MCP_WRITE_KILL_SWITCH` does not affect an existing process. Restart an
 HTTP service/process, or respawn the stdio child, before claiming the emergency
