@@ -4,6 +4,10 @@
 > will work on this repository. It describes what the project is, how it is
 > built, the invariants you must not break, and how to extend it safely.
 
+Before making changes, also read [`docs/OPERATIONS-HANDOFF.md`](../OPERATIONS-HANDOFF.md).
+It is the authoritative product/ownership/repository/deployment handoff and
+requires its checklist to be updated with every substantive change.
+
 ---
 
 ## Your role
@@ -200,6 +204,10 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
   the capability-probe runbooks.
 - Match surrounding code style (comment density, naming, idiom). Strict mappers
   and per-scope validators are heavily commented on purpose — keep that.
+- Update `docs/OPERATIONS-HANDOFF.md` when ownership, repository placement,
+  runtime, deployment, approval, release, incident, or customer-delivery facts
+  change. Keep customer PII and production identifiers in the private audit
+  ledger, not in this public repository.
 - Excluded-from-commit paths (do not stage): `.cursor/hooks/`,
   `src/security/entityOwnership.ts`, `tests/security/entityOwnership.test.ts`,
   `tests/write/enhancedValidation.test.ts`.
