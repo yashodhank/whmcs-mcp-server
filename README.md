@@ -187,6 +187,7 @@ The drafted intents (`wfi_abc123`) are retrievable via `get_write_intent` and re
 | Capability probes                  | [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)               |
 | Read-only testing                  | [docs/runbooks/testing-readonly.md](docs/runbooks/testing-readonly.md)               |
 | Production test program            | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) |
+| Governed production writes         | [docs/runbooks/production-governed-writes.md](docs/runbooks/production-governed-writes.md) |
 | Local WHMCS stack                  | [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md)         |
 | Agent context reference            | [docs/reference/agent-context.md](docs/reference/agent-context.md)                   |
 | App examples (`structuredContent`) | [examples/README.md](examples/README.md)                                             |
