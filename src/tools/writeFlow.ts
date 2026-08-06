@@ -1006,13 +1006,20 @@ export async function executeServiceTransferBatch(
       const selectedServiceIds = new Set(serviceIds);
       const invoiceIds = [...new Set(invoicesInScope.flatMap((entry) => entry.invoice_ids))];
       for (const invoiceid of invoiceIds) {
-        const hostingLines = (
+        const invoiceItems = (
           await tx.query(
-            "SELECT DISTINCT relid AS serviceid FROM tblinvoiceitems WHERE invoiceid = ? AND type = 'Hosting'",
+            'SELECT relid AS serviceid, type FROM tblinvoiceitems WHERE invoiceid = ?',
             [invoiceid]
           )
-        ).rows as { serviceid: number }[];
-        const mixed = hostingLines.some((line) => !selectedServiceIds.has(line.serviceid));
+        ).rows as { serviceid: number | null; type: string }[];
+        const mixed =
+          invoiceItems.length === 0 ||
+          invoiceItems.some(
+            (item) =>
+              item.type !== 'Hosting' ||
+              item.serviceid === null ||
+              !selectedServiceIds.has(item.serviceid)
+          );
         if (mixed) failed.push({ invoice_id: invoiceid, why: 'mixed_invoice_scope' });
       }
       if (failed.length > 0) {
