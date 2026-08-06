@@ -2,6 +2,11 @@
 
 Concise orientation for AI agents and humans working in this repo. The full historical build specification lives in [AGENT.md](AGENT.md); operational runbooks live under [docs/](docs/).
 
+Read [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md) for the
+authoritative product boundary, ownership model, repository placement,
+deployment limits, and the mandatory rule to update handoff documentation with
+every substantive change.
+
 ## What this server is
 
 - **Transport:** MCP over **stdio** (Cursor, Claude Desktop, Kilo, etc.). Logs go to **stderr** only; never write to stdout except JSON-RPC.
@@ -99,6 +104,10 @@ Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/loc
 4. **Tests** — add/adjust Vitest for behavior changes; run `npm run typecheck && npm test` before PR.
 5. **WHMCS 9** — invoice immutability and credit/debit notes: read [docs/reference/whmcs9-credit-debit-notes.md](docs/reference/whmcs9-credit-debit-notes.md) before billing/write changes.
 6. **Do not commit** `.cursor/hooks/state/` or other IDE-local paths.
+7. **Keep the handoff current** — every code, governance, deployment, approval,
+   client-delivery, or review-finding change must update the relevant handoff
+   and audit record in the same work item. If a fact is unknown, mark it
+   `PENDING` with the exact owner or evidence needed; do not guess.
 
 ## Documentation map
 
@@ -112,6 +121,7 @@ Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/loc
 | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program                               |
 | [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   | Recommended Cursor skills                                    |
 | [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                     |
+| [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                               | Product boundary, ownership, runtime, release, and handoff checklist |
 
 ## Cursor / rules
 

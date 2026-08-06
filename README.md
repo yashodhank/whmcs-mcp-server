@@ -178,6 +178,7 @@ The drafted intents (`wfi_abc123`) are retrievable via `get_write_intent` and re
 | Topic                              | Doc                                                                                  |
 | ---------------------------------- | ------------------------------------------------------------------------------------ |
 | Agent / contributor guide          | [AGENTS.md](AGENTS.md)                                                               |
+| Product / operations handoff      | [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                              |
 | Doc map (all docs indexed)         | [docs/README.md](docs/README.md)                                                     |
 | Local operator runbook             | [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md)                   |
 | Governance & contracts             | [docs/design/governance.md](docs/design/governance.md)                               |
