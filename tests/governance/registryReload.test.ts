@@ -41,12 +41,14 @@ function makeRegistryJson(id: string, token: string): string {
 // ── setup / teardown ──────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  delete process.env.MCP_CONSUMER_REGISTRY_FILE;
   __resetRegistryCacheForTests();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.MCP_CONSUMER_REGISTRY;
+  delete process.env.MCP_CONSUMER_REGISTRY_FILE;
   __resetRegistryCacheForTests();
 });
 

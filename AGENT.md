@@ -15,6 +15,12 @@ From real MCP usage, the most common failure modes are:
 - **Ambiguous tool descriptions & unversioned schemas** – Models miscall tools or keep using old shapes after changes.
 - **Weak maintenance & no tests/docs** – Servers ship once and then silently rot, causing subtle production issues.
 
+Live production approvals use MCP_PROD_WRITE_AUTHORIZED_FILE when configured.
+It is a 0600 JSON file containing either an array of action/scope strings or
+{"authorized":[...]}. The write authorizer rereads it on every execution, so
+scope grants and revocations do not require an MCP restart. Missing, malformed,
+or group/other-readable files fail closed.
+
 ---
 
 ## 1. Tech Stack & Project Layout
@@ -228,7 +234,7 @@ interface AppConfig {
   WHMCS_API_URL: string; // Required
   WHMCS_IDENTIFIER: string; // Required
   WHMCS_SECRET: string; // Required
-  MCP_MODE: "read_only" | "simulate" | "full"; // Default: 'read_only'
+  MCP_MODE: 'read_only' | 'simulate' | 'full'; // Default: 'read_only'
   MCP_RATE_LIMIT?: number; // Optional, with default
   MCP_DEBUG: boolean; // Default: false
   MCP_MAX_PAGE_SIZE?: number; // Default: 100
@@ -297,7 +303,6 @@ In `src/index.ts`:
 **For each tool:**
 
 - Provide:
-
   - `name`
   - `description` (include schema version, e.g., `"Version: v1"`)
   - `inputSchema` (zod → JSON Schema)
