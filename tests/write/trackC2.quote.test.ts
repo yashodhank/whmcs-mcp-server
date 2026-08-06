@@ -209,6 +209,43 @@ describe('Track C2 quote validation', () => {
     expect(invalid.issues.some((i) => i.code === 'invalid_quote_item_amount')).toBe(true);
   });
 
+  it('billing:quote:create accepts scientific numeric strings', () => {
+    expect(
+      validateIntent(
+        intent('billing:quote:create', {
+          ...validCreate,
+          items: [{ description: 'Scientific', amount: '1.25e2' }],
+        }),
+        {}
+      ).ok
+    ).toBe(true);
+  });
+
+  it.each(['0x10', '0b10', '0o10'])(
+    'rejects JavaScript-only numeric syntax %s for quote create and update',
+    (amount) => {
+      const create = validateIntent(
+        intent('billing:quote:create', {
+          ...validCreate,
+          items: [{ description: 'Invalid currency', amount }],
+        }),
+        {}
+      );
+      const update = validateIntent(
+        intent('billing:quote:update', {
+          quoteid: 2,
+          items: [{ description: 'Invalid currency', amount }],
+        }),
+        {}
+      );
+
+      expect(create.ok).toBe(false);
+      expect(update.ok).toBe(false);
+      expect(create.issues.some((i) => i.code === 'invalid_quote_item_amount')).toBe(true);
+      expect(update.issues.some((i) => i.code === 'invalid_quote_item_amount')).toBe(true);
+    }
+  );
+
   it('billing:quote:update accepts quoteid + an updatable field', () => {
     expect(
       validateIntent(intent('billing:quote:update', { quoteid: 2, subject: 'New' }), {}).ok
