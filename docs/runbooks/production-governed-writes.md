@@ -56,9 +56,12 @@ Each profile must explicitly declare its allowed write scopes and production
 environment restriction. Never use an anonymous consumer for writes.
 
 Introducing or changing the `MCP_CONSUMER_REGISTRY_FILE` environment variable
-requires a process restart/reconnect because environment variables are read at
-startup. Once the running process already points to the file, edits to the file
-are picked up after the registry cache TTL and do not require a restart.
+requires an MCP service/process restart because environment variables are read
+at startup. For stdio transport only, reconnecting is equivalent when the host
+actually terminates and respawns the MCP child process with the new environment.
+An HTTP client reconnect or new HTTP session does not restart the long-running
+Node process. Once the running process already points to the file, edits to the
+file are picked up after the registry cache TTL and do not require a restart.
 
 ## Configure live production authorization
 
@@ -98,14 +101,14 @@ fails closed when the running process tries to load it.
 
 ## Restart matrix
 
-| Change | Restart/reconnect required? | Reason |
+| Change | MCP service/process restart required? | Reason |
 |---|---:|---|
 | Edit scopes inside the existing `MCP_PROD_WRITE_AUTHORIZED_FILE` | No | Read on every execution; affects allowlist-gated writes only |
 | Clear the existing authorization file with `{"authorized":[]}` | No | Revokes high-risk, strict-scoped, and strict-mode writes only; it is not a universal stop under the default tiered policy |
 | Remove execution capability/scopes from every write-capable profile in the existing consumer registry file | No, after cache TTL | Registry file is re-read after cache expiry and the current scope grant is checked at execution |
 | Set/change `MCP_PROD_WRITE_AUTHORIZED_FILE` environment variable | Yes | Environment is read at process start |
 | Set/change `MCP_CONSUMER_REGISTRY_FILE` environment variable | Yes | Environment is read at process start |
-| Set `MCP_WRITE_KILL_SWITCH=true` for a universal emergency stop | Yes | The kill switch is static runtime configuration and must be loaded by a restarted/reconnected process |
+| Set `MCP_WRITE_KILL_SWITCH=true` for a universal emergency stop | Yes | The kill switch is static runtime configuration and must be loaded by a newly started process; an HTTP reconnect or new session is insufficient |
 | Change `MCP_MODE`, caps, or durable paths | Yes | Static runtime configuration |
 | Restart with a pending draft, validated, or approved intent | Fresh ceremony required | Intent IDs and approval records are process-local; draft and validate a new intent, then obtain a new approval |
 
@@ -172,11 +175,14 @@ consumer registry file, wait for its cache TTL, and verify denial. Do not treat
 that TTL-delayed control as the universal emergency gate.
 
 For a universal emergency shutdown, set `MCP_WRITE_KILL_SWITCH=true`, restart
-or reconnect the MCP process, and prove the running process loaded the new
-configuration. A controlled execution attempt that reaches the authorization
-gate must be denied as `kill_switch_engaged`. Keep the authorization file empty
-as defence in depth, but do not substitute allowlist clearing for the kill
-switch.
+the MCP service/process, and prove the new process loaded the configuration. In
+an HTTP deployment, reconnecting a client or creating a new MCP session is
+insufficient because the long-running Node process remains alive. In a stdio
+deployment, reconnecting counts only when the host terminates and respawns the
+child process with the updated environment. A controlled execution attempt that
+reaches the authorization gate must be denied as `kill_switch_engaged`. Keep the
+authorization file empty as defence in depth, but do not substitute allowlist
+clearing for the kill switch.
 
 ## Direct database ownership transfers
 

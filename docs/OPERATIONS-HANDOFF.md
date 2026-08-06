@@ -169,7 +169,10 @@ identity.
   audit/idempotency paths.
 - Treat an empty production allowlist as revocation only for high-risk,
   strict-scoped, or strict-mode writes. Universal emergency shutdown requires
-  `MCP_WRITE_KILL_SWITCH=true` and a process restart/reconnect.
+  `MCP_WRITE_KILL_SWITCH=true` and an MCP service/process restart. An HTTP
+  client reconnect or new session is insufficient; a stdio reconnect qualifies
+  only when the host terminates and respawns the child with the updated
+  environment.
 - Treat `approve_write_intent` as an authorization event, not a conversational
   acknowledgement. High-risk operations require a distinct approver and
   execution-time authorization/precondition checks.
