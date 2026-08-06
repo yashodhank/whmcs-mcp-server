@@ -220,6 +220,7 @@ gap from memory.
 - [`docs/design/controlled-writes-phase-f.md`](design/controlled-writes-phase-f.md) — write-flow design.
 - [`docs/runbooks/ai-agent-local.md`](runbooks/ai-agent-local.md) — local operator troubleshooting.
 - [`docs/runbooks/production-test-program.md`](runbooks/production-test-program.md) — production validation.
+- [`docs/runbooks/production-governed-writes.md`](runbooks/production-governed-writes.md) — host-neutral production write ceremony and revocation.
 - [`docs/reference/agent-context.md`](reference/agent-context.md) — current technical context.
 - [`docs/reference/workspace-artifact-manifest.md`](reference/workspace-artifact-manifest.md) — quarantined local artifact hashes and dispositions.
 - Private audit ledger under `/Users/kritananda/.ai-audit/ledger/` — sanitized client and production evidence.

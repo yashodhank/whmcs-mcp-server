@@ -29,7 +29,7 @@ fresh evidence review and operator approval.
 |---|---|---|---|
 | `.claude/CLAUDE.md` | `0128bda65de64770c3b6f227badeb534322a3017ab235a12754936f8f748bff6` | Generated local agent context | Keep local. It was indexed at an old commit; durable rules belong in `AGENTS.md`. |
 | `.mcp.json` | `7b06c82ef9e58bf82be3471a3790e622977fa40891ca025649c392afc2d3604d` | Machine-local MCP config | Keep local. Use [`.mcp.example.json`](../../.mcp.example.json) as the portable template. |
-| `docs/runbooks/operator-production-reconciliation-writes.md` | `273ea760b8d3249be5bfc623e8c44c11ceb13a34048503737f18d67d82137a23` | Private production procedure | Keep private. Extract a sanitized, host-neutral governed-write runbook; do not publish provider/customer specifics. |
+| `docs/runbooks/operator-production-reconciliation-writes.md` | `273ea760b8d3249be5bfc623e8c44c11ceb13a34048503737f18d67d82137a23` | Private production procedure | Keep private. The sanitized public procedure is [`production-governed-writes.md`](../runbooks/production-governed-writes.md). |
 
 ## Reconciled plans
 
