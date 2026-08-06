@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "repowise": {
+      "command": "repowise",
+      "args": [
+        "mcp",
+        "/absolute/path/to/whmcs-mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "description": "Local codebase intelligence for this repository"
+    }
+  }
+}
