@@ -43,6 +43,7 @@ Step-by-step operational guides for setup, testing, and capability probing.
 | [runbooks/local-whmcs-testing.md](runbooks/local-whmcs-testing.md) | Bring up the dual WHMCS (8.13 + 9.x) local dev stack with Docker |
 | [runbooks/production-test-program.md](runbooks/production-test-program.md) | L0–L6 reliability and RCA test program for production validation |
 | [runbooks/testing-readonly.md](runbooks/testing-readonly.md) | Verifying read-only posture in Cursor and integration test harness |
+| [runbooks/production-governed-writes.md](runbooks/production-governed-writes.md) | Host-neutral production write authorization, approval, read-back, revocation, and restart procedure |
 
 ---
 
