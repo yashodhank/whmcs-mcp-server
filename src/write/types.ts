@@ -20,6 +20,15 @@ import type { ContractName } from '../governance/types.js';
 
 /* ───────────────────────────  Write scopes  ─────────────────────────────── */
 
+/**
+ * Sentinel "action" for scopes executed via a direct DB write rather than a
+ * WHMCS API action (the API cannot reassign service/invoice owners — see
+ * docs/runbooks/write-capability-probe.md). Retained in SCOPE_ACTION so the
+ * frozen-map invariant holds and audit has a stable label; the execute path
+ * routes these scopes to the DB executor, never whmcs.mutate.
+ */
+export const DB_DIRECT_ACTION = '__db_direct__';
+
 export const WRITE_SCOPES = [
   'client_note:write',
   'ticket:create',
@@ -86,6 +95,9 @@ export const WRITE_SCOPES = [
   // an operator must confirm API permission before enabling it. See
   // docs/runbooks/write-capability-probe.md.
   'ticket:merge',
+  // ── Service / invoice owner transfer (direct-DB, opt-in DSN) ─────────────
+  'service:transfer_owner',
+  'billing:invoice:reassign',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -127,6 +139,8 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'billing:quote:accept': 'AcceptQuote',
   'ticket:note': 'AddTicketNote',
   'ticket:merge': 'MergeTicket',
+  'service:transfer_owner': DB_DIRECT_ACTION,
+  'billing:invoice:reassign': DB_DIRECT_ACTION,
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -210,6 +224,10 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // (administrative, semi-reversible) → medium.
   'ticket:note': 'low',
   'ticket:merge': 'medium',
+  // Cross-client ownership reassignment via direct DB write → high (allowlist +
+  // human approval + separation of duties). Sealed by default; opt-in DSN.
+  'service:transfer_owner': 'high',
+  'billing:invoice:reassign': 'high',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */
@@ -449,7 +467,11 @@ export type ExecutionDeniedReason =
   | 'scope_not_allowed' // SCOPE-3: consumer's write-scope grant revoked after approval
   | 'halt_after_target'
   | 'target_amount_cap_exceeded'
-  | 'target_output_assertion_failed';
+  | 'target_output_assertion_failed'
+  // DB-direct / composed-only scopes.
+  | 'unsupported_capability'
+  | 'transfer_rolled_back'
+  | 'batch_too_large';
 
 export type ExecutionDecision =
   | { readonly allowed: false; readonly reason: ExecutionDeniedReason }

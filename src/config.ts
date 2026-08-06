@@ -195,6 +195,13 @@ const configSchema = z
           .filter(Boolean),
       z.array(z.string()).default([])
     ),
+    // Optional live production allowlist control plane. When set, the file
+    // is read at execution time so approved scopes can be changed without
+    // restarting the MCP process. The file loader fails closed.
+    MCP_PROD_WRITE_AUTHORIZED_FILE: z.preprocess(
+      preprocessOptionalEnvString,
+      z.string().optional()
+    ),
     // Non-prod runtime execution allowlist (dev/staging). Default [] ⇒ no
     // action authorized at runtime — sealed posture preserved. Mirrors the
     // MCP_PROD_WRITE_AUTHORIZED parser; consumed by writeFlow.runtimeAuthorizedActions().
@@ -318,6 +325,19 @@ const configSchema = z
         .map((s) => s.trim())
         .filter(Boolean);
     }, z.array(z.string()).default([])),
+
+    // ── Direct database access for service/invoice owner transfer ──────────
+    // DB connection parameters (optional; required when transfer scopes are enabled)
+    MCP_TRANSFER_MAX_BATCH: z.coerce.number().int().min(1).default(50),
+    MCP_WHMCS_DB_HOST: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_PORT: z.coerce.number().int().min(1).max(65535).default(3306),
+    MCP_WHMCS_DB_USER: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_PASSWORD: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_NAME: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_WHMCS_DB_SSL: z.preprocess(
+      (val) => (typeof val === 'string' ? val.toLowerCase() === 'true' : false),
+      z.boolean().default(false)
+    ),
   })
   .superRefine((val, ctx) => {
     // Phase G+ fail-fast misconfiguration guards.

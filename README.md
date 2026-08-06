@@ -175,22 +175,22 @@ The drafted intents (`wfi_abc123`) are retrievable via `get_write_intent` and re
 
 ## Documentation
 
-| Topic | Doc |
-|-------|-----|
-| Agent / contributor guide | [AGENTS.md](AGENTS.md) |
-| Doc map (all docs indexed) | [docs/README.md](docs/README.md) |
-| Local operator runbook | [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md) |
-| Governance & contracts | [docs/design/governance.md](docs/design/governance.md) |
-| Controlled writes (Phase F) | [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) |
-| Architecture diagrams (D2–D4) | [docs/design/architecture.md](docs/design/architecture.md) |
-| Capability probes | [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md) |
-| Read-only testing | [docs/runbooks/testing-readonly.md](docs/runbooks/testing-readonly.md) |
-| Production test program | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) |
-| Local WHMCS stack | [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md) |
-| Agent context reference | [docs/reference/agent-context.md](docs/reference/agent-context.md) |
-| App examples (`structuredContent`) | [examples/README.md](examples/README.md) |
-| Cursor skills | [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md) |
-| GetUsers investigation | [docs/archive/getusers-investigation.md](docs/archive/getusers-investigation.md) |
+| Topic                              | Doc                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| Agent / contributor guide          | [AGENTS.md](AGENTS.md)                                                               |
+| Doc map (all docs indexed)         | [docs/README.md](docs/README.md)                                                     |
+| Local operator runbook             | [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md)                   |
+| Governance & contracts             | [docs/design/governance.md](docs/design/governance.md)                               |
+| Controlled writes (Phase F)        | [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) |
+| Architecture diagrams (D2–D4)      | [docs/design/architecture.md](docs/design/architecture.md)                           |
+| Capability probes                  | [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)               |
+| Read-only testing                  | [docs/runbooks/testing-readonly.md](docs/runbooks/testing-readonly.md)               |
+| Production test program            | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) |
+| Local WHMCS stack                  | [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md)         |
+| Agent context reference            | [docs/reference/agent-context.md](docs/reference/agent-context.md)                   |
+| App examples (`structuredContent`) | [examples/README.md](examples/README.md)                                             |
+| Cursor skills                      | [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   |
+| GetUsers investigation             | [docs/archive/getusers-investigation.md](docs/archive/getusers-investigation.md)     |
 
 ## Installation
 
@@ -246,35 +246,36 @@ cp .env.example .env
 
 **Optional Variables:**
 
-| Variable             | Default     | Description                                     |
-| -------------------- | ----------- | ----------------------------------------------- |
-| `MCP_ENV`            | `production` | Env profile: `local`, `staging`, `production`. Layers `.env.<MCP_ENV>` over base `.env`. See [Local WHMCS dev/test](#local-whmcs-devtest). |
-| `MCP_MODE`           | `read_only` | Operation mode: `read_only`, `simulate`, `full` |
-| `MCP_ACCESS_MODE`    | `admin`     | Access mode: `admin` (full) or `client` (scoped) |
-| `MCP_ALLOWED_CLIENT_IDS` | (empty) | Comma-separated client IDs allowed in `client` mode |
-| `MCP_AUTH_TOKEN`     | (empty)     | Optional shared secret required on tool calls (`auth_token` param). Not used for resource reads. |
-| `MCP_RATE_LIMIT`     | `10`        | Max WHMCS API calls per second                  |
-| `MCP_DEBUG`          | `false`     | Enable verbose logging                          |
-| `MCP_MAX_PAGE_SIZE`  | `100`       | Maximum pagination size                         |
-| `MCP_TOOL_ALLOWLIST` | (empty)     | Comma-separated list of allowed tools           |
-| `MCP_LARGE_REFUND_THRESHOLD` | `1000` | Refunds above this amount require `confirm_large_refund: true` |
-| `MCP_CLIENT_CUSTOM_FIELD_LABELS` | (empty) | Comma-separated `fieldId:label` overrides for client custom fields |
-| `MCP_GOVERNANCE_ENABLED` | `false` | Opt-in consumer-aware projection for reads (see [docs/design/governance.md](docs/design/governance.md)) |
-| `MCP_ALLOW_ANON_LLM` | `false` | Allow anonymous `llm_safe_summary` fallback when governance is on |
-| `MCP_CONSUMER_REGISTRY` | (empty) | JSON consumer registry (`token_sha256` only — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md)) |
-| `MCP_CONSUMER_REGISTRY_FILE` | (empty) | Path to the registry JSON; takes precedence over `MCP_CONSUMER_REGISTRY`. Control plane for live rotation (re-read past the cache TTL, no restart). Must be owner-only (`chmod 600`); fails closed on bad/lax/missing file |
-| `MCP_PROD_WRITE_AUTHORIZED` | (empty) | Comma-separated WHMCS actions allowed for production write execution |
-| `MCP_WRITE_EXECUTION_AUTHORIZED` | (empty) | Non-prod runtime write allowlist |
-| `MCP_WRITE_KILL_SWITCH` | `false` | Emergency block on controlled writes |
-| `MCP_WRITE_STRICT_ALLOWLIST` | `false` | Enforce the write allowlist for **all** tiers (legacy posture); default enforces it for high-risk scopes only (low/medium are audit-gated) |
-| `MCP_WRITE_STRICT_SCOPES` | `billing:invoice:create` | Comma-separated scopes that always require the write allowlist even if low/medium risk |
-| `MCP_WRITE_AUDIT_PATH` | (empty) | Durable audit log path (required when prod writes are allowlisted) |
-| `MCP_WRITE_IDEMPOTENCY_PATH` | (empty) | Durable idempotency store path |
-| `MCP_WRITE_DAY_AMOUNTS_PATH` | (empty) | Durable daily-cap tally path; set alongside `MCP_PROD_HIGH_RISK_DAILY_CAP` so a restart cannot reset the daily cap |
-| `MCP_PROD_HIGH_RISK_PER_ACTION_CAP` | `0` | Per-action cap for high-risk write scopes |
-| `MCP_PROD_HIGH_RISK_DAILY_CAP` | `0` | Daily aggregate cap for high-risk writes |
-| `WHMCS_ACCESS_KEY`   | (empty)     | Optional WHMCS API access key (for IP restricted setups) |
-| `WHMCS_ALLOW_HTTP`   | `false`     | Allow an `http://` `WHMCS_API_URL` (not recommended; credentials sent in clear). Otherwise `https` is required. |
+| Variable                            | Default                  | Description                                                                                                                                                                                                                |
+| ----------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_ENV`                           | `production`             | Env profile: `local`, `staging`, `production`. Layers `.env.<MCP_ENV>` over base `.env`. See [Local WHMCS dev/test](#local-whmcs-devtest).                                                                                 |
+| `MCP_MODE`                          | `read_only`              | Operation mode: `read_only`, `simulate`, `full`                                                                                                                                                                            |
+| `MCP_ACCESS_MODE`                   | `admin`                  | Access mode: `admin` (full) or `client` (scoped)                                                                                                                                                                           |
+| `MCP_ALLOWED_CLIENT_IDS`            | (empty)                  | Comma-separated client IDs allowed in `client` mode                                                                                                                                                                        |
+| `MCP_AUTH_TOKEN`                    | (empty)                  | Optional shared secret required on tool calls (`auth_token` param). Not used for resource reads.                                                                                                                           |
+| `MCP_RATE_LIMIT`                    | `10`                     | Max WHMCS API calls per second                                                                                                                                                                                             |
+| `MCP_DEBUG`                         | `false`                  | Enable verbose logging                                                                                                                                                                                                     |
+| `MCP_MAX_PAGE_SIZE`                 | `100`                    | Maximum pagination size                                                                                                                                                                                                    |
+| `MCP_TOOL_ALLOWLIST`                | (empty)                  | Comma-separated list of allowed tools                                                                                                                                                                                      |
+| `MCP_LARGE_REFUND_THRESHOLD`        | `1000`                   | Refunds above this amount require `confirm_large_refund: true`                                                                                                                                                             |
+| `MCP_CLIENT_CUSTOM_FIELD_LABELS`    | (empty)                  | Comma-separated `fieldId:label` overrides for client custom fields                                                                                                                                                         |
+| `MCP_GOVERNANCE_ENABLED`            | `false`                  | Opt-in consumer-aware projection for reads (see [docs/design/governance.md](docs/design/governance.md))                                                                                                                    |
+| `MCP_ALLOW_ANON_LLM`                | `false`                  | Allow anonymous `llm_safe_summary` fallback when governance is on                                                                                                                                                          |
+| `MCP_CONSUMER_REGISTRY`             | (empty)                  | JSON consumer registry (`token_sha256` only — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md))                                                                              |
+| `MCP_CONSUMER_REGISTRY_FILE`        | (empty)                  | Path to the registry JSON; takes precedence over `MCP_CONSUMER_REGISTRY`. Control plane for live rotation (re-read past the cache TTL, no restart). Must be owner-only (`chmod 600`); fails closed on bad/lax/missing file |
+| `MCP_PROD_WRITE_AUTHORIZED`         | (empty)                  | Comma-separated WHMCS actions allowed for production write execution                                                                                                                                                       |
+| `MCP_PROD_WRITE_AUTHORIZED_FILE`    | (empty)                  | Protected JSON allowlist read at each production execution; edits/revocations apply without an MCP restart. Replaces the env allowlist and fails closed on missing/lax/malformed files                                     |
+| `MCP_WRITE_EXECUTION_AUTHORIZED`    | (empty)                  | Non-prod runtime write allowlist                                                                                                                                                                                           |
+| `MCP_WRITE_KILL_SWITCH`             | `false`                  | Emergency block on controlled writes                                                                                                                                                                                       |
+| `MCP_WRITE_STRICT_ALLOWLIST`        | `false`                  | Enforce the write allowlist for **all** tiers (legacy posture); default enforces it for high-risk scopes only (low/medium are audit-gated)                                                                                 |
+| `MCP_WRITE_STRICT_SCOPES`           | `billing:invoice:create` | Comma-separated scopes that always require the write allowlist even if low/medium risk                                                                                                                                     |
+| `MCP_WRITE_AUDIT_PATH`              | (empty)                  | Durable audit log path (required when prod writes are allowlisted)                                                                                                                                                         |
+| `MCP_WRITE_IDEMPOTENCY_PATH`        | (empty)                  | Durable idempotency store path                                                                                                                                                                                             |
+| `MCP_WRITE_DAY_AMOUNTS_PATH`        | (empty)                  | Durable daily-cap tally path; set alongside `MCP_PROD_HIGH_RISK_DAILY_CAP` so a restart cannot reset the daily cap                                                                                                         |
+| `MCP_PROD_HIGH_RISK_PER_ACTION_CAP` | `0`                      | Per-action cap for high-risk write scopes                                                                                                                                                                                  |
+| `MCP_PROD_HIGH_RISK_DAILY_CAP`      | `0`                      | Daily aggregate cap for high-risk writes                                                                                                                                                                                   |
+| `WHMCS_ACCESS_KEY`                  | (empty)                  | Optional WHMCS API access key (for IP restricted setups)                                                                                                                                                                   |
+| `WHMCS_ALLOW_HTTP`                  | `false`                  | Allow an `http://` `WHMCS_API_URL` (not recommended; credentials sent in clear). Otherwise `https` is required.                                                                                                            |
 
 ## Tool Catalog
 
@@ -388,6 +389,31 @@ These tools perform **no WHMCS mutation** until execution passes the full tiered
 
 See [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) for scope definitions and the gate specification.
 
+**High-risk scopes (direct-DB opt-in):**
+
+| Scope                      | Risk | Sealed | Notes                                                                                                                                                                                                                                                                                                 |
+| -------------------------- | ---- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `service:transfer_owner`   | high | yes    | Batch move services (+ optionally invoices) from one client to another via direct DB writes. Requires opt-in `MCP_WHMCS_DB_*` DSN config; returns `unsupported_capability` when unset. Bypasses WHMCS hooks by necessity (API cannot reassign owners). Cross-currency transfers blocked in preflight. |
+| `billing:invoice:reassign` | high | yes    | Single-invoice owner reassignment (primitive for compose via transfer executor). Same DB-backed mechanism and opt-in requirement as `service:transfer_owner`.                                                                                                                                         |
+
+### Service owner transfer
+
+Moves one or more services (plus optionally associated invoices) from a source client to a destination client in a single, governed, transactional operation. The feature is **opt-in** via `MCP_WHMCS_DB_*` environment variables:
+
+- **When disabled (default):** both `service:transfer_owner` and `billing:invoice:reassign` scopes return `unsupported_capability` at execution. No DB connection is attempted.
+- **When enabled:** requires operator to set `MCP_WHMCS_DB_HOST`, `MCP_WHMCS_DB_USER`, `MCP_WHMCS_DB_PASSWORD`, `MCP_WHMCS_DB_NAME` (and optionally `MCP_WHMCS_DB_PORT`, `MCP_WHMCS_DB_SSL`, `MCP_TRANSFER_MAX_BATCH`). See `.env.example` for the full documented block.
+
+**Key properties:**
+
+- **Atomicity:** all-or-nothing preflight (read-only precondition checks) followed by a single DB transaction that either fully commits or rolls back.
+- **Guarded updates:** every `UPDATE` is guarded by `AND userid=<source_clientid>` so concurrent changes or wrong preconditions result in 0 affected rows (detected and treated as a mismatch), never a cross-tenant clobber.
+- **Invoice control:** per-transfer operator selection: `invoice_mode ∈ {none, unpaid_only, all}`.
+- **Cross-currency blocked:** preflight rejects transfers between clients with different billing currencies.
+- **Bypass of hooks:** direct DB writes are used because the WHMCS External API cannot reassign ownership (capability-probed 2026-06-04). This is acceptable for pure relational re-parenting but means operators must accept that the MCP host reaches the WHMCS DB.
+- **High-risk governance:** sealed by default (empty allowlist keystone), requires human approval, separation of duties enforced (approver ≠ drafter).
+
+Cascade tables moved in a single transaction: `tblhosting`, `tblhostingaddons`, `tblsslorders`, `tblinvoices`, `tblinvoiceitems` (invoice_mode-filtered).
+
 ### Workflow Tools (Composite DRAFT-ONLY)
 
 These tools orchestrate multi-step read + draft in a single call. They **always return `executed: false`** — they read WHMCS data, compute candidates, and emit governed `draft_write_intent` drafts. Nothing reaches WHMCS until a human runs the `approve_write_intent` → `execute_write_intent` ceremony on the resulting draft IDs.
@@ -404,12 +430,14 @@ All `workflow_*` tools return: `{ workflow, generated_at_note, candidates[], dra
 Prompts return a workflow blueprint message — they guide the consuming agent through the relevant read/write tools but never call tools themselves.
 
 **Workflow prompts** (draft-enabled counterparts to the `workflow_*` tools):
+
 - `dunning_sweep` — AR follow-up: find overdue accounts and draft dunning actions via `draft_write_intent`
 - `renewal_risk_triage` — Rank upcoming renewals by churn risk; draft reminder tickets for at-risk ones
 - `ticket_triage_to_resolution` — Triage the open-ticket queue; draft note/status changes for human review
 - `month_end_close` — Full month-end close: reconcile + AR-age + revenue + export; draft `client_note:write` per discrepancy
 
 **Read-only / advisory prompts**:
+
 - `month_end_reconciliation` — Reconcile invoices vs. transactions and report mismatches (no writes)
 - `phantom_tds_sweep` — Detect Paid-but-no-arrival (phantom) and unpaid-but-arrived (inverse-phantom) invoices
 - `suspend_for_nonpayment` — Evaluate a client for suspension; routes to `draft_write_intent` scope `service:suspend`
@@ -423,6 +451,7 @@ Prompts return a workflow blueprint message — they guide the consuming agent t
 If `MCP_AUTH_TOKEN` is set, every tool call must include an `auth_token` parameter matching it. This applies to **tool calls only**.
 
 Example tool call payload:
+
 ```json
 {
   "auth_token": "your_shared_secret",
@@ -439,12 +468,14 @@ Example tool call payload:
 **Client mode requires** `MCP_ALLOWED_CLIENT_IDS` to scope all client operations.
 
 **Client mode allows only:**
+
 - `check_domain_availability`, `list_products`
 - `get_invoice`, `get_client_details`, `get_service_details` (scoped to allowed client IDs)
 - `create_ticket`, `reply_ticket` (client replies only, scoped), `get_ticket_departments`
 - Resources: client-summary, invoice-history, ticket-thread, client-log, ops-playbook
 
 **Admin-only tools blocked in client mode:**
+
 - `create_client`, `search_clients`, `update_client`
 - `mark_invoice_paid`, `record_refund`, `capture_payment`, `create_invoice`, `add_credit`, `apply_credit`
 - `accept_order`
@@ -500,13 +531,13 @@ For **chatbots** and customer-facing integrations, use `client` mode with a stri
 
 `Connected` in MCP only confirms stdio transport health. `403` is usually downstream authorization/policy.
 
-| Symptom | Likely Layer | Fast Check | Fix |
-|---|---|---|---|
-| All tools fail immediately | MCP auth or server boot config | Verify server starts and tool list is visible | Fix MCP config/env and restart host |
-| Some tools work, invoice tools 403 | WHMCS API role/action ACL | Compare `search_clients` vs `get_invoice`/`GetInvoices` | Grant missing WHMCS API actions to credential role |
-| Works from one host, fails from another | IP allowlist / egress path | Compare public IPv4/IPv6 for each host | Add both IPs or route through fixed egress |
-| `consumer denied` or capability unavailable payload | Governance policy | Check access mode + capability matrix | Update consumer/registry/policy instead of WHMCS |
-| Resource reads work, tool calls fail | Tool auth or action gate | Confirm whether `MCP_AUTH_TOKEN` is required | Pass valid `auth_token` in tool calls |
+| Symptom                                             | Likely Layer                   | Fast Check                                              | Fix                                                |
+| --------------------------------------------------- | ------------------------------ | ------------------------------------------------------- | -------------------------------------------------- |
+| All tools fail immediately                          | MCP auth or server boot config | Verify server starts and tool list is visible           | Fix MCP config/env and restart host                |
+| Some tools work, invoice tools 403                  | WHMCS API role/action ACL      | Compare `search_clients` vs `get_invoice`/`GetInvoices` | Grant missing WHMCS API actions to credential role |
+| Works from one host, fails from another             | IP allowlist / egress path     | Compare public IPv4/IPv6 for each host                  | Add both IPs or route through fixed egress         |
+| `consumer denied` or capability unavailable payload | Governance policy              | Check access mode + capability matrix                   | Update consumer/registry/policy instead of WHMCS   |
+| Resource reads work, tool calls fail                | Tool auth or action gate       | Confirm whether `MCP_AUTH_TOKEN` is required            | Pass valid `auth_token` in tool calls              |
 
 ## AI Agent Local Runbook
 
