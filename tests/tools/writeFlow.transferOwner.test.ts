@@ -101,6 +101,7 @@ function fakeDb(
       addon_hostingid: number | null;
       addon_userid: number | null;
     }[];
+    invoiceOwner?: number;
   } = {}
 ) {
   const calls: { sql: string; params: unknown[] }[] = [];
@@ -138,7 +139,8 @@ function fakeDb(
           ).map((item) => ({ invoice_item_userid: 1, ...item })),
         };
       }
-      if (s.startsWith('select') && s.includes('tblinvoice')) return { affectedRows: 0, rows: [] };
+      if (s.startsWith('select') && s.includes('from tblinvoices where'))
+        return { affectedRows: 0, rows: [{ userid: opts.invoiceOwner ?? 1 }] };
       if (s.startsWith('update') && s.includes('tblhosting '))
         return { affectedRows: opts.serviceGuard ?? 1, rows: [] };
       return { affectedRows: 1, rows: [] };
@@ -264,6 +266,12 @@ describe('executeServiceTransferBatch', () => {
         call.sql.toLowerCase().includes('tblhostingaddons')
     );
     expect(addonPreflight?.sql).toMatch(/\bFOR\s+UPDATE\b/i);
+    const invoicePreflight = calls.find(
+      (call) =>
+        call.sql.toLowerCase().startsWith('select') &&
+        call.sql.toLowerCase().includes('from tblinvoices where')
+    );
+    expect(invoicePreflight?.sql).toMatch(/\bFOR\s+UPDATE\b/i);
   });
 
   it('rejects Addon invoice lines joined to an unselected hosting service', async () => {
@@ -349,6 +357,31 @@ describe('executeServiceTransferBatch', () => {
           addon_hostingid: 10,
           addon_userid: 1,
         },
+      ],
+    });
+    const res = await executeServiceTransferBatch({
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'unpaid_only',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
+    } as any);
+
+    expect(res.allowed).toBe(false);
+    expect(res.reason).toBe('precondition_mismatch');
+    expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
+  });
+
+  it('rejects invoices whose header belongs to a different client', async () => {
+    const { db, calls } = fakeDb({
+      invoiceOwner: 99,
+      invoiceItems: [
+        { relid: 10, type: 'Hosting', addon_hostingid: null, addon_userid: null },
+        { relid: 506, type: 'Addon', addon_hostingid: 10, addon_userid: 1 },
       ],
     });
     const res = await executeServiceTransferBatch({
@@ -714,6 +747,8 @@ function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}
             },
           ],
         };
+      if (s.startsWith('select') && s.includes('from tblinvoices where'))
+        return { affectedRows: 0, rows: [{ userid: 1 }] };
       if (s.startsWith('select') && s.includes('tblinvoice')) {
         // params[0] is the serviceid (relid) from the WHERE it.relid = ? clause.
         const svcId = params[0] as number;

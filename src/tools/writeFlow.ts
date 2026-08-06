@@ -1006,6 +1006,13 @@ export async function executeServiceTransferBatch(
       const selectedServiceIds = new Set(serviceIds);
       const invoiceIds = [...new Set(invoicesInScope.flatMap((entry) => entry.invoice_ids))];
       for (const invoiceid of invoiceIds) {
+        const invoiceOwner = (
+          await tx.query('SELECT userid FROM tblinvoices WHERE id = ? FOR UPDATE', [invoiceid])
+        ).rows[0] as { userid: number } | undefined;
+        if (invoiceOwner?.userid !== source) {
+          failed.push({ invoice_id: invoiceid, why: 'mixed_invoice_scope' });
+          continue;
+        }
         const invoiceItems = (
           await tx.query(
             'SELECT it.relid, it.type, it.userid AS invoice_item_userid, ' +
