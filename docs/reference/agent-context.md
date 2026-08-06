@@ -3,6 +3,12 @@
 Purpose: orient an AI agent fast so it does NOT re-scan the repo. Update only on
 architectural change.
 
+For product boundary, repository placement, ownership, deployment limits, and
+the mandatory handoff-update rule, read
+[`docs/OPERATIONS-HANDOFF.md`](../OPERATIONS-HANDOFF.md) first. Keep this file
+focused on technical seams; do not duplicate customer PII or production
+credentials here.
+
 ## What this is
 
 MCP server fronting the WHMCS API. Read-heavy, governed. Default posture is
@@ -84,3 +90,10 @@ executionGate,idempotency,audit,intents}.ts` + `src/tools/writeFlow.ts`.
 See approved plan + backlog in `~/.claude/plans/flickering-pondering-feather.md`
 (Phase 0 governance rebalance → A reads → B composites → accounting → C write
 migration). `docs/design/decisions.md` records posture choices.
+
+## Handoff maintenance
+
+Whenever an architectural, governance, deployment, ownership, review, or
+customer-delivery fact changes, update `docs/OPERATIONS-HANDOFF.md` and the
+private audit ledger in the same work item. If the fact is not verified, mark it
+`PENDING` and identify the evidence owner instead of inferring it.

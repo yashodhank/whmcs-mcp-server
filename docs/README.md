@@ -4,6 +4,9 @@ Quick map of every document in this directory. For install, MCP config, and the
 tool catalog, start with the root [README.md](../README.md). For contributor and
 agent orientation, see [AGENTS.md](../AGENTS.md).
 
+For the product boundary, ownership, runtime model, release process, and
+handoff-update rule, start with [OPERATIONS-HANDOFF.md](OPERATIONS-HANDOFF.md).
+
 ---
 
 ## Design
@@ -19,6 +22,12 @@ Architecture decisions, governance contracts, and phase-based design records.
 | [design/controlled-writes-phase-i.md](design/controlled-writes-phase-i.md) | Phase I recommendation: GO/NO-GO analysis for first production write ungating |
 | [design/oauth.md](design/oauth.md) | OAuth 2.1 / PRM resource-server design (components 1–4) |
 | [design/mcp-adoption.md](design/mcp-adoption.md) | MCP protocol adoption notes, open items, and HTTP-transport follow-ups |
+
+## Operations handoff
+
+| Document | Description |
+|---|---|
+| [OPERATIONS-HANDOFF.md](OPERATIONS-HANDOFF.md) | Canonical product boundary, repository placement, ownership, runtime, production posture, release process, and handoff checklist |
 
 ---
 
