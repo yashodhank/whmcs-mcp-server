@@ -42,7 +42,7 @@ describe('Track C2 quote frozen-seam additions', () => {
 });
 
 describe('Track C2 quote strict mappers', () => {
-  it('billing:quote:create flattens items into lineitem{field}{N}, copies allowlist, drops items/extras', () => {
+  it('billing:quote:create encodes WHMCS lineitems, copies allowlist, drops items/extras', () => {
     const out = intentToWhmcsParams('billing:quote:create', {
       subject: 'S',
       stage: 'Draft',
@@ -58,17 +58,17 @@ describe('Track C2 quote strict mappers', () => {
     expect(out.stage).toBe('Draft');
     expect(out.validuntil).toBe('2026-12-31');
     expect(out.userid).toBe(4);
-    expect(out.lineitemdescription1).toBe('L1');
-    expect(out.lineitemamount1).toBe(100);
-    expect(out.lineitemtaxed1).toBe(1);
-    expect(out.lineitemdescription2).toBe('L2');
-    expect(out.lineitemamount2).toBe(50);
-    expect(out).not.toHaveProperty('lineitemtaxed2');
+    const lineitems = Buffer.from(String(out.lineitems), 'base64').toString('utf8');
+    expect(lineitems).toContain('a:2:');
+    expect(lineitems).toContain('s:2:"L1";');
+    expect(lineitems).toContain('d:100;');
+    expect(lineitems).toContain('s:2:"L2";');
+    expect(lineitems).toContain('d:50;');
     expect(out).not.toHaveProperty('items');
     expect(out).not.toHaveProperty('evil');
   });
 
-  it('billing:quote:update emits quoteid + present allowlisted fields, flattens optional items', () => {
+  it('billing:quote:update emits quoteid + present allowlisted fields and encoded items', () => {
     expect(
       intentToWhmcsParams('billing:quote:update', { quoteid: 2, subject: 'New', evil: 'x' })
     ).toEqual({
@@ -80,9 +80,9 @@ describe('Track C2 quote strict mappers', () => {
       items: [{ description: 'L', amount: 5, taxed: true }],
     });
     expect(withItems.quoteid).toBe(2);
-    expect(withItems.lineitemdescription1).toBe('L');
-    expect(withItems.lineitemamount1).toBe(5);
-    expect(withItems.lineitemtaxed1).toBe(1);
+    expect(Buffer.from(String(withItems.lineitems), 'base64').toString('utf8')).toContain(
+      's:1:"L";'
+    );
     expect(withItems).not.toHaveProperty('items');
   });
 
