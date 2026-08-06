@@ -429,10 +429,6 @@ export interface ExecutionRequest {
 }
 
 export type ExecutionDeniedReason =
-  // Legacy (retained for compat; no longer emitted by the default authorizer
-  // now that production is governed by the deny-by-default policy table).
-  | 'production_execution_forbidden'
-  | 'action_not_low_risk_executable'
   // Core gates (priority order).
   | 'kill_switch_engaged'
   | 'read_only_mode'

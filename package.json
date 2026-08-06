@@ -18,6 +18,7 @@
     "test:watch": "vitest",
     "test:unit": "vitest run tests/normalizers.test.ts tests/errors.test.ts tests/rateLimiter.test.ts tests/tools/",
     "test:integration": "vitest run tests/integration.test.ts",
+    "test:integration:stack": "vitest run tests/integration.whmcs-stack.test.ts",
     "debug:domain-whois": "tsx scripts/debug-domain-whois.ts",
     "curl:domain-whois": "tsx scripts/curl-domain-whois.ts",
     "test:coverage": "vitest run --coverage",

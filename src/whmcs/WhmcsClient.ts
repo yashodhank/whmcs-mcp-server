@@ -6,6 +6,7 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import https from 'node:https';
 import { AppConfig, McpMode, getWhmcsApiEndpoint } from '../config.js';
 import { Logger } from '../logging.js';
 import { normalizeWhmcsResponse, boolToWhmcs } from './normalizers.js';
@@ -135,6 +136,15 @@ export class WhmcsClient {
    * only idempotent, allowlisted reference reads on the read() path.
    */
   private readonly readCache: ReadCache;
+  /**
+   * Explicit keep-alive agent so a stuck/flagged pooled socket can be reset.
+   * Node >=19 defaults keepAlive=true; a long-lived process that hits a
+   * transient connection-level edge/WAF/fail2ban flag would otherwise reuse the
+   * flagged socket and 403 forever until restart (observed 2026-06-19). On an
+   * edge 403 the call path destroys this agent's sockets and retries once on a
+   * fresh connection.
+   */
+  private readonly httpsAgent: https.Agent;
 
   constructor(config: AppConfig, logger: Logger) {
     this.config = config;
@@ -145,9 +155,11 @@ export class WhmcsClient {
       cacheableActions: config.MCP_READ_CACHE_ACTIONS,
     });
 
+    this.httpsAgent = new https.Agent({ keepAlive: true });
     this.axios = axios.create({
       baseURL: getWhmcsApiEndpoint(),
       timeout: 30000, // 30 second timeout
+      httpsAgent: this.httpsAgent,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
@@ -255,6 +267,10 @@ export class WhmcsClient {
     let lastError: Error | null = null;
     // Ensures the IP-allowlist self-heal runs at most once per call (no loops).
     let healAttempted = false;
+    // One connection-reset retry per call for an edge/WAF 403 on a stuck socket.
+    let connResetAttempted = false;
+    // Narrates the 403 decision into the surfaced error so it is self-diagnosing.
+    let healNote: string | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -269,7 +285,25 @@ export class WhmcsClient {
 
         // Check for WHMCS business error
         if (data.result === 'error') {
-          throw new WhmcsBusinessError(data.message || 'Unknown WHMCS error', undefined, data);
+          let message = data.message || 'Unknown WHMCS error';
+          // Self-diagnosing hint for the most time-expensive failure mode: WHMCS
+          // returns "An admin user is required" (HTTP 200) when an authenticated
+          // request can't establish an admin context — classically because the
+          // request hit /includes/api.php/includes/api.php (WHMCS_API_URL already
+          // contained the API path and it was appended again), but also a
+          // disabled/under-permissioned admin or an IP-allowlist block. Surface
+          // the actionable checks + the resolved endpoint so this is never a
+          // multi-hour debug again.
+          if (/an admin user is required/i.test(message)) {
+            message +=
+              ` — the API request could not establish an admin context. Check, in order: ` +
+              `(1) WHMCS_API_URL is the base origin, NOT the full /includes/api.php endpoint ` +
+              `(resolved endpoint: ${getWhmcsApiEndpoint()}); ` +
+              `(2) the credential's linked admin is active with sufficient role permissions; ` +
+              `(3) the caller IP is in the WHMCS API allowlist. ` +
+              `See docs/runbooks/api-connectivity-troubleshooting.md`;
+          }
+          throw new WhmcsBusinessError(message, undefined, data);
         }
 
         // Normalize response if enabled
@@ -309,17 +343,21 @@ export class WhmcsClient {
             axiosError.code === 'ECONNABORTED';
         }
 
-        // IP allowlist self-heal: WHMCS returns 403 for several distinct reasons
-        // (IP not in APIAllowedIPs, role/action ACL, bad credentials) — all HTTP
-        // 403 with a different `message`. Only an "Invalid IP" rejection is
-        // healable; a permissions/auth 403 must NOT trigger a pointless SSH run.
-        // When it IS an IP rejection, WHMCS reports the exact source IP it saw
-        // ("Invalid IP <X>") — more authoritative than public-provider detection
-        // (proxy/NAT skew), so pass it to the updater as the manual target.
-        // healAttempted bounds this to one heal per call so it can never loop.
-        if (statusCode === 403 && this.config.WHMCS_AUTO_IP_HEAL && !healAttempted) {
+        // A WHMCS 403 has several distinct causes — each handled differently and
+        // narrated into `healNote` so the surfaced error is self-diagnosing:
+        //  - "Invalid IP <X>" (WHMCS body): the ONLY case the IP-allowlist heal
+        //    addresses. A permissions/auth 403 must NOT trigger a pointless SSH
+        //    run. WHMCS reports the exact source IP it saw, so pass it to the
+        //    updater as the authoritative target (no proxy/NAT skew).
+        //  - No WHMCS body: an edge/WAF/proxy 403. A long-lived process can get
+        //    stuck on a flagged keep-alive socket and 403 forever; drop pooled
+        //    sockets and retry ONCE on a fresh connection (auto-recovers a
+        //    transient connection-level WAF/fail2ban flag — observed 2026-06-19).
+        // healAttempted / connResetAttempted each bound their retry to once.
+        if (statusCode === 403) {
           const { message, reportedIp } = extractWhmcsError(error);
-          if (message && /invalid\s+ip/i.test(message)) {
+          const isInvalidIp = !!message && /invalid\s+ip/i.test(message);
+          if (this.config.WHMCS_AUTO_IP_HEAL && !healAttempted && isInvalidIp) {
             healAttempted = true;
             const healed = await attemptIpAllowlistHeal(this.config, this.logger, reportedIp);
             if (healed) {
@@ -330,11 +368,28 @@ export class WhmcsClient {
               attempt = -1; // fresh attempt budget for the single post-heal retry
               continue;
             }
+            healNote =
+              'auto-heal ran but did not resolve the allowlist (check SSH identity / updater logs)';
+          } else if (isInvalidIp && !this.config.WHMCS_AUTO_IP_HEAL) {
+            healNote = 'looks like an IP-allowlist rejection but WHMCS_AUTO_IP_HEAL is off';
+          } else if (!message && !connResetAttempted) {
+            connResetAttempted = true;
+            healNote =
+              'edge/WAF 403 (no WHMCS body): reset the keep-alive connection and retried once';
+            this.logger.warn(
+              'WHMCS 403 with no body (edge/WAF): resetting connection and retrying once',
+              { action }
+            );
+            this.httpsAgent.destroy();
+            attempt = -1; // fresh attempt budget for the single post-reset retry
+            continue;
+          } else if (message) {
+            healNote = 'not an IP-allowlist rejection (permission/auth) — auto-heal not applicable';
+            this.logger.warn('WHMCS 403 not auto-healed', { action, message, healNote });
           } else {
-            this.logger.warn('WHMCS 403 is not an IP-allowlist rejection; not auto-healing', {
-              action,
-              message,
-            });
+            healNote =
+              'edge/WAF 403 persisted after a fresh-connection retry — likely a real WAF/fingerprint block or rate limit (verify: curl the same endpoint+IP; if curl works, it is a WAF/fingerprint block)';
+            this.logger.warn('WHMCS 403 persisted after connection reset', { action });
           }
         }
 
@@ -361,11 +416,27 @@ export class WhmcsClient {
                           : '[unserializable]',
                 });
               }
+              if (status === 403) {
+                const hint =
+                  'HTTP 403 from WHMCS — one of: (1) caller IP not in the WHMCS API allowlist ' +
+                  '(APIAllowedIPs); (2) an edge/WAF/proxy block on the client request/connection ' +
+                  '(verify by curling the same endpoint+IP — if curl works but this client gets 403, ' +
+                  'it is a WAF/connection block, NOT an IP or credential issue); (3) a permission/role ' +
+                  'ACL on the credential. ' +
+                  (healNote ? `Auto-heal: ${healNote}. ` : '') +
+                  'See docs/runbooks/api-connectivity-troubleshooting.md';
+                throw new WhmcsTransportError(`WHMCS HTTP error: 403 — ${hint}`, 403);
+              }
               throw new WhmcsTransportError(`WHMCS HTTP error: ${status}`, status);
             }
 
             if (axiosError.request) {
-              throw new WhmcsTransportError(`WHMCS connection error: ${axiosError.message}`);
+              const isTimeout = axiosError.code === 'ECONNABORTED';
+              throw new WhmcsTransportError(
+                isTimeout
+                  ? 'WHMCS request timed out after 30s — host slow or unreachable'
+                  : `WHMCS connection error: ${axiosError.message}`
+              );
             }
           }
 

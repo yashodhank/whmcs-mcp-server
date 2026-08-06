@@ -260,11 +260,14 @@ debt is tracked:
   self-approval blocked (`self_approval_forbidden`), identity-bound
   `approver_consumer_id`, `MCP_WRITE_REQUIRE_DISTINCT_APPROVER` (§4); (b) durable
   redacted idempotency replay envelope, no PII on disk (§5); (c) `allowedWriteScopes`
-  re-checked at execute (`scope_not_allowed`, §6).
-- **Watch / candidate hardening (tracked, not closed here):** (d) legacy
+  re-checked at execute (`scope_not_allowed`, §6); (d) the never-emitted legacy
   `ExecutionDeniedReason` members (`production_execution_forbidden`,
-  `action_not_low_risk_executable`) are retained but no longer emitted — prune
-  when safe; (e) `MCP_WRITE_STRICT_SCOPES` ships with a non-empty default
-  (`billing:invoice:create`) — a hidden default worth surfacing in operator docs.
+  `action_not_low_risk_executable`) have been pruned from the union — production
+  is governed by the deny-by-default policy table, so the compat hedge lapsed;
+  (e) the `MCP_WRITE_STRICT_SCOPES` non-empty default (`billing:invoice:create`)
+  is surfaced in operator docs — `.env.example`, the README env table, and
+  `decisions.md` — so it is no longer a hidden default.
+- **Watch / candidate hardening (tracked, not closed here):** none open at this
+  time; new entries land here as they are identified.
 - **Out of scope for this document:** wiring any new prod-write path. Each
   production ungating is a separate, reviewed, TDD, explicitly-authorized change.

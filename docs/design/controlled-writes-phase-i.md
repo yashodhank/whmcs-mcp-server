@@ -113,8 +113,9 @@ Phase G+ deny-by-default **tiered** execution gate
 the prerequisite below is met. In the default posture `MCP_MODE=read_only`
 blocks all execution; for HIGH-RISK scopes an empty `MCP_PROD_WRITE_AUTHORIZED`
 yields `action_not_prod_authorized` — the keystone that seals production
-money/destruction. (The legacy `production_execution_forbidden` reason is
-retained in the enum but no longer emitted.)
+money/destruction. (The legacy `production_execution_forbidden` reason, never
+emitted under the deny-by-default table, has since been pruned from the enum —
+see `controlled-writes-phase-f.md` §13.)
 
 ## 4. Prerequisite — Phase H.1 (small, separately reviewed, read-only)
 

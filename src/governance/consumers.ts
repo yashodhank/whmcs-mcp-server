@@ -20,6 +20,7 @@
  */
 
 import crypto from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
 import { z } from 'zod';
 import {
   CONTRACT_NAMES,
@@ -34,6 +35,19 @@ import { WRITE_SCOPES } from '../write/types.js';
 
 /** The env var (JSON string) holding the per-deployment consumer registry. */
 export const CONSUMER_REGISTRY_ENV = 'MCP_CONSUMER_REGISTRY';
+
+/**
+ * The env var holding a FILESYSTEM PATH to the consumer registry JSON. When set
+ * (non-empty) it takes precedence over the inline `MCP_CONSUMER_REGISTRY` JSON:
+ * a file is the natural control plane for live consumer rotation/revocation
+ * (paired with the registry cache TTL, an edit is picked up without a restart).
+ *
+ * Loading fails CLOSED — a missing, unreadable, group/other-accessible, empty,
+ * malformed, or schema-invalid file throws `ConsumerRegistryError` and NEVER
+ * silently downgrades to an empty registry or falls back to the env JSON. The
+ * file content is never placed in a thrown error message.
+ */
+export const CONSUMER_REGISTRY_FILE_ENV = 'MCP_CONSUMER_REGISTRY_FILE';
 
 /** Contract the deliberate anonymous fallback profile must be pinned to. */
 const ANON_PINNED_CONTRACT = 'llm_safe_summary' as const;
@@ -253,13 +267,20 @@ export function loadConsumerRegistry(env: NodeJS.ProcessEnv): ConsumerProfile[] 
   if (raw === undefined || raw.trim() === '') {
     return [];
   }
+  return parseConsumerRegistryJson(raw, CONSUMER_REGISTRY_ENV);
+}
 
+/**
+ * Parse + validate a registry JSON string from any source (env var or file).
+ * The `source` label is used only in error messages — never the raw content.
+ */
+function parseConsumerRegistryJson(raw: string, source: string): ConsumerProfile[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
     throw new ConsumerRegistryError(
-      `${CONSUMER_REGISTRY_ENV} is not valid JSON. Provide a JSON array of consumer entries.`
+      `${source} is not valid JSON. Provide a JSON array of consumer entries.`
     );
   }
 
@@ -268,10 +289,68 @@ export function loadConsumerRegistry(env: NodeJS.ProcessEnv): ConsumerProfile[] 
     const detail = result.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
-    throw new ConsumerRegistryError(`${CONSUMER_REGISTRY_ENV} failed validation:\n${detail}`);
+    throw new ConsumerRegistryError(`${source} failed validation:\n${detail}`);
   }
 
   return result.data.map(toProfile);
+}
+
+/**
+ * Load + validate the consumer registry from a filesystem path. Fails CLOSED on
+ * every error path (see `CONSUMER_REGISTRY_FILE_ENV`). The file carries auth
+ * material (token hashes + scope grants), so owner-only permissions are
+ * required: a group/other-accessible file is refused outright. POSIX mode bits
+ * are not meaningful on Windows, so that check is skipped there.
+ */
+export function loadConsumerRegistryFromFile(filePath: string): ConsumerProfile[] {
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(filePath);
+  } catch {
+    throw new ConsumerRegistryError(
+      `${CONSUMER_REGISTRY_FILE_ENV} points to a path that cannot be stat'd: ${filePath}`
+    );
+  }
+  if (!stat.isFile()) {
+    throw new ConsumerRegistryError(
+      `${CONSUMER_REGISTRY_FILE_ENV} is not a regular file: ${filePath}`
+    );
+  }
+  if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
+    throw new ConsumerRegistryError(
+      `${CONSUMER_REGISTRY_FILE_ENV} (${filePath}) is group/other-accessible; ` +
+        `it holds auth material — restrict it to owner-only (chmod 600) before use.`
+    );
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf8');
+  } catch {
+    throw new ConsumerRegistryError(`${CONSUMER_REGISTRY_FILE_ENV} could not be read: ${filePath}`);
+  }
+  if (raw.trim() === '') {
+    throw new ConsumerRegistryError(
+      `${CONSUMER_REGISTRY_FILE_ENV} (${filePath}) is empty; provide a JSON array, ` +
+        `or unset it to fall back to ${CONSUMER_REGISTRY_ENV}.`
+    );
+  }
+  return parseConsumerRegistryJson(raw, `${CONSUMER_REGISTRY_FILE_ENV} (${filePath})`);
+}
+
+/**
+ * Resolve the active registry source and load it. A non-empty
+ * `MCP_CONSUMER_REGISTRY_FILE` takes precedence (file = live-rotation control
+ * plane, fails closed); otherwise the inline `MCP_CONSUMER_REGISTRY` env JSON is
+ * used (absent/empty ⇒ `[]`, the deny-all posture). This is the single entry
+ * point the cache should call.
+ */
+export function loadConsumerRegistryFromSource(env: NodeJS.ProcessEnv): ConsumerProfile[] {
+  const filePath = env[CONSUMER_REGISTRY_FILE_ENV];
+  if (filePath !== undefined && filePath.trim() !== '') {
+    return loadConsumerRegistryFromFile(filePath.trim());
+  }
+  return loadConsumerRegistry(env);
 }
 
 function isLoadedProfile(p: ConsumerProfile): p is LoadedProfile {
