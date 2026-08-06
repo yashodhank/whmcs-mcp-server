@@ -204,11 +204,14 @@ HTTP service/process, or respawn the stdio child, before claiming the emergency
 seal is active.
 
 A production discovery quote was prepared as an unsent draft through the
-governed flow. Customer identity, commercial terms, production record IDs,
-billing details, and execution evidence are kept in the private audit ledger
-and client/proposal workspace, not this public repository. Any remaining
-billing prerequisites must be confirmed in that private workspace before a
-final invoice.
+governed flow. The current tree omits customer identity and commercial terms;
+private evidence remains in the audit ledger and client/proposal workspace.
+The earlier disclosure remains reachable in repository history until the
+repository owner coordinates an approved history rewrite and hosting-cache
+purge: **PENDING — repository owner/date needed**. Before a final invoice, the
+client/proposal workspace owner must confirm the billing legal name, billing
+address, GSTIN applicability, and PO requirement: **PENDING — workspace
+owner/date needed**.
 
 ## Handoff-update rule
 
