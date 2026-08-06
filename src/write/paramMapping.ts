@@ -669,12 +669,23 @@ function phpSerializeString(value: string): string {
   return `s:${Buffer.byteLength(value, 'utf8')}:"${value}";`;
 }
 
+function normalizeQuoteAmount(value: unknown): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 /** Encode the exact base64(PHP serialize(array(...))) shape required by WHMCS. */
 function encodeQuoteLineItems(items: readonly unknown[]): string {
   const serializedItems = items.map((item, index) => {
     const it = asRecord(item);
     const description = typeof it.description === 'string' ? it.description : '';
-    const amount = typeof it.amount === 'number' ? it.amount : 0;
+    const amount = normalizeQuoteAmount(it.amount);
     const taxable = it.taxed === true;
     return (
       `i:${index};a:5:{` +

@@ -202,6 +202,34 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isFiniteNumeric(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  return typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
+}
+
+function validateQuoteItems(items: unknown): ValidationIssue[] {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const issues: ValidationIssue[] = [];
+  items.forEach((raw, i) => {
+    if (!isPlainObject(raw) || !present(raw.description) || !present(raw.amount)) {
+      issues.push({
+        code: 'invalid_items_shape',
+        severity: 'error',
+        message: `items[${i}] must be an object with description+amount`,
+      });
+      return;
+    }
+    if (!isFiniteNumeric(raw.amount)) {
+      issues.push({
+        code: 'invalid_quote_item_amount',
+        severity: 'error',
+        message: `items[${i}].amount must be a finite number or numeric string`,
+      });
+    }
+  });
+  return issues;
+}
+
 /**
  * Validate a draft intent. `ok=false` if any issue has severity='error'.
  * compat_warnings are non-blocking advisories.
@@ -933,15 +961,7 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
         message: 'billing:quote:create `items` must be a non-empty array',
       });
     } else {
-      items.forEach((raw, i) => {
-        if (!isPlainObject(raw) || !present(raw.description) || !present(raw.amount)) {
-          issues.push({
-            code: 'invalid_items_shape',
-            severity: 'error',
-            message: `items[${i}] must be an object with description+amount`,
-          });
-        }
-      });
+      issues.push(...validateQuoteItems(items));
     }
   }
 
@@ -967,6 +987,7 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
         message: `billing:quote:update requires quoteid plus at least one field (${QUOTE_UPDATABLE_FIELDS.join(', ')}) or items`,
       });
     }
+    issues.push(...validateQuoteItems(intent.params.items));
   }
 
   // billing:quote:send / billing:quote:accept — quoteid positive int.

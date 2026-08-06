@@ -68,6 +68,18 @@ describe('Track C2 quote strict mappers', () => {
     expect(out).not.toHaveProperty('evil');
   });
 
+  it('preserves finite numeric-string amounts in encoded lineitems', () => {
+    const out = intentToWhmcsParams('billing:quote:create', {
+      subject: 'S',
+      stage: 'Draft',
+      validuntil: '2026-12-31',
+      userid: 4,
+      items: [{ description: 'Decimal', amount: '5.25' }],
+    });
+    const lineitems = Buffer.from(String(out.lineitems), 'base64').toString('utf8');
+    expect(lineitems).toContain('s:2:"up";d:5.25;');
+  });
+
   it('billing:quote:update emits quoteid + present allowlisted fields and encoded items', () => {
     expect(
       intentToWhmcsParams('billing:quote:update', { quoteid: 2, subject: 'New', evil: 'x' })
@@ -176,6 +188,27 @@ describe('Track C2 quote validation', () => {
     expect(missingAmt.issues.some((i) => i.code === 'invalid_items_shape')).toBe(true);
   });
 
+  it('billing:quote:create accepts numeric strings but rejects invalid amounts', () => {
+    expect(
+      validateIntent(
+        intent('billing:quote:create', {
+          ...validCreate,
+          items: [{ description: 'Decimal', amount: '5.25' }],
+        }),
+        {}
+      ).ok
+    ).toBe(true);
+    const invalid = validateIntent(
+      intent('billing:quote:create', {
+        ...validCreate,
+        items: [{ description: 'Broken', amount: 'not-a-number' }],
+      }),
+      {}
+    );
+    expect(invalid.ok).toBe(false);
+    expect(invalid.issues.some((i) => i.code === 'invalid_quote_item_amount')).toBe(true);
+  });
+
   it('billing:quote:update accepts quoteid + an updatable field', () => {
     expect(
       validateIntent(intent('billing:quote:update', { quoteid: 2, subject: 'New' }), {}).ok
@@ -189,6 +222,18 @@ describe('Track C2 quote validation', () => {
         {}
       ).ok
     ).toBe(true);
+  });
+
+  it('billing:quote:update rejects invalid item amounts', () => {
+    const r = validateIntent(
+      intent('billing:quote:update', {
+        quoteid: 2,
+        items: [{ description: 'Broken', amount: 'not-a-number' }],
+      }),
+      {}
+    );
+    expect(r.ok).toBe(false);
+    expect(r.issues.some((i) => i.code === 'invalid_quote_item_amount')).toBe(true);
   });
 
   it('billing:quote:update rejects quoteid-only (empty_quote_update)', () => {
