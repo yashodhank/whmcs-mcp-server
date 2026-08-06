@@ -1008,7 +1008,8 @@ export async function executeServiceTransferBatch(
       for (const invoiceid of invoiceIds) {
         const invoiceItems = (
           await tx.query(
-            'SELECT it.relid, it.type, ha.hostingid AS addon_hostingid, ' +
+            'SELECT it.relid, it.type, it.userid AS invoice_item_userid, ' +
+              'ha.hostingid AS addon_hostingid, ' +
               'ha.userid AS addon_userid ' +
               'FROM tblinvoiceitems it ' +
               "LEFT JOIN tblhostingaddons ha ON it.type = 'Addon' AND ha.id = it.relid " +
@@ -1018,12 +1019,14 @@ export async function executeServiceTransferBatch(
         ).rows as {
           relid: number | null;
           type: string;
+          invoice_item_userid: number;
           addon_hostingid: number | null;
           addon_userid: number | null;
         }[];
         const mixed =
           invoiceItems.length === 0 ||
           invoiceItems.some((item) => {
+            if (item.invoice_item_userid !== source) return true;
             if (item.type === 'Hosting')
               return item.relid === null || !selectedServiceIds.has(item.relid);
             if (item.type === 'Addon')
