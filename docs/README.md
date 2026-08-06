@@ -58,6 +58,7 @@ Stable reference material: environment context, consumer registry examples, prom
 | [reference/cursor-skills.md](reference/cursor-skills.md) | Recommended Cursor skill bundles for this repo |
 | [reference/whmcs-api-catalog-prompt.md](reference/whmcs-api-catalog-prompt.md) | Full WHMCS API action catalog in prompt form (used by AI agents for scope reasoning) |
 | [reference/ai-handoff-prompt.md](reference/ai-handoff-prompt.md) | Structured AI handoff prompt: architecture context, extension seams, safety rules |
+| [reference/workspace-artifact-manifest.md](reference/workspace-artifact-manifest.md) | Reconciled local artifact hashes, sensitivity, status, and canonical destinations |
 | [reference/whmcs9-credit-debit-notes.md](reference/whmcs9-credit-debit-notes.md) | WHMCS 9 invoice immutability and credit/debit note design notes |
 
 ---
