@@ -196,7 +196,9 @@ audit-path enforcement, transaction-safe owner transfers, complete mixed-
 invoice validation, official WHMCS quote line-item encoding, and numeric-string
 quote amount handling. This handoff update also records the tiered allowlist,
 post-restart replacement ceremony, and composed-only invoice-reassignment
-semantics identified in the post-merge PR #77 review.
+semantics identified in the post-merge PR #77 review. Quarantined local
+workspace artifacts are excluded from both Git tracking and Docker build
+contexts.
 
 All operator-facing kill-switch references must preserve the startup boundary:
 editing `MCP_WRITE_KILL_SWITCH` does not affect an existing process. Restart an

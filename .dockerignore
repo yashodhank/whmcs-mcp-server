@@ -30,3 +30,33 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Machine-local agent/MCP configuration. Keep generated or absolute-path
+# configs out of Docker build contexts as well as Git.
+/.mcp.json
+/.claude/CLAUDE.md
+
+# Reconciled workspace artifacts are retained locally for provenance only.
+# Mirror .gitignore so remote and legacy Docker builders never receive them.
+/docs/runbooks/operator-production-reconciliation-writes.md
+/plans/001-ci-verification-baseline.md
+/plans/002-validate-whmcs-root-path.md
+/plans/003-wrap-update-in-transaction.md
+/plans/004-updater-hardening-bundle.md
+/plans/005-DESIGN-authoritative-ip.md
+/plans/005-authoritative-ip-spike.md
+/plans/006-implement-authoritative-ip.md
+/plans/008-normalizer-coverage-tripwire.md
+/plans/009-phase-f-doc-reconcile.md
+/plans/010-write-posture-doc-rules-sync.md
+/plans/011-approval-separation-of-duties.md
+/plans/012-idempotency-result-durability.md
+/plans/013-execute-time-scope-recheck.md
+/plans/014-power-user-workflows-brainstorm.md
+/plans/015-dunning-sweep-prompt.md
+/plans/016-renewal-risk-triage-prompt.md
+/plans/017-ticket-triage-to-resolution-prompt.md
+/plans/018-month-end-close-prompt.md
+/plans/019-executable-workflow-tools.md
+/plans/020-docs-revamp.md
+/plans/021-code-comment-deep-pass.md
