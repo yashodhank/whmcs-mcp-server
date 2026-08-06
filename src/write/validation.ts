@@ -202,9 +202,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const DECIMAL_OR_SCIENTIFIC_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 function isFiniteNumeric(value: unknown): boolean {
   if (typeof value === 'number') return Number.isFinite(value);
-  return typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  return DECIMAL_OR_SCIENTIFIC_RE.test(trimmed) && Number.isFinite(Number(trimmed));
 }
 
 function validateQuoteItems(items: unknown): ValidationIssue[] {
@@ -223,7 +227,7 @@ function validateQuoteItems(items: unknown): ValidationIssue[] {
       issues.push({
         code: 'invalid_quote_item_amount',
         severity: 'error',
-        message: `items[${i}].amount must be a finite number or numeric string`,
+        message: `items[${i}].amount must be a finite number or decimal/scientific string`,
       });
     }
   });
