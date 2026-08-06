@@ -193,9 +193,9 @@ The approval hot-reload work, subsequent automated review fixes, operations
 handoff, artifact governance, and sanitized production write runbook are
 present on `main`. The current code includes live authorization reload, durable
 audit-path enforcement, transaction-safe owner transfers, complete mixed-
-invoice validation, official WHMCS quote line-item encoding, and numeric-string
-quote amount handling restricted to decimal/scientific syntax. This handoff
-update also records the tiered allowlist,
+invoice validation with type-aware Addon ownership checks, official WHMCS quote
+line-item encoding, and numeric-string quote amount handling restricted to
+decimal/scientific syntax. This handoff update also records the tiered allowlist,
 post-restart replacement ceremony, and composed-only invoice-reassignment
 semantics identified in the post-merge PR #77 review. Quarantined local
 workspace artifacts are excluded from both Git tracking and Docker build
