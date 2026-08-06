@@ -94,6 +94,11 @@ function fakeDb(
     destCur?: string;
     serviceGuard?: number;
     mixedInvoice?: boolean;
+    invoiceItems?: readonly {
+      relid: number | null;
+      type: string;
+      addon_hostingid: number | null;
+    }[];
   } = {}
 ) {
   const calls: { sql: string; params: unknown[] }[] = [];
@@ -101,7 +106,7 @@ function fakeDb(
     async query(sql, params) {
       calls.push({ sql, params });
       const s = sql.replace(/\s+/g, ' ').toLowerCase();
-      if (s.startsWith('select') && s.includes('tblhosting'))
+      if (s.startsWith('select') && s.includes('from tblhosting where'))
         return {
           affectedRows: 0,
           rows: [{ id: params[0], userid: opts.owner ?? 1, domainstatus: opts.status ?? 'Active' }],
@@ -112,17 +117,22 @@ function fakeDb(
         return { affectedRows: 0, rows: [{ id: params[0], status: 'Active', currency }] };
       }
       if (s.startsWith('select') && s.includes('tblinvoiceitems') && s.includes('distinct i.id')) {
-        return { affectedRows: 0, rows: opts.mixedInvoice ? [{ id: 100 }] : [] };
+        return {
+          affectedRows: 0,
+          rows: opts.mixedInvoice || opts.invoiceItems !== undefined ? [{ id: 100 }] : [],
+        };
       }
       if (s.startsWith('select') && s.includes('tblinvoiceitems')) {
         return {
           affectedRows: 0,
-          rows: opts.mixedInvoice
-            ? [
-                { serviceid: 10, type: 'Hosting' },
-                { serviceid: 999, type: 'Domain' },
-              ]
-            : [],
+          rows:
+            opts.invoiceItems ??
+            (opts.mixedInvoice
+              ? [
+                  { relid: 10, type: 'Hosting', addon_hostingid: null },
+                  { relid: 999, type: 'Domain', addon_hostingid: null },
+                ]
+              : []),
         };
       }
       if (s.startsWith('select') && s.includes('tblinvoice')) return { affectedRows: 0, rows: [] };
@@ -219,6 +229,78 @@ describe('executeServiceTransferBatch', () => {
       isDbConfigured: dbConfigured,
       getDb: () => db as any,
     } as any);
+    expect(res.allowed).toBe(false);
+    expect(res.reason).toBe('precondition_mismatch');
+    expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
+  });
+
+  it('accepts Addon invoice lines joined to a selected hosting service', async () => {
+    const { db, calls } = fakeDb({
+      invoiceItems: [
+        { relid: 10, type: 'Hosting', addon_hostingid: null },
+        { relid: 501, type: 'Addon', addon_hostingid: 10 },
+      ],
+    });
+    const res = await executeServiceTransferBatch({
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'unpaid_only',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
+    } as any);
+
+    expect(res.allowed).toBe(true);
+    expect(res.phase_2?.committed).toBe(true);
+    expect(calls.some((call) => call.sql.toLowerCase().includes('tblhostingaddons'))).toBe(true);
+  });
+
+  it('rejects Addon invoice lines joined to an unselected hosting service', async () => {
+    const { db, calls } = fakeDb({
+      invoiceItems: [
+        { relid: 10, type: 'Hosting', addon_hostingid: null },
+        { relid: 502, type: 'Addon', addon_hostingid: 11 },
+      ],
+    });
+    const res = await executeServiceTransferBatch({
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'unpaid_only',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
+    } as any);
+
+    expect(res.allowed).toBe(false);
+    expect(res.reason).toBe('precondition_mismatch');
+    expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
+  });
+
+  it('rejects Addon invoice lines without a proven hosting relationship', async () => {
+    const { db, calls } = fakeDb({
+      invoiceItems: [
+        { relid: 10, type: 'Hosting', addon_hostingid: null },
+        { relid: 503, type: 'Addon', addon_hostingid: null },
+      ],
+    });
+    const res = await executeServiceTransferBatch({
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'unpaid_only',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
+    } as any);
+
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
     expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
@@ -545,7 +627,7 @@ function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}
     async query(sql, params) {
       calls.push({ sql, params });
       const s = sql.replace(/\s+/g, ' ').toLowerCase();
-      if (s.startsWith('select') && s.includes('tblhosting'))
+      if (s.startsWith('select') && s.includes('from tblhosting where'))
         return { affectedRows: 0, rows: [{ id: params[0], userid: 1, domainstatus: 'Active' }] };
       if (s.startsWith('select') && s.includes('tblclients'))
         return {
@@ -558,7 +640,10 @@ function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}
         return { affectedRows: 0, rows: ids.map((id) => ({ id })) };
       }
       if (s.startsWith('select') && s.includes('tblinvoiceitems'))
-        return { affectedRows: 0, rows: [{ serviceid: 10, type: 'Hosting' }] };
+        return {
+          affectedRows: 0,
+          rows: [{ relid: 10, type: 'Hosting', addon_hostingid: null }],
+        };
       if (s.startsWith('select') && s.includes('tblinvoice')) {
         // params[0] is the serviceid (relid) from the WHERE it.relid = ? clause.
         const svcId = params[0] as number;
