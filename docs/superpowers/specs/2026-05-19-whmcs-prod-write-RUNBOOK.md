@@ -53,7 +53,7 @@ printf '%s' "$RAW" | shasum -a 256      # the token_sha256 for the registry
 | Env var | Default | Effect |
 |---|---|---|
 | `MCP_PROD_WRITE_AUTHORIZED` | `` (empty) | Per-action prod allowlist. Empty ⇒ nothing executes in prod. |
-| `MCP_WRITE_KILL_SWITCH` | `false` | `true`/`1` ⇒ instant global seal, beats everything. |
+| `MCP_WRITE_KILL_SWITCH` | `false` | `true`/`1` plus an MCP service/process restart ⇒ global seal, beats everything. |
 | `MCP_WRITE_AUDIT_PATH` | `` (in-memory) | JSONL durable audit. **Required** (config fails fast) once `MCP_PROD_WRITE_AUTHORIZED` is non-empty. |
 | `MCP_WRITE_IDEMPOTENCY_PATH` | `` (in-memory) | Durable replay guard across restart. |
 | `MCP_PROD_HIGH_RISK_PER_ACTION_CAP` | `0` | High-risk per-action cap. 0 ⇒ all money actions denied. |
@@ -84,7 +84,8 @@ MCP_PROD_WRITE_AUTHORIZED=AddClientNote
 Then, via Cowork: draft → validate → approve → execute a single
 `client_note:write` against a known internal/test client; confirm the note in
 WHMCS admin and in the durable audit JSONL. **Roll back** by clearing
-`MCP_PROD_WRITE_AUTHORIZED` (or `MCP_WRITE_KILL_SWITCH=1`).
+`MCP_PROD_WRITE_AUTHORIZED` or setting `MCP_WRITE_KILL_SWITCH=1`, then restart
+the MCP service/process so the new environment is loaded.
 
 **Do NOT** add ticket/billing/service/domain/payment actions to the prod
 allowlist until the note canary has succeeded and been reviewed (S5+). Money
@@ -92,11 +93,13 @@ actions (S7) additionally require: a real human approver via
 `approve_write_intent`, non-zero caps, and durable audit (enforced by config +
 the authorizer; proven in the high-risk test suite).
 
-## 4. Kill switch (instant seal, any time)
+## 4. Kill switch (global seal after process restart)
 
-Set `MCP_WRITE_KILL_SWITCH=1` (or `true`) and restart — every write intent is
-denied `kill_switch_engaged` regardless of allowlist/approval. It is the first
-gate checked.
+Set `MCP_WRITE_KILL_SWITCH=1` (or `true`) and restart the MCP service/process —
+every write intent is denied `kill_switch_engaged` regardless of
+allowlist/approval. An HTTP reconnect or new session is insufficient. A stdio
+reconnect counts only when it terminates and respawns the child process. The
+kill switch is the first execution gate checked after the new process starts.
 
 ## 5. Spike 0 + Track E — RESOLVED (2026-05-20)
 
@@ -210,7 +213,8 @@ unset MCP_PROD_HIGH_RISK_PER_ACTION_CAP
 unset MCP_PROD_HIGH_RISK_DAILY_CAP
 ```
 
-Or set `MCP_WRITE_KILL_SWITCH=1` to instantly re-seal everything.
+Or set `MCP_WRITE_KILL_SWITCH=1` and restart the MCP service/process to re-seal
+everything after the new process loads the environment.
 
 ## 7. Service hostname/domain rename (`service:domain_rename`)
 
@@ -272,4 +276,5 @@ strings: `MCP_PROD_WRITE_AUTHORIZED=service:price_restore,service:domain_rename`
 unset MCP_PROD_WRITE_AUTHORIZED
 ```
 
-Or set `MCP_WRITE_KILL_SWITCH=1` to instantly re-seal everything.
+Or set `MCP_WRITE_KILL_SWITCH=1` and restart the MCP service/process to re-seal
+everything after the new process loads the environment.
