@@ -53,7 +53,10 @@ posture denies all of them.
    default `0` ⇒ money denied until set).
 4. **Permanent blocks** (`PROD_NEVER_EXECUTABLE` / `_SCOPES`) are checked
    before the allowlist, so an allowlist mistake can never reach a destructive
-   action. `MCP_WRITE_KILL_SWITCH=true` seals everything instantly.
+   action. `MCP_WRITE_KILL_SWITCH=true` seals everything only after a newly
+   started MCP process loads the environment. Restart an HTTP service/process;
+   an HTTP client reconnect or new session is insufficient. For stdio,
+   reconnect only counts when the host terminates and respawns the child.
 
 The execution authorizer is **deny-by-default**: it returns `allowed:true`
 only when all of the above hold.
