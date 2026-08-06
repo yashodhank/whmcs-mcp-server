@@ -78,14 +78,18 @@ draft → validate → approve (when required) → execute → audit/idempotency
 
 `MCP_PROD_WRITE_AUTHORIZED_FILE` is a protected owner-only JSON allowlist. It
 is read on every production execution, so adding or revoking an authorized
-action takes effect without restarting the MCP process. Missing, malformed,
-or group/other-readable files fail closed. A production allowlist also requires
-`MCP_WRITE_AUDIT_PATH` so the mutation has a durable audit trail.
+action takes effect without restarting the MCP process for high-risk,
+strict-scoped, or strict-mode writes. Under the default tiered policy, clearing
+the allowlist does not stop low- or medium-risk non-strict scopes. Missing,
+malformed, or group/other-readable files fail closed when loaded. A production
+allowlist also requires `MCP_WRITE_AUDIT_PATH` so the mutation has a durable
+audit trail.
 
 Important distinction: the live authorization file does not make approval
-records durable. Approval records are process-local; a restart invalidates
-pending in-memory approvals and a high-risk intent must be approved again.
-Durable audit, idempotency, and daily-cap paths must be configured separately.
+records or intent IDs durable. A restart removes pending in-memory intents and
+approvals; operators must draft and validate a new intent, then obtain a new
+approval. Durable audit, idempotency, and daily-cap paths must be configured
+separately.
 
 ## Repository and project boundary
 
@@ -163,12 +167,18 @@ identity.
 - Use `MCP_PROD_WRITE_AUTHORIZED_FILE` for live action/scope rotation where
   possible; protect it with owner-only permissions and pair it with durable
   audit/idempotency paths.
+- Treat an empty production allowlist as revocation only for high-risk,
+  strict-scoped, or strict-mode writes. Universal emergency shutdown requires
+  `MCP_WRITE_KILL_SWITCH=true` and a process restart/reconnect.
 - Treat `approve_write_intent` as an authorization event, not a conversational
   acknowledgement. High-risk operations require a distinct approver and
   execution-time authorization/precondition checks.
 - Do not use direct WHMCS DB access except for the documented owner-transfer
   capability, and never enable that capability without its probe, transaction,
   mixed-invoice safeguards, rollback tests, and operator approval.
+- Treat `billing:invoice:reassign` as an internal composed-only v1 scope. It is
+  not independently executable or schedulable; invoice ownership changes occur
+  only inside the governed `service:transfer_owner` path.
 - Use the local WHMCS test stack for behavior changes. Never run write tests
   against production data.
 - When a production or client operation happens, record sanitized evidence in
@@ -176,11 +186,14 @@ identity.
 
 ## Current delivery handoff
 
-The approval hot-reload work and subsequent automated review fixes are merged
-through PR #74. The current code includes live authorization reload, durable
+The approval hot-reload work, subsequent automated review fixes, operations
+handoff, artifact governance, and sanitized production write runbook are merged
+through PR #77. The current code includes live authorization reload, durable
 audit-path enforcement, transaction-safe owner transfers, complete mixed-
 invoice validation, official WHMCS quote line-item encoding, and numeric-string
-quote amount handling.
+quote amount handling. This handoff update also records the tiered allowlist,
+post-restart replacement ceremony, and composed-only invoice-reassignment
+semantics identified in the post-merge PR #77 review.
 
 [historical customer/commercial detail removed]
 [historical customer/commercial detail removed]

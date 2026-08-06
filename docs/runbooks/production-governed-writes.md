@@ -19,7 +19,8 @@ applicable gates pass:
   write scope;
 - the intent is drafted and validated;
 - high-risk work has a distinct human approver;
-- the action or scope is present in the production authorization allowlist;
+- when allowlisting applies, the action or scope is present in the production
+  authorization allowlist;
 - monetary caps and preconditions pass;
 - the idempotency key has not already been recorded; and
 - the action/scope is not permanently production-blocked.
@@ -88,20 +89,25 @@ Requirements:
 
 The authorization file is read on every production execution. Grant, scope
 reduction, and revocation therefore take effect on the next execution attempt
-without restarting the MCP process. A missing, unreadable, malformed, or
-group/other-accessible file fails closed.
+without restarting the MCP process **for writes that consult the allowlist**:
+high-risk intents, scopes listed in `MCP_WRITE_STRICT_SCOPES`, and all intents
+when `MCP_WRITE_STRICT_ALLOWLIST=true`. With the default strict mode disabled,
+low- and medium-risk scopes that are not strict-scoped do not consult this
+allowlist. A missing, unreadable, malformed, or group/other-accessible file
+fails closed when the running process tries to load it.
 
 ## Restart matrix
 
 | Change | Restart/reconnect required? | Reason |
 |---|---:|---|
-| Edit scopes inside the existing `MCP_PROD_WRITE_AUTHORIZED_FILE` | No | Read on every execution |
-| Revoke all scopes by writing `{"authorized":[]}` | No | Next execution fails authorization |
-| Edit the existing consumer registry file | No, after cache TTL | Registry file is re-read after cache expiry |
+| Edit scopes inside the existing `MCP_PROD_WRITE_AUTHORIZED_FILE` | No | Read on every execution; affects allowlist-gated writes only |
+| Clear the existing authorization file with `{"authorized":[]}` | No | Revokes high-risk, strict-scoped, and strict-mode writes only; it is not a universal stop under the default tiered policy |
+| Remove execution capability/scopes from every write-capable profile in the existing consumer registry file | No, after cache TTL | Registry file is re-read after cache expiry and the current scope grant is checked at execution |
 | Set/change `MCP_PROD_WRITE_AUTHORIZED_FILE` environment variable | Yes | Environment is read at process start |
 | Set/change `MCP_CONSUMER_REGISTRY_FILE` environment variable | Yes | Environment is read at process start |
-| Change `MCP_MODE`, kill switch, caps, or durable paths | Yes | Static runtime configuration |
-| Restart with an approved but unexecuted intent | Re-approval required | Intent and approval records are process-local |
+| Set `MCP_WRITE_KILL_SWITCH=true` for a universal emergency stop | Yes | The kill switch is static runtime configuration and must be loaded by a restarted/reconnected process |
+| Change `MCP_MODE`, caps, or durable paths | Yes | Static runtime configuration |
+| Restart with a pending draft, validated, or approved intent | Fresh ceremony required | Intent IDs and approval records are process-local; draft and validate a new intent, then obtain a new approval |
 
 ## Per-intent ceremony
 
@@ -143,10 +149,10 @@ An `idempotency_replay` denial is a safety result, not an instruction to invent
 a new key. A new natural key is allowed only after read-back proves the earlier
 attempt did not land and the operator approves the recovery.
 
-## Emergency revocation
+## Emergency containment and universal shutdown
 
-The fastest non-restart revocation is to replace the existing live
-authorization file contents with:
+To immediately revoke **allowlist-gated** writes without restarting, replace
+the existing live authorization file contents with:
 
 ```json
 {
@@ -154,22 +160,38 @@ authorization file contents with:
 }
 ```
 
-Verify owner-only permissions remain intact, then attempt a dry/safe validation
-path and confirm execution is denied as `action_not_prod_authorized` (or an
-earlier universal denial). Preserve the audit evidence.
+Verify owner-only permissions remain intact, then use a controlled execution
+attempt for a high-risk or strict-scoped intent and confirm it is denied as
+`action_not_prod_authorized` (or by an earlier gate). Preserve the audit
+evidence. This does **not** stop a low- or medium-risk scope when strict mode is
+disabled and the scope is not listed in `MCP_WRITE_STRICT_SCOPES`.
 
-Changing the kill-switch environment variable is a stronger static posture but
-requires restarting/reconnecting the process. Use both when the incident plan
-calls for process replacement.
+For broader no-restart containment, remove `execution_allowed` capability or
+the applicable write scopes from every write-capable profile in the existing
+consumer registry file, wait for its cache TTL, and verify denial. Do not treat
+that TTL-delayed control as the universal emergency gate.
+
+For a universal emergency shutdown, set `MCP_WRITE_KILL_SWITCH=true`, restart
+or reconnect the MCP process, and prove the running process loaded the new
+configuration. A controlled execution attempt that reaches the authorization
+gate must be denied as `kill_switch_engaged`. Keep the authorization file empty
+as defence in depth, but do not substitute allowlist clearing for the kill
+switch.
 
 ## Direct database ownership transfers
 
-`service:transfer_owner` and `billing:invoice:reassign` are exceptional
-high-risk scopes backed by direct WHMCS database access because the External API
-cannot reassign ownership. Keep the database DSN disabled unless specifically
-scheduled.
+`service:transfer_owner` is an executable, exceptional high-risk scope backed
+by direct WHMCS database access because the External API cannot reassign
+ownership. Keep the database DSN disabled unless a service-owner transfer is
+specifically scheduled.
 
-Before enabling either scope, require:
+`billing:invoice:reassign` is composed-only in v1. It is used internally by the
+service-owner transfer path when invoices are included, but it has no standalone
+executor: a standalone execution returns `unsupported_capability`. Do not draft,
+authorize, or schedule `billing:invoice:reassign` as an independent production
+write.
+
+Before enabling `service:transfer_owner`, require:
 
 - source/destination client and currency preflight;
 - complete invoice-item scope validation, including non-Hosting item types;
