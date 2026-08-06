@@ -66,23 +66,51 @@ vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {} }));
 import { executeServiceTransferBatch, registerWriteFlowTools } from '../../src/tools/writeFlow.js';
 import { __resetRegistryCacheForTests } from '../../src/governance/pipeline.js';
 
-function audit() { const events: any[] = []; return { events, append: (e: any) => events.push(e), appendDurable: (e: any) => events.push(e) } as any; }
+function audit() {
+  const events: any[] = [];
+  return {
+    events,
+    append: (e: any) => events.push(e),
+    appendDurable: (e: any) => events.push(e),
+  } as any;
+}
 function intent(params: Record<string, unknown>) {
-  return createDraftIntent({ consumer_id: 'c1', scope: 'service:transfer_owner', params, naturalKey: 'k', preconditions: {}, projected_effect: 't' });
+  return createDraftIntent({
+    consumer_id: 'c1',
+    scope: 'service:transfer_owner',
+    params,
+    naturalKey: 'k',
+    preconditions: {},
+    projected_effect: 't',
+  });
 }
 // Fake DB: rows keyed by SELECT; UPDATEs report affectedRows from a map.
-function fakeDb(opts: { owner?: number; status?: string; destStatus?: string; srcCur?: string; destCur?: string; serviceGuard?: number } = {}) {
+function fakeDb(
+  opts: {
+    owner?: number;
+    status?: string;
+    destStatus?: string;
+    srcCur?: string;
+    destCur?: string;
+    serviceGuard?: number;
+  } = {}
+) {
   const calls: { sql: string; params: unknown[] }[] = [];
   const tx: DbTx = {
     async query(sql, params) {
       calls.push({ sql, params });
       const s = sql.replace(/\s+/g, ' ').toLowerCase();
       if (s.startsWith('select') && s.includes('tblhosting'))
-        return { affectedRows: 0, rows: [{ id: params[0], userid: opts.owner ?? 1, domainstatus: opts.status ?? 'Active' }] };
-      if (s.startsWith('select') && s.includes('tblclients'))
-        return { affectedRows: 0, rows: [{ id: params[0], status: 'Active', currency_code: (params[0] === 1 ? (opts.srcCur ?? 'USD') : (opts.destCur ?? 'USD')) }] };
-      if (s.startsWith('select') && s.includes('tblinvoice'))
-        return { affectedRows: 0, rows: [] };
+        return {
+          affectedRows: 0,
+          rows: [{ id: params[0], userid: opts.owner ?? 1, domainstatus: opts.status ?? 'Active' }],
+        };
+      if (s.startsWith('select') && s.includes('tblclients')) {
+        const currencyCode = params[0] === 1 ? (opts.srcCur ?? 'USD') : (opts.destCur ?? 'USD');
+        const currency = currencyCode === 'EUR' ? 2 : 1;
+        return { affectedRows: 0, rows: [{ id: params[0], status: 'Active', currency }] };
+      }
+      if (s.startsWith('select') && s.includes('tblinvoice')) return { affectedRows: 0, rows: [] };
       if (s.startsWith('update') && s.includes('tblhosting '))
         return { affectedRows: opts.serviceGuard ?? 1, rows: [] };
       return { affectedRows: 1, rows: [] };
@@ -99,10 +127,18 @@ describe('executeServiceTransferBatch', () => {
     // was called so we can prove the capability gate fires BEFORE any DB access.
     const getDbCalled = { value: false };
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none' }),
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'none',
+      }),
       audit: audit(),
       isDbConfigured: () => false,
-      getDb: () => { getDbCalled.value = true; throw new Error('should not be called'); },
+      getDb: () => {
+        getDbCalled.value = true;
+        throw new Error('should not be called');
+      },
     } as any);
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('unsupported_capability');
@@ -113,8 +149,15 @@ describe('executeServiceTransferBatch', () => {
   it('aborts when service not owned by source', async () => {
     const { db } = fakeDb({ owner: 99 });
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none' }),
-      audit: audit(), isDbConfigured: dbConfigured, getDb: () => db as any,
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'none',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
     } as any);
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -123,8 +166,15 @@ describe('executeServiceTransferBatch', () => {
   it('aborts on currency mismatch', async () => {
     const { db } = fakeDb({ destCur: 'EUR' });
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none' }),
-      audit: audit(), isDbConfigured: dbConfigured, getDb: () => db as any,
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'none',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
     } as any);
     expect(res.reason).toBe('precondition_mismatch');
   });
@@ -132,8 +182,16 @@ describe('executeServiceTransferBatch', () => {
   it('dry_run previews, no UPDATE issued', async () => {
     const { db, calls } = fakeDb();
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none', dry_run: true }),
-      audit: audit(), isDbConfigured: dbConfigured, getDb: () => db as any,
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'none',
+        dry_run: true,
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
     } as any);
     expect(res.dry_run).toBe(true);
     expect(calls.some((c) => c.sql.toLowerCase().startsWith('update'))).toBe(false);
@@ -142,8 +200,15 @@ describe('executeServiceTransferBatch', () => {
   it('commits + verifies on happy path', async () => {
     const { db } = fakeDb();
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10, 11], invoice_mode: 'none' }),
-      audit: audit(), isDbConfigured: dbConfigured, getDb: () => db as any,
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10, 11],
+        invoice_mode: 'none',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
     } as any);
     expect(res.allowed).toBe(true);
     expect(res.phase_2?.committed).toBe(true);
@@ -152,8 +217,15 @@ describe('executeServiceTransferBatch', () => {
   it('rolls back when a service guard affects 0 rows', async () => {
     const { db } = fakeDb({ serviceGuard: 0 });
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none' }),
-      audit: audit(), isDbConfigured: dbConfigured, getDb: () => db as any,
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: [10],
+        invoice_mode: 'none',
+      }),
+      audit: audit(),
+      isDbConfigured: dbConfigured,
+      getDb: () => db as any,
     } as any);
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('transfer_rolled_back');
@@ -166,10 +238,18 @@ describe('executeServiceTransferBatch', () => {
     const bigBatch = Array.from({ length: 51 }, (_, i) => i + 1);
     const getDbCalled = { value: false };
     const res = await executeServiceTransferBatch({
-      intent: intent({ source_clientid: 1, dest_clientid: 2, service_ids: bigBatch, invoice_mode: 'none' }),
+      intent: intent({
+        source_clientid: 1,
+        dest_clientid: 2,
+        service_ids: bigBatch,
+        invoice_mode: 'none',
+      }),
       audit: audit(),
       isDbConfigured: () => true,
-      getDb: () => { getDbCalled.value = true; throw new Error('should not open DB'); },
+      getDb: () => {
+        getDbCalled.value = true;
+        throw new Error('should not open DB');
+      },
     } as any);
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('batch_too_large');
@@ -180,19 +260,35 @@ describe('executeServiceTransferBatch', () => {
 
 // ── billing:invoice:reassign execute guard ────────────────────────────────────
 
-interface Res { content: { text: string }[]; isError?: boolean }
+interface Res {
+  content: { text: string }[];
+  isError?: boolean;
+}
 const J2 = (r: Res) => JSON.parse(r.content[0].text) as Record<string, unknown>;
 const rec2 = (v: unknown) => v as Record<string, unknown>;
 
 function transferHarness() {
   const h: Record<string, (a: Record<string, unknown>) => Promise<Res>> = {};
   const server = {
-    registerTool: (n: string, _c: unknown, cb: unknown) => { h[n] = cb as never; },
+    registerTool: (n: string, _c: unknown, cb: unknown) => {
+      h[n] = cb as never;
+    },
   };
-  const cl = { logToolCall: vi.fn(), logToolResult: vi.fn(), info: vi.fn(), error: vi.fn(), child: () => cl };
+  const cl = {
+    logToolCall: vi.fn(),
+    logToolResult: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    child: () => cl,
+  };
   const mutate = vi.fn().mockResolvedValue({ result: 'success' });
   const read = vi.fn().mockResolvedValue({ result: 'success' });
-  registerWriteFlowTools(server as never, { mutate, read } as never, { child: () => cl } as never, { tryConsume: () => true } as never);
+  registerWriteFlowTools(
+    server as never,
+    { mutate, read } as never,
+    { child: () => cl } as never,
+    { tryConsume: () => true } as never
+  );
   return { h, mutate };
 }
 
@@ -200,14 +296,25 @@ async function approvedIntent(
   h: Record<string, (a: Record<string, unknown>) => Promise<Res>>,
   scope: string,
   params: Record<string, unknown>,
-  nk: string,
+  nk: string
 ) {
   const execTok = { auth_token: TOKEN_RAW };
   const approveTok = { auth_token: APPROVER_RAW };
-  const d = await h.draft_write_intent({ scope, params, naturalKey: nk, projected_effect: scope, ...execTok });
+  const d = await h.draft_write_intent({
+    scope,
+    params,
+    naturalKey: nk,
+    projected_effect: scope,
+    ...execTok,
+  });
   const id = rec2(J2(d).intent).intent_id as string;
   await h.validate_write_intent({ intent_id: id, ...execTok });
-  await h.approve_write_intent({ intent_id: id, approver: 'op', decision: 'approved', ...approveTok });
+  await h.approve_write_intent({
+    intent_id: id,
+    approver: 'op',
+    decision: 'approved',
+    ...approveTok,
+  });
   return { id, execTok };
 }
 
@@ -219,7 +326,7 @@ describe('billing:invoice:reassign execute guard (composed-only, v1)', () => {
       h,
       'billing:invoice:reassign',
       { invoice_id: 100, dest_clientid: 2 },
-      'reassign-guard-1',
+      'reassign-guard-1'
     );
     const e = await h.execute_write_intent({ intent_id: id, ...execTok });
     const ep = J2(e);
@@ -233,10 +340,17 @@ describe('billing:invoice:reassign execute guard (composed-only, v1)', () => {
 
 import { config } from '../../src/config.js';
 
-const TRANSFER_PARAMS = { source_clientid: 1, dest_clientid: 2, service_ids: [10], invoice_mode: 'none' as const };
+const TRANSFER_PARAMS = {
+  source_clientid: 1,
+  dest_clientid: 2,
+  service_ids: [10],
+  invoice_mode: 'none' as const,
+};
 
 describe('service:transfer_owner — full-flow gate tests', () => {
-  beforeEach(() => { __resetRegistryCacheForTests?.(); });
+  beforeEach(() => {
+    __resetRegistryCacheForTests?.();
+  });
 
   it('SEALED: production env with empty prod allowlist blocks execute with action_not_prod_authorized', async () => {
     // Temporarily switch to production environment — gate checks MCP_PROD_WRITE_AUTHORIZED
@@ -248,10 +362,21 @@ describe('service:transfer_owner — full-flow gate tests', () => {
       // Draft + validate + approve (distinct approver) — all succeed pre-execute.
       const execTok = { auth_token: TOKEN_RAW };
       const approveTok = { auth_token: APPROVER_RAW };
-      const d = await h.draft_write_intent({ scope: 'service:transfer_owner', params: TRANSFER_PARAMS, naturalKey: 'sealed-1', projected_effect: 'transfer', ...execTok });
+      const d = await h.draft_write_intent({
+        scope: 'service:transfer_owner',
+        params: TRANSFER_PARAMS,
+        naturalKey: 'sealed-1',
+        projected_effect: 'transfer',
+        ...execTok,
+      });
       const id = rec2(J2(d).intent).intent_id as string;
       await h.validate_write_intent({ intent_id: id, ...execTok });
-      await h.approve_write_intent({ intent_id: id, approver: 'op', decision: 'approved', ...approveTok });
+      await h.approve_write_intent({
+        intent_id: id,
+        approver: 'op',
+        decision: 'approved',
+        ...approveTok,
+      });
       const e = await h.execute_write_intent({ intent_id: id, ...execTok });
       const ep = J2(e);
       // Gate must block — the prod allowlist is empty so __db_direct__ is not authorized.
@@ -274,7 +399,13 @@ describe('service:transfer_owner — full-flow gate tests', () => {
     // the approvals record), so we assert the actual observable gate behavior.
     const { h, mutate } = transferHarness();
     const execTok = { auth_token: TOKEN_RAW };
-    const d = await h.draft_write_intent({ scope: 'service:transfer_owner', params: TRANSFER_PARAMS, naturalKey: 'no-approval-1', projected_effect: 'transfer', ...execTok });
+    const d = await h.draft_write_intent({
+      scope: 'service:transfer_owner',
+      params: TRANSFER_PARAMS,
+      naturalKey: 'no-approval-1',
+      projected_effect: 'transfer',
+      ...execTok,
+    });
     const id = rec2(J2(d).intent).intent_id as string;
     await h.validate_write_intent({ intent_id: id, ...execTok });
     // Execute WITHOUT calling approve_write_intent — intent remains in 'validated' state.
@@ -289,11 +420,22 @@ describe('service:transfer_owner — full-flow gate tests', () => {
   it('SELF_APPROVAL: approval recorded by the same consumer that drafted → blocked_reason self_approval_forbidden', async () => {
     const { h, mutate } = transferHarness();
     const execTok = { auth_token: TOKEN_RAW };
-    const d = await h.draft_write_intent({ scope: 'service:transfer_owner', params: TRANSFER_PARAMS, naturalKey: 'self-approve-1', projected_effect: 'transfer', ...execTok });
+    const d = await h.draft_write_intent({
+      scope: 'service:transfer_owner',
+      params: TRANSFER_PARAMS,
+      naturalKey: 'self-approve-1',
+      projected_effect: 'transfer',
+      ...execTok,
+    });
     const id = rec2(J2(d).intent).intent_id as string;
     await h.validate_write_intent({ intent_id: id, ...execTok });
     // Approve using the SAME token as the drafter (self-approval).
-    await h.approve_write_intent({ intent_id: id, approver: 'op', decision: 'approved', ...execTok });
+    await h.approve_write_intent({
+      intent_id: id,
+      approver: 'op',
+      decision: 'approved',
+      ...execTok,
+    });
     const e = await h.execute_write_intent({ intent_id: id, ...execTok });
     const ep = J2(e);
     expect(ep.executed).toBeFalsy();
@@ -307,7 +449,12 @@ describe('service:transfer_owner — full-flow gate tests', () => {
     // The intent gets past the gate (local env, runtime-authorized __db_direct__,
     // distinct approver) but then hits the DB capability guard.
     const { h, mutate } = transferHarness();
-    const { id, execTok } = await approvedIntent(h, 'service:transfer_owner', TRANSFER_PARAMS, 'cap-off-1');
+    const { id, execTok } = await approvedIntent(
+      h,
+      'service:transfer_owner',
+      TRANSFER_PARAMS,
+      'cap-off-1'
+    );
     const e = await h.execute_write_intent({ intent_id: id, ...execTok });
     const ep = J2(e);
     expect(ep.executed).toBeFalsy();
@@ -328,13 +475,15 @@ describe('service:transfer_owner — full-flow gate tests', () => {
       h,
       'service:transfer_owner',
       { source_clientid: 1, dest_clientid: 2, service_ids: bigBatch, invoice_mode: 'none' },
-      'batch-too-large-ff-1',
+      'batch-too-large-ff-1'
     );
     const e = await h.execute_write_intent({ intent_id: id, ...execTok });
     const ep = J2(e);
     expect(ep.executed).toBeFalsy();
     // Capability gate fires before batch-size check in the handler path.
-    expect(['unsupported_capability', 'batch_too_large']).toContain(rec2(ep.execution).blocked_reason);
+    expect(['unsupported_capability', 'batch_too_large']).toContain(
+      rec2(ep.execution).blocked_reason
+    );
     expect(mutate).not.toHaveBeenCalled();
   });
 });
@@ -352,15 +501,17 @@ function fakeDbForInvoiceMode(invoicesByServiceId: Record<number, number[]> = {}
       if (s.startsWith('select') && s.includes('tblhosting'))
         return { affectedRows: 0, rows: [{ id: params[0], userid: 1, domainstatus: 'Active' }] };
       if (s.startsWith('select') && s.includes('tblclients'))
-        return { affectedRows: 0, rows: [{ id: params[0], status: 'Active', currency_code: 'USD' }] };
+        return {
+          affectedRows: 0,
+          rows: [{ id: params[0], status: 'Active', currency_code: 'USD' }],
+        };
       if (s.startsWith('select') && s.includes('tblinvoice')) {
         // params[0] is the serviceid (relid) from the WHERE it.relid = ? clause.
         const svcId = params[0] as number;
         const ids = invoicesByServiceId[svcId] ?? [];
         return { affectedRows: 0, rows: ids.map((id) => ({ id })) };
       }
-      if (s.startsWith('update') && s.includes('tblhosting '))
-        return { affectedRows: 1, rows: [] };
+      if (s.startsWith('update') && s.includes('tblhosting ')) return { affectedRows: 1, rows: [] };
       return { affectedRows: 1, rows: [] };
     },
   };
@@ -372,8 +523,8 @@ function auditForMode() {
   const events: { message?: string; detail?: string; [k: string]: unknown }[] = [];
   return {
     events,
-    append: (e: unknown) => events.push(e as typeof events[0]),
-    appendDurable: (e: unknown) => events.push(e as typeof events[0]),
+    append: (e: unknown) => events.push(e as (typeof events)[0]),
+    appendDurable: (e: unknown) => events.push(e as (typeof events)[0]),
   } as any;
 }
 
@@ -401,7 +552,7 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
     expect(invoiceCalls).toHaveLength(0);
     // No UPDATE tblinvoices or UPDATE tblinvoiceitems must be issued.
     const invoiceUpdates = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoice'),
+      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoice')
     );
     expect(invoiceUpdates).toHaveLength(0);
   });
@@ -418,19 +569,21 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
       getDb: () => db as any,
     } as any);
     const invoiceSelectCalls = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice'),
+      (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice')
     );
     expect(invoiceSelectCalls.length).toBeGreaterThan(0);
     // Must include exactly one status clause for Unpaid.
     expect(invoiceSelectCalls[0].sql).toMatch(/i\.status\s*=\s*'Unpaid'/i);
     // Assert the enumerated invoice (id=100) is actually UPDATEd.
     const invoiceUpdates = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoices '),
+      (c) =>
+        c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoices ')
     );
     expect(invoiceUpdates).toHaveLength(1);
     expect(invoiceUpdates[0].params).toEqual([2, 100, 1]); // [dest, invoiceid, source]
     const invoiceItemUpdates = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoiceitems '),
+      (c) =>
+        c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoiceitems ')
     );
     expect(invoiceItemUpdates).toHaveLength(1);
     expect(invoiceItemUpdates[0].params).toEqual([2, 100, 1]); // [dest, invoiceid, source]
@@ -448,20 +601,22 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
       getDb: () => db as any,
     } as any);
     const invoiceSelectCalls = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice'),
+      (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice')
     );
     expect(invoiceSelectCalls.length).toBeGreaterThan(0);
     // The 'all' mode must NOT have the Unpaid status filter.
     expect(invoiceSelectCalls[0].sql).not.toMatch(/i\.status\s*=\s*'Unpaid'/i);
     // Assert both enumerated invoices (100 and 200) are UPDATEd.
     const invoiceUpdates = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoices '),
+      (c) =>
+        c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoices ')
     );
     expect(invoiceUpdates).toHaveLength(2);
     const updatedInvoiceIds = invoiceUpdates.map((c) => c.params[1]);
     expect(updatedInvoiceIds).toEqual(expect.arrayContaining([100, 200]));
     const invoiceItemUpdates = calls.filter(
-      (c) => c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoiceitems '),
+      (c) =>
+        c.sql.toLowerCase().startsWith('update') && c.sql.toLowerCase().includes('tblinvoiceitems ')
     );
     expect(invoiceItemUpdates).toHaveLength(2);
     const updatedItemInvoiceIds = invoiceItemUpdates.map((c) => c.params[1]);
@@ -470,7 +625,7 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
     const warningEvent = auditLog.events.find(
       (e: Record<string, unknown>) =>
         typeof e === 'object' &&
-        JSON.stringify(e).includes('WARNING invoice_mode=all re-owns SETTLED invoices'),
+        JSON.stringify(e).includes('WARNING invoice_mode=all re-owns SETTLED invoices')
     );
     expect(warningEvent).toBeDefined();
   });
