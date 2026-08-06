@@ -16,6 +16,7 @@ import { isToolAllowed } from '../config.js';
 import { ensureToolAuth, isClientMode, ensureClientAllowed, AUTH_SHAPE } from '../security.js';
 import { normalizeToArray } from '../whmcs/normalizers.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
+import { ToolProgress as AggregatorProgress, type ProgressExtra } from './progress.js';
 import { getCapability } from '../governance/capabilities.js';
 import {
   applyGovernanceOrLegacy,
@@ -435,110 +436,6 @@ const AGGREGATOR_OUTPUT_SCHEMA = z.object(AGGREGATOR_OUTPUT_SHAPE).catchall(z.un
 interface PartialError {
   section: string;
   error: string;
-}
-
-/**
- * The slice of the SDK `RequestHandlerExtra` (`ToolCallback` 2nd arg) this
- * module needs for MCP progress notifications (spec 2025-11-25). Kept as a
- * narrow structural type so we depend only on the two fields we use and stay
- * forward-compatible with the SDK's wider shape:
- *  - `_meta.progressToken` — the opaque token the client supplies when it
- *    wants out-of-band progress (request `_meta`); absent ⇒ no progress.
- *  - `sendNotification` — emits `notifications/progress` related to this call.
- */
-interface ProgressExtra {
-  _meta?: { progressToken?: string | number };
-  sendNotification?: (notification: {
-    method: 'notifications/progress';
-    params: {
-      progressToken: string | number;
-      progress: number;
-      total?: number;
-      message?: string;
-    };
-  }) => Promise<unknown>;
-}
-
-/**
- * Live, section-by-section progress emitter for the slow fan-out aggregators.
- *
- * FEATURE-DETECT / NO-OP: progress is emitted ONLY when the client supplied a
- * `progressToken` in the request `_meta` AND the transport exposes
- * `sendNotification`. Absent either, every method is a silent no-op, so the
- * default (no-token) path is completely unchanged and aggregator results are
- * byte-identical whether or not progress is emitted.
- *
- * NEVER THROWS: emission is fire-and-forget and fully wrapped in try/catch
- * (sync throw) plus a rejection handler (async throw) so a misbehaving
- * transport can never turn an aggregator into a failure.
- *
- * NO PII / SECRETS: messages are section names + counts only.
- */
-class AggregatorProgress {
-  private readonly token: string | number | undefined;
-  private readonly send: ProgressExtra['sendNotification'] | undefined;
-  private done = 0;
-
-  constructor(
-    private readonly total: number,
-    extra?: ProgressExtra
-  ) {
-    const token = extra?._meta?.progressToken;
-    // Feature-detect: only arm when BOTH a token and a sender are present.
-    if (
-      (typeof token === 'string' || typeof token === 'number') &&
-      typeof extra?.sendNotification === 'function'
-    ) {
-      this.token = token;
-      this.send = extra.sendNotification;
-    }
-  }
-
-  /** True when the client armed progress (token + sender present). */
-  private get active(): boolean {
-    return this.send !== undefined && this.token !== undefined;
-  }
-
-  /**
-   * Mark `section` complete and emit cumulative progress
-   * ("section X/total"). No-op when inactive; never throws.
-   */
-  section(section: string): void {
-    if (!this.active) return;
-    this.done = Math.min(this.done + 1, this.total);
-    this.emit(`${section} ${String(this.done)}/${String(this.total)}`);
-  }
-
-  /**
-   * Force a terminal `progress === total` ping. Use after all sections so the
-   * final notification always reports completion. No-op when inactive.
-   */
-  finish(): void {
-    if (!this.active) return;
-    this.done = this.total;
-    this.emit(`complete ${String(this.total)}/${String(this.total)}`);
-  }
-
-  private emit(message: string): void {
-    if (this.send === undefined || this.token === undefined) return;
-    try {
-      void Promise.resolve(
-        this.send({
-          method: 'notifications/progress',
-          params: {
-            progressToken: this.token,
-            progress: this.done,
-            total: this.total,
-            message,
-          },
-        })
-      ).catch(() => {
-        // Swallow async transport errors — progress is best-effort only.
-      });
-    } catch {
-      // Swallow sync throws — progress must never break an aggregator.
-    }
-  }
 }
 
 /**

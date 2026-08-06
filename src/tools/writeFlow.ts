@@ -25,6 +25,7 @@ import { WhmcsClient } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { assertNoPAN, PANDetectedError } from '../security/panScanner.js';
+import { deriveToolMeta } from './meta.js';
 import { config, isToolAllowed } from '../config.js';
 import { AUTH_SHAPE } from '../security.js';
 import {
@@ -311,17 +312,21 @@ const RESULT_OUTPUT_SHAPE = {
 
 function err(message: string, extra?: Record<string, unknown>) {
   const payload = { isError: true, error: message, ...(extra ?? {}) };
+  const _meta = deriveToolMeta(payload);
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
     structuredContent: payload,
     isError: true,
+    ...(_meta ? { _meta } : {}),
   };
 }
 
 function out(payload: Record<string, unknown>) {
+  const _meta = deriveToolMeta(payload);
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
     structuredContent: payload,
+    ...(_meta ? { _meta } : {}),
   };
 }
 

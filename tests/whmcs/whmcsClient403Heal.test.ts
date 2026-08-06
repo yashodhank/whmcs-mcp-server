@@ -58,6 +58,24 @@ function axios403(message: string): any {
   };
 }
 
+/** A 403 with NO WHMCS body — the edge/WAF/proxy signature. */
+function axios403NoBody(): any {
+  return {
+    isAxiosError: true,
+    message: 'Request failed with status code 403',
+    response: { status: 403, data: '' },
+  };
+}
+
+function axiosTimeout(): any {
+  return {
+    isAxiosError: true,
+    code: 'ECONNABORTED',
+    message: 'timeout of 30000ms exceeded',
+    request: {},
+  };
+}
+
 beforeEach(() => {
   post.mockReset();
   attemptIpAllowlistHeal.mockReset();
@@ -102,5 +120,58 @@ describe('WhmcsClient 403 auto-heal discrimination', () => {
     await expect(client.call('GetCurrencies', {}, { normalize: false })).rejects.toThrow();
 
     expect(attemptIpAllowlistHeal).not.toHaveBeenCalled();
+  });
+});
+
+describe('WhmcsClient 403 edge/WAF handling + diagnosability', () => {
+  it('resets the connection and retries ONCE on an edge/WAF 403 (no body); recovers on retry', async () => {
+    post
+      .mockRejectedValueOnce(axios403NoBody())
+      .mockResolvedValueOnce({ status: 200, data: { result: 'success' } });
+
+    const client = new WhmcsClient(cfg(), makeLogger());
+    const result: any = await client.call('GetCurrencies', {}, { normalize: false });
+
+    expect(result.result).toBe('success');
+    expect(attemptIpAllowlistHeal).not.toHaveBeenCalled(); // not an IP issue
+    expect(post).toHaveBeenCalledTimes(2); // one fresh-connection retry
+  });
+
+  it('throws an enriched, self-diagnosing 403 when the edge/WAF block persists', async () => {
+    post.mockRejectedValue(axios403NoBody());
+
+    const client = new WhmcsClient(cfg(), makeLogger());
+    const err: any = await client
+      .call('GetCurrencies', {}, { normalize: false })
+      .catch((e: unknown) => e);
+
+    expect(String(err.message)).toMatch(/WAF/);
+    expect(String(err.message)).toMatch(/api-connectivity-troubleshooting\.md/);
+    expect(attemptIpAllowlistHeal).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledTimes(2); // original + one reset retry, then throw
+  });
+
+  it('enriches a permission 403 with a non-IP hint (no connection reset)', async () => {
+    post.mockRejectedValue(axios403('Invalid Permissions: API action not allowed'));
+
+    const client = new WhmcsClient(cfg(), makeLogger());
+    const err: any = await client
+      .call('GetCurrencies', {}, { normalize: false })
+      .catch((e: unknown) => e);
+
+    expect(String(err.message)).toMatch(/permission\/role/i);
+    expect(String(err.message)).toMatch(/api-connectivity-troubleshooting\.md/);
+    expect(post).toHaveBeenCalledTimes(1); // no reset retry for a bodied 403
+  });
+
+  it('gives a timeout-specific message on ECONNABORTED', async () => {
+    post.mockRejectedValue(axiosTimeout());
+
+    const client = new WhmcsClient(cfg(), makeLogger());
+    const err: any = await client
+      .call('GetCurrencies', {}, { normalize: false, allowRetry: false })
+      .catch((e: unknown) => e);
+
+    expect(String(err.message)).toMatch(/timed out after 30s/);
   });
 });

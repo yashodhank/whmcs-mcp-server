@@ -7,12 +7,13 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { config } from './config.js';
+import { config, getWhmcsApiEndpoint } from './config.js';
 import { Logger } from './logging.js';
 import { startHttpServer } from './http/httpServer.js';
 import { initMcpLogging } from './mcpLogging.js';
 import { RateLimiter } from './rateLimiter.js';
 import { WhmcsClient } from './whmcs/WhmcsClient.js';
+import { checkWhmcsConnectivity } from './whmcs/healthCheck.js';
 
 // Tool registrations
 import { registerClientTools } from './tools/clients.js';
@@ -138,6 +139,14 @@ async function main(): Promise<void> {
   // Initialize WHMCS client
   const whmcsClient = new WhmcsClient(config, logger);
 
+  // ── Boot-time connectivity self-check ─────────────────────────────────────
+  // Surface a misconfigured WHMCS_API_URL / credential / IP-allowlist issue at
+  // startup with an actionable hint, instead of on the first tool call.
+  //  - `off`    : skip.
+  //  - `warn`   : probe NON-BLOCKING (no startup latency); log a warning on fail.
+  //  - `strict` : await the probe; exit(1) on failure (catch misconfig at deploy).
+  await runStartupHealthCheck(whmcsClient, logger);
+
   // ── Transport selection (MCP Adoption #10) ───────────────────────────────
   // Default `stdio` is byte-identical to the pre-HTTP server. `http` opts into
   // the Streamable HTTP transport with bearer auth bridged to the consumer
@@ -164,6 +173,43 @@ async function main(): Promise<void> {
     });
     process.exit(1);
   }
+}
+
+/**
+ * Run the boot-time WHMCS connectivity probe per MCP_STARTUP_HEALTHCHECK.
+ * `strict` awaits + exits on failure; `warn` fires non-blocking; `off` skips.
+ */
+async function runStartupHealthCheck(whmcsClient: WhmcsClient, logger: Logger): Promise<void> {
+  const mode = config.MCP_STARTUP_HEALTHCHECK;
+  if (mode === 'off') return;
+
+  const endpoint = getWhmcsApiEndpoint();
+  if (mode === 'strict') {
+    const r = await checkWhmcsConnectivity(whmcsClient);
+    if (!r.ok) {
+      logger.error('WHMCS startup health check FAILED (strict) — refusing to start', {
+        reason: r.reason,
+        hint: r.hint,
+        endpoint,
+      });
+      process.exit(1);
+    }
+    logger.info('WHMCS connectivity OK', { endpoint });
+    return;
+  }
+
+  // warn: do not block startup — probe in the background and log the outcome.
+  void checkWhmcsConnectivity(whmcsClient).then((r) => {
+    if (r.ok) {
+      logger.info('WHMCS connectivity OK', { endpoint });
+    } else {
+      logger.warn('WHMCS startup health check failed', {
+        reason: r.reason,
+        hint: r.hint,
+        endpoint,
+      });
+    }
+  });
 }
 
 // Handle uncaught errors
