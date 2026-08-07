@@ -9,10 +9,10 @@
  *
  * WHY THIS EXISTS — (1) deterministic probe-cache isolation
  * ---------------------------------------------------------
- * `src/governance/capabilities.ts` keeps a process-lifetime, module-level
- * `probeCache` Map. `probeCapability()` writes resolved (often NON-
+ * `src/governance/capabilityEvidence.ts` keeps module-level, target-scoped
+ * expiring evidence. `probeCapability()` writes resolved (often NON-
  * `supported`: `unsupported` / `not_authorized` / `degraded`) statuses into
- * it, and `getCapability()` returns a cached entry IN PREFERENCE to the
+ * it, and `getCapability()` returns matching evidence IN PREFERENCE to the
  * static `CAPABILITY_REGISTRY` seed.
  *
  * Several suites exercise `probeCapability` with mocked `read`/allowlist deps

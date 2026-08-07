@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "catalog_version": 2,
+  "operations": [
+    {
+      "id": "capabilities.matrix.read",
+      "public_name": "get_capability_matrix",
+      "domain": "capabilities",
+      "description": "Read-only machine-readable capability + WHMCS-version status matrix (supported/unverified/unsupported per action). Pure; calls no WHMCS API. WHMCS version is reported unverified until prod-probed.",
+      "effects": "pure",
+      "risk_tier": "none",
+      "whmcs_actions": [],
+      "capability": {
+        "mode": "none",
+        "probe": "none"
+      },
+      "governance": {
+        "scope": null,
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "constant",
+        "maxWhmcsCalls": 0,
+        "maxItems": 100
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": false
+      },
+      "pagination": null,
+      "prerequisites": [],
+      "fallbacks": [],
+      "protocol_features": ["tools"],
+      "version": 1
+    }
+  ]
+}

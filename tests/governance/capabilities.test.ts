@@ -110,10 +110,14 @@ describe('capability registry (B4)', () => {
 
     it('promotes to supported on a successful probe, sets verifiedAt, and caches', async () => {
       const read = vi.fn().mockResolvedValue({ result: 'success', transactions: {} });
-      const first = await probeCapability('GetTransactions', {
-        read,
-        isAllowlisted: ALLOW_ALL,
-      });
+      const first = await probeCapability(
+        'GetTransactions',
+        {
+          read,
+          isAllowlisted: ALLOW_ALL,
+        },
+        { limitnum: 999 }
+      );
       expect(first.status).toBe('supported');
       expect(first.verifiedAt).toBeDefined();
       const verifiedAt = first.verifiedAt ?? '';
@@ -171,9 +175,9 @@ describe('capability registry (B4)', () => {
         read,
         isAllowlisted: ALLOW_ALL,
       });
-      // unknown action is synthesized unsupported; probe still issues the read
-      // because the allowlist is the gate, then success ⇒ supported.
       expect(result.action).toBe('NoSuchAction');
+      expect(result.status).toBe('unsupported');
+      expect(read).not.toHaveBeenCalled();
     });
   });
 
@@ -265,12 +269,12 @@ describe('capability registry (B4)', () => {
 });
 
 /**
- * Phase H — deterministic probe-cache isolation regression.
+ * Phase H — deterministic capability-evidence isolation regression.
  *
  * This describe DELIBERATELY has NO local beforeEach/afterEach cache reset.
  * It proves the GLOBAL per-test reset (tests/setupEach.ts, wired via
  * vitest.config.ts `setupFiles`) is in effect: test 1 poisons the
- * module-level `probeCache` for every Phase-H promoted action with a
+ * module-level evidence store for every Phase-H promoted action with a
  * non-`supported` status (exactly what `probeCapability` does in real
  * suites); test 2 — with no local cleanup of its own — asserts the static
  * `supported` seed is visible again. Test 2 ONLY passes if a global
@@ -280,10 +284,10 @@ describe('capability registry (B4)', () => {
  * which is the same root cause that makes aggregators.test.ts /
  * capabilityShellTools.test.ts flaky across files.
  */
-describe('probe-cache isolation (global setupEach regression)', () => {
+describe('capability-evidence isolation (global setupEach regression)', () => {
   const PROMOTED = ['GetTransactions', 'GetStats', 'GetToDoItems', 'GetAutomationLog'] as const;
 
-  it('poisons probeCache for the promoted actions (no local cleanup)', async () => {
+  it('records negative evidence for the promoted actions (no local cleanup)', async () => {
     // ALLOW_NONE ⇒ resolves `unsupported` and caches it, exactly like a
     // real not-allowlisted probe would.
     for (const action of PROMOTED) {
