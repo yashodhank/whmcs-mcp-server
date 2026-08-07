@@ -295,8 +295,11 @@ consumer id plus effective capability, write-scope, contract, write-mode and
 client-allowlist grants without storing any raw identity or bearer token.
 Preflight and drafting require an exact current match and recheck operation
 visibility. Preflight emits status only and propagates cancellation to the
-bounded WHMCS read. Multi-step drafting stops on the first denial and reports
-partial results explicitly; already-created records remain drafts only.
+bounded WHMCS read without caching cancellation as degraded evidence. Drafting
+reruns bounded privacy and strict catalog-schema validation even for a
+self-consistent caller-rehashed plan. Multi-step drafting stops on the first
+denial and reports partial results explicitly; already-created records remain
+drafts only.
 
 The current public catalog is 61 tools, 10 prompts, 5 concrete resources, and
 9 resource templates. The additive Plan 003/005 surfaces are

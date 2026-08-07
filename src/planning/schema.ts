@@ -11,6 +11,20 @@ export const planInputSchema = z.discriminatedUnion('kind', [
     .strict(),
 ]);
 
+function rejectOversizedInputRecord(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  let count = 0;
+  for (const key in value) {
+    if (Object.hasOwn(value, key) && ++count > 100) return null;
+  }
+  return value;
+}
+
+const boundedStepInputsSchema = z.preprocess(
+  rejectOversizedInputRecord,
+  z.record(z.string(), planInputSchema)
+).nonoptional();
+
 export const candidatePlanSchema = z
   .object({
     schema_version: z.literal(1),
@@ -38,7 +52,7 @@ export const candidatePlanSchema = z
             id: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
             operation_id: z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/),
             depends_on: z.array(z.string()).max(64),
-            inputs: z.record(z.string(), planInputSchema),
+            inputs: boundedStepInputsSchema,
             expected_effect: z.enum(['pure', 'read', 'draft', 'write']),
             expected_risk: z.enum(['none', 'low', 'medium', 'high']),
             preconditions: z.array(z.string().min(1).max(1_000)).max(30),

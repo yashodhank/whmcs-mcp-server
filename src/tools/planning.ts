@@ -32,6 +32,7 @@ import {
   type PlanIR,
 } from '../planning/types.js';
 import { fingerprintPlanningPolicy } from '../planning/policyFingerprint.js';
+import { validatePlanValueSafety } from '../planning/validator.js';
 import { draftWorkflowIntent } from './writeFlow.js';
 import { WRITE_SCOPES, type WriteScope } from '../write/types.js';
 import type { WhmcsClient } from '../whmcs/WhmcsClient.js';
@@ -170,6 +171,15 @@ function currentPlanContextIssues(
       );
       continue;
     }
+    if (step.effect !== definition.effects || step.risk_tier !== definition.riskTier) {
+      issues.push(
+        planningIssue(
+          `${step.id}.effect`,
+          'Compiled effect/risk no longer matches server-owned catalog metadata.',
+          'Recompile through compile_operation_plan.'
+        )
+      );
+    }
     for (const action of definition.whmcsActions) {
       if (!Object.hasOwn(CAPABILITY_REGISTRY, action)) {
         issues.push(
@@ -300,20 +310,28 @@ async function runSafePreflightStep(
       blockers.push(planningIssue(step.id, 'Preflight was cancelled.', 'Retry if still needed.'));
       break;
     }
-    const status = await probeCapability(
-      action,
-      {
-        read: async (safeAction, safeProbeParams) => {
-          if (requestCancelled(signal))
-            throw signal.reason ?? new Error('Planner preflight request cancelled');
-          return whmcs.read(safeAction, safeProbeParams, { signal });
+    let status: Awaited<ReturnType<typeof probeCapability>>;
+    try {
+      status = await probeCapability(
+        action,
+        {
+          read: async (safeAction, safeProbeParams) => {
+            if (requestCancelled(signal))
+              throw signal.reason ?? new Error('Planner preflight request cancelled');
+            return whmcs.read(safeAction, safeProbeParams, { signal });
+          },
+          isAllowlisted: (safeAction) => Object.hasOwn(CAPABILITY_REGISTRY, safeAction),
+          target: context.evidenceTarget,
+          now: () => nowMs,
+          signal,
         },
-        isAllowlisted: (safeAction) => Object.hasOwn(CAPABILITY_REGISTRY, safeAction),
-        target: context.evidenceTarget,
-        now: () => nowMs,
-      },
-      safeParams
-    );
+        safeParams
+      );
+    } catch (error) {
+      if (!requestCancelled(signal)) throw error;
+      blockers.push(planningIssue(step.id, 'Preflight was cancelled.', 'Retry if still needed.'));
+      break;
+    }
     if (requestCancelled(signal)) {
       blockers.push(planningIssue(step.id, 'Preflight was cancelled.', 'Retry if still needed.'));
       break;
@@ -540,6 +558,7 @@ export function registerPlanningTools(
       const blockers = [
         ...verifyCompiledPlan(plan, catalog.version, nowMs, resolved.context.policyFingerprint),
         ...currentPlanContextIssues(plan, catalog, resolved.context),
+        ...validatePlanValueSafety(plan, 'plan'),
       ];
       if (
         plan.provenance.installation_id !== resolved.context.evidenceTarget.installationId ||
@@ -602,6 +621,7 @@ export function registerPlanningTools(
           resolved.context.policyFingerprint
         ),
         ...currentPlanContextIssues(plan, catalog, resolved.context),
+        ...validatePlanValueSafety(plan, 'plan'),
       ];
       if (plan.execution_mode !== 'draft_only') {
         blockers.push({
@@ -638,11 +658,11 @@ export function registerPlanningTools(
       for (const step of plan.steps) {
         if (step.effect !== 'draft' && step.effect !== 'write') continue;
         const definition = catalog.getById(step.operation_id);
-        const args = materializeInputs(step.inputs);
+        const materializedArgs = materializeInputs(step.inputs);
         const scope = definition?.governance.scope;
         if (
           definition === undefined ||
-          args === null ||
+          materializedArgs === null ||
           scope === null ||
           scope === undefined ||
           !WRITE_SCOPES.includes(scope as WriteScope)
@@ -655,6 +675,17 @@ export function registerPlanningTools(
           });
           continue;
         }
+        const schemaResult = z.object(definition.inputSchema).strict().safeParse(materializedArgs);
+        if (!schemaResult.success) {
+          blockers.push({
+            severity: 'error',
+            path: `${step.id}.inputs`,
+            reason: 'Draft inputs no longer satisfy the strict server-owned catalog schema.',
+            safe_repair: 'Recompile from a schema-valid candidate.',
+          });
+          continue;
+        }
+        const args = schemaResult.data;
         if (!resolved.context.allowedWriteScopes.has(scope)) {
           blockers.push({
             severity: 'error',

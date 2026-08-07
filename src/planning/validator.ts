@@ -43,6 +43,22 @@ function issue(
   return { severity, path, reason, safe_repair: safeRepair };
 }
 
+function secretKey(key: string): boolean {
+  if (SECRET_KEY.test(key)) return true;
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    normalized === 'auth' ||
+    normalized === 'authorization' ||
+    normalized === 'token' ||
+    normalized.endsWith('token') ||
+    normalized.endsWith('secret') ||
+    normalized.endsWith('password') ||
+    normalized.endsWith('credential') ||
+    normalized.endsWith('apikey') ||
+    normalized.endsWith('authorizationheader')
+  );
+}
+
 function resolvedInputs(
   inputs: Readonly<Record<string, PlanInput>>
 ): Record<string, unknown> | null {
@@ -149,7 +165,7 @@ function scanSensitive(value: unknown, rootPath: string, issues: PlanIssue[]): v
         ? `${current.path}[${key}]`
         : `${current.path}.${key}`;
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (SECRET_KEY.test(key)) {
+      if (secretKey(key)) {
         issues.push(
           issue(
             'error',
@@ -172,6 +188,16 @@ function scanSensitive(value: unknown, rootPath: string, issues: PlanIssue[]): v
       }
     }
   }
+}
+
+/** Bounded privacy/structure validation reused at compile and draft boundaries. */
+export function validatePlanValueSafety(
+  value: unknown,
+  rootPath = 'candidate'
+): readonly PlanIssue[] {
+  const issues: PlanIssue[] = [];
+  scanSensitive(value, rootPath, issues);
+  return issues;
 }
 
 function validateGraph(candidate: CandidatePlan, issues: PlanIssue[]): void {
@@ -288,7 +314,9 @@ export function validateCandidatePlan(input: CompilePlanInput): readonly PlanIss
     );
   }
   validateGraph(candidate, issues);
-  scanSensitive(candidate, 'candidate', issues);
+  const valueSafetyIssues = validatePlanValueSafety(candidate);
+  issues.push(...valueSafetyIssues);
+  if (valueSafetyIssues.some((item) => item.severity === 'error')) return issues;
 
   let totalCalls = 0;
   candidate.steps.forEach((step, index) => {

@@ -129,6 +129,8 @@ export interface ProbeDeps {
   evidenceTtlMs?: number;
   /** Clock injection for deterministic tests. */
   now?: () => number;
+  /** Optional request cancellation; aborted probes never persist evidence. */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_EVIDENCE_TTL_MS = 5 * 60_000;
@@ -296,6 +298,11 @@ export async function probeCapability(
       status = 'supported';
     }
   } catch (error) {
+    if (deps.signal?.aborted === true) {
+      throw deps.signal.reason instanceof Error
+        ? deps.signal.reason
+        : new Error('Capability probe cancelled');
+    }
     const classified = classifyFailure(extractErrorMessage(error));
     status = classified.status;
     failureClass = classified.failureClass;
