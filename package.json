@@ -57,12 +57,16 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/core": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "axios": "^1.19.0",
     "dotenv": "^17.2.3",
     "mysql2": "^3.22.5",
     "uuid": "^13.0.0",
-    "zod": "^4.1.13"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
