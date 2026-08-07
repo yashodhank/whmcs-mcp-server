@@ -5,9 +5,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../dist/index.js';
 
 const expected = Object.freeze({
-  tools: 57,
-  prompts: 9,
-  resources: 4,
+  tools: 61,
+  prompts: 10,
+  resources: 5,
   resourceTemplates: 9,
 });
 const whmcsCalls = [];

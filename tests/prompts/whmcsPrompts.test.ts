@@ -40,6 +40,7 @@ const ALL_PROMPTS = [
   'renewal_risk_triage',
   'ticket_triage_to_resolution',
   'month_end_close',
+  'plan_whmcs_operation',
 ];
 
 function firstText(res: ReturnType<PromptCb>): string {
@@ -61,7 +62,11 @@ describe('registerWhmcsPrompts', () => {
       expect(config.title, name).toBeTruthy();
       expect(config.description, name).toBeTruthy();
       expect(config.argsSchema, name).toBeTruthy();
-      expect(config.argsSchema, name).toHaveProperty('clientid');
+      if (name === 'plan_whmcs_operation') {
+        expect(config.argsSchema, name).toHaveProperty('goal');
+      } else {
+        expect(config.argsSchema, name).toHaveProperty('clientid');
+      }
     }
   });
 
@@ -186,6 +191,20 @@ describe('registerWhmcsPrompts', () => {
     registerWhmcsPrompts(server);
     const text = firstText(prompts.month_end_reconciliation.cb({ clientid: '999' }));
     expect(text).toContain('999');
+  });
+
+  it('plan_whmcs_operation keeps host reasoning non-executable and stops at drafts', () => {
+    const { server, prompts } = makeServer();
+    registerWhmcsPrompts(server);
+    const text = firstText(
+      prompts.plan_whmcs_operation.cb({ goal: 'Assess renewal risk', mode: 'draft_only' })
+    );
+    expect(text).toContain('inspect_operation_catalog');
+    expect(text).toContain('compile_operation_plan');
+    expect(text).toContain('draft_operation_plan');
+    expect(text).toContain('executable=false');
+    expect(text).toContain('Never call validate_write_intent');
+    expect(text).toContain('server does not call an LLM');
   });
 
   it('optional-clientid prompts render a portfolio-wide hint when omitted', () => {

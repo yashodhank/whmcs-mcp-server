@@ -39,12 +39,14 @@ import { registerAggregatorTools } from './tools/aggregators.js';
 import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
 import { registerWriteFlowTools } from './tools/writeFlow.js';
 import { registerWorkflowTools } from './tools/workflows.js';
+import { registerPlanningTools } from './tools/planning.js';
 
 // Resource registrations
 import { registerResources } from './resources/index.js';
 import { registerPlaybookResource } from './playbook/whmcsOpsPlaybook.js';
 import { registerCompat9xResource } from './resources/compat9x.js';
 import { registerCapabilityCatalogResource } from './resources/capabilityCatalog.js';
+import { registerPlanningResource } from './resources/planning.js';
 
 /**
  * Build a fully-configured McpServer (capabilities + all tools/resources/
@@ -99,9 +101,16 @@ export function buildServer(deps: {
   registerSystemRefTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
-  const operationCatalog = registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
+  const capabilityCatalog = registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
   registerWriteFlowTools(server, whmcsClient, logger, rateLimiter);
   registerWorkflowTools(server, whmcsClient, logger, rateLimiter);
+  const operationCatalog = registerPlanningTools(
+    server,
+    capabilityCatalog,
+    logger,
+    rateLimiter,
+    whmcsClient
+  );
 
   // Register resources
   logger.info('Registering MCP resources...');
@@ -109,6 +118,7 @@ export function buildServer(deps: {
   registerPlaybookResource(server, logger);
   registerCompat9xResource(server, logger);
   registerCapabilityCatalogResource(server, operationCatalog);
+  registerPlanningResource(server);
 
   // Register MCP prompts (reusable WHMCS ops playbooks)
   logger.info('Registering MCP prompts...');

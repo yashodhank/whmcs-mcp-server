@@ -92,7 +92,7 @@ describe('public MCP catalog v1 contract', () => {
     };
     expect(payload).toMatchObject({
       schema_version: 2,
-      catalog_version: 2,
+      catalog_version: 3,
       operations: [{ id: 'capabilities.matrix.read', name: 'get_capability_matrix' }],
     });
     expect(payload.etag).toMatch(/^sha256-[a-f0-9]{64}$/);
