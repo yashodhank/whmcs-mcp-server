@@ -88,6 +88,23 @@
     {
       "arguments": [
         {
+          "description": "Operational goal without credentials, raw PII, or pasted WHMCS text.",
+          "name": "goal",
+          "required": true
+        },
+        {
+          "description": "Maximum planning mode; defaults to analyse.",
+          "name": "mode",
+          "required": false
+        }
+      ],
+      "description": "Brainstorm alternatives in the host, then compile a deterministic, non-executable PlanIR.",
+      "name": "plan_whmcs_operation",
+      "title": "Plan a safe WHMCS operation"
+    },
+    {
+      "arguments": [
+        {
           "description": "Optional WHMCS client id to scope the renewal triage.",
           "name": "clientid",
           "required": false
@@ -135,6 +152,10 @@
     {
       "name": "ops-playbook",
       "uri": "whmcs://docs/ops-playbook"
+    },
+    {
+      "name": "planir-guidance-v1",
+      "uri": "whmcs://planning/planir/v1"
     },
     {
       "name": "system-activity",
@@ -477,6 +498,741 @@
         "type": "object"
       },
       "name": "check_domain_availability"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Deterministically validate and compile a structured candidate into non-executable PlanIR. No WHMCS calls.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "candidate": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "rationale": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "trade_offs": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 20,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "rationale",
+                    "trade_offs"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array"
+              },
+              "assumptions": {
+                "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              "catalog_version": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "execution_mode": {
+                "enum": [
+                  "analyse",
+                  "read_only",
+                  "draft_only"
+                ],
+                "type": "string"
+              },
+              "goal": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "requested_outcome": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "schema_version": {
+                "const": 1,
+                "type": "number"
+              },
+              "selected_alternative_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "compensation_note": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "consumer_requirement": {
+                      "type": "string"
+                    },
+                    "data_contract": {
+                      "type": "string"
+                    },
+                    "depends_on": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 64,
+                      "type": "array"
+                    },
+                    "expected_effect": {
+                      "enum": [
+                        "pure",
+                        "read",
+                        "draft",
+                        "write"
+                      ],
+                      "type": "string"
+                    },
+                    "expected_risk": {
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "failure_mode": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "fallback": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "value",
+                                "type": "string"
+                              },
+                              "value": {}
+                            },
+                            "required": [
+                              "kind",
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "slot",
+                                "type": "string"
+                              },
+                              "reason": {
+                                "maxLength": 500,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "value_type": {
+                                "enum": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "value_type",
+                              "reason"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "operation_id": {
+                      "pattern": "^[a-z][a-z0-9._-]{0,127}$",
+                      "type": "string"
+                    },
+                    "postconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "preconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "verification_operation_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "operation_id",
+                    "depends_on",
+                    "inputs",
+                    "expected_effect",
+                    "expected_risk",
+                    "preconditions",
+                    "postconditions",
+                    "failure_mode",
+                    "fallback"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "schema_version",
+              "catalog_version",
+              "goal",
+              "requested_outcome",
+              "assumptions",
+              "alternatives",
+              "selected_alternative_id",
+              "steps",
+              "execution_mode"
+            ],
+            "type": "object"
+          },
+          "ttl_ms": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate"
+        ],
+        "type": "object"
+      },
+      "name": "compile_operation_plan",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "executable": {
+            "const": false,
+            "type": "boolean"
+          },
+          "issues": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "plan": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "plan_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accepted",
+          "executable",
+          "issues"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Convert eligible draft/write steps in unexpired PlanIR into existing governed draft intents only. Never validates, approves, executes, or mutates.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "plan": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "rationale": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "trade_offs": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 20,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "rationale",
+                    "trade_offs"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array"
+              },
+              "assumptions": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "catalog_version": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "estimated_whmcs_calls": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "executable": {
+                "const": false,
+                "type": "boolean"
+              },
+              "execution_mode": {
+                "enum": [
+                  "analyse",
+                  "read_only",
+                  "draft_only"
+                ],
+                "type": "string"
+              },
+              "expected_latency_class": {
+                "enum": [
+                  "instant",
+                  "low",
+                  "moderate",
+                  "high"
+                ],
+                "type": "string"
+              },
+              "expires_at": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "goal": {
+                "type": "string"
+              },
+              "plan_hash": {
+                "pattern": "^sha256-[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "planir_version": {
+                "const": "1.0",
+                "type": "string"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "compiled_at": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                  },
+                  "compiler": {
+                    "const": "whmcs-mcp-plan-compiler",
+                    "type": "string"
+                  },
+                  "configuration_fingerprint": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "installation_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "compiler",
+                  "compiled_at",
+                  "installation_id",
+                  "configuration_fingerprint"
+                ],
+                "type": "object"
+              },
+              "requested_outcome": {
+                "type": "string"
+              },
+              "selected_alternative_id": {
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capability_status": {
+                      "enum": [
+                        "not_required",
+                        "supported",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    },
+                    "compensation_note": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "consumer_requirement": {
+                      "type": "string"
+                    },
+                    "data_contract": {
+                      "type": "string"
+                    },
+                    "depends_on": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 64,
+                      "type": "array"
+                    },
+                    "effect": {
+                      "enum": [
+                        "pure",
+                        "read",
+                        "draft",
+                        "write"
+                      ],
+                      "type": "string"
+                    },
+                    "estimated_whmcs_calls": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "evidence_age_ms": {
+                      "anyOf": [
+                        {
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expected_effect": {
+                      "enum": [
+                        "pure",
+                        "read",
+                        "draft",
+                        "write"
+                      ],
+                      "type": "string"
+                    },
+                    "expected_latency_class": {
+                      "enum": [
+                        "instant",
+                        "low",
+                        "moderate",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "expected_risk": {
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "failure_mode": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "fallback": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "value",
+                                "type": "string"
+                              },
+                              "value": {}
+                            },
+                            "required": [
+                              "kind",
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "slot",
+                                "type": "string"
+                              },
+                              "reason": {
+                                "maxLength": 500,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "value_type": {
+                                "enum": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "value_type",
+                              "reason"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "operation_id": {
+                      "pattern": "^[a-z][a-z0-9._-]{0,127}$",
+                      "type": "string"
+                    },
+                    "postconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "preconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "risk_tier": {
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "verification_operation_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "operation_id",
+                    "depends_on",
+                    "inputs",
+                    "expected_effect",
+                    "expected_risk",
+                    "preconditions",
+                    "postconditions",
+                    "failure_mode",
+                    "fallback",
+                    "effect",
+                    "risk_tier",
+                    "capability_status",
+                    "evidence_age_ms",
+                    "estimated_whmcs_calls",
+                    "expected_latency_class"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "planir_version",
+              "goal",
+              "requested_outcome",
+              "assumptions",
+              "alternatives",
+              "selected_alternative_id",
+              "steps",
+              "execution_mode",
+              "executable",
+              "estimated_whmcs_calls",
+              "expected_latency_class",
+              "catalog_version",
+              "expires_at",
+              "provenance",
+              "plan_hash"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "type": "object"
+      },
+      "name": "draft_operation_plan",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "drafts": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "executable": {
+            "const": false,
+            "type": "boolean"
+          },
+          "executed": {
+            "const": false,
+            "type": "boolean"
+          },
+          "plan_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "executable",
+          "executed",
+          "plan_hash",
+          "drafts",
+          "blockers"
+        ],
+        "type": "object"
+      }
     },
     {
       "annotations": {
@@ -5668,6 +6424,70 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "Return the transport-consumer-filtered operation catalog used by the deterministic planner.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "effect": {
+            "enum": [
+              "pure",
+              "read",
+              "draft",
+              "write"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "inspect_operation_catalog",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "catalog_version": {
+            "type": "number"
+          },
+          "executable": {
+            "const": false,
+            "type": "boolean"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "operations",
+          "executable"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "List a client's domains (read-only). Pagination via limit/offset.",
       "execution": {
         "taskSupport": "forbidden"
@@ -6771,6 +7591,670 @@
             "type": "string"
           }
         },
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Run only explicitly allowlisted pure/safe-read checks from an unexpired compiled PlanIR. Never writes.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "candidate": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "rationale": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "trade_offs": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 20,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "rationale",
+                    "trade_offs"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array"
+              },
+              "assumptions": {
+                "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              "catalog_version": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "execution_mode": {
+                "enum": [
+                  "analyse",
+                  "read_only",
+                  "draft_only"
+                ],
+                "type": "string"
+              },
+              "goal": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "requested_outcome": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "schema_version": {
+                "const": 1,
+                "type": "number"
+              },
+              "selected_alternative_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "compensation_note": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "consumer_requirement": {
+                      "type": "string"
+                    },
+                    "data_contract": {
+                      "type": "string"
+                    },
+                    "depends_on": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 64,
+                      "type": "array"
+                    },
+                    "expected_effect": {
+                      "enum": [
+                        "pure",
+                        "read",
+                        "draft",
+                        "write"
+                      ],
+                      "type": "string"
+                    },
+                    "expected_risk": {
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "failure_mode": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "fallback": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "value",
+                                "type": "string"
+                              },
+                              "value": {}
+                            },
+                            "required": [
+                              "kind",
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "slot",
+                                "type": "string"
+                              },
+                              "reason": {
+                                "maxLength": 500,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "value_type": {
+                                "enum": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "value_type",
+                              "reason"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "operation_id": {
+                      "pattern": "^[a-z][a-z0-9._-]{0,127}$",
+                      "type": "string"
+                    },
+                    "postconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "preconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "verification_operation_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "operation_id",
+                    "depends_on",
+                    "inputs",
+                    "expected_effect",
+                    "expected_risk",
+                    "preconditions",
+                    "postconditions",
+                    "failure_mode",
+                    "fallback"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "schema_version",
+              "catalog_version",
+              "goal",
+              "requested_outcome",
+              "assumptions",
+              "alternatives",
+              "selected_alternative_id",
+              "steps",
+              "execution_mode"
+            ],
+            "type": "object"
+          },
+          "plan": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "rationale": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "trade_offs": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 20,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "rationale",
+                    "trade_offs"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 3,
+                "minItems": 1,
+                "type": "array"
+              },
+              "assumptions": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "catalog_version": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "estimated_whmcs_calls": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "executable": {
+                "const": false,
+                "type": "boolean"
+              },
+              "execution_mode": {
+                "enum": [
+                  "analyse",
+                  "read_only",
+                  "draft_only"
+                ],
+                "type": "string"
+              },
+              "expected_latency_class": {
+                "enum": [
+                  "instant",
+                  "low",
+                  "moderate",
+                  "high"
+                ],
+                "type": "string"
+              },
+              "expires_at": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "goal": {
+                "type": "string"
+              },
+              "plan_hash": {
+                "pattern": "^sha256-[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "planir_version": {
+                "const": "1.0",
+                "type": "string"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "compiled_at": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                  },
+                  "compiler": {
+                    "const": "whmcs-mcp-plan-compiler",
+                    "type": "string"
+                  },
+                  "configuration_fingerprint": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "installation_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "compiler",
+                  "compiled_at",
+                  "installation_id",
+                  "configuration_fingerprint"
+                ],
+                "type": "object"
+              },
+              "requested_outcome": {
+                "type": "string"
+              },
+              "selected_alternative_id": {
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capability_status": {
+                      "enum": [
+                        "not_required",
+                        "supported",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    },
+                    "compensation_note": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "consumer_requirement": {
+                      "type": "string"
+                    },
+                    "data_contract": {
+                      "type": "string"
+                    },
+                    "depends_on": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 64,
+                      "type": "array"
+                    },
+                    "effect": {
+                      "enum": [
+                        "pure",
+                        "read",
+                        "draft",
+                        "write"
+                      ],
+                      "type": "string"
+                    },
+                    "estimated_whmcs_calls": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "evidence_age_ms": {
+                      "anyOf": [
+                        {
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expected_effect": {
+                      "enum": [
+                        "pure",
+                        "read",
+                        "draft",
+                        "write"
+                      ],
+                      "type": "string"
+                    },
+                    "expected_latency_class": {
+                      "enum": [
+                        "instant",
+                        "low",
+                        "moderate",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "expected_risk": {
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "failure_mode": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "fallback": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "value",
+                                "type": "string"
+                              },
+                              "value": {}
+                            },
+                            "required": [
+                              "kind",
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "slot",
+                                "type": "string"
+                              },
+                              "reason": {
+                                "maxLength": 500,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "value_type": {
+                                "enum": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "value_type",
+                              "reason"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "operation_id": {
+                      "pattern": "^[a-z][a-z0-9._-]{0,127}$",
+                      "type": "string"
+                    },
+                    "postconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "preconditions": {
+                      "items": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "risk_tier": {
+                      "enum": [
+                        "none",
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "verification_operation_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "operation_id",
+                    "depends_on",
+                    "inputs",
+                    "expected_effect",
+                    "expected_risk",
+                    "preconditions",
+                    "postconditions",
+                    "failure_mode",
+                    "fallback",
+                    "effect",
+                    "risk_tier",
+                    "capability_status",
+                    "evidence_age_ms",
+                    "estimated_whmcs_calls",
+                    "expected_latency_class"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "planir_version",
+              "goal",
+              "requested_outcome",
+              "assumptions",
+              "alternatives",
+              "selected_alternative_id",
+              "steps",
+              "execution_mode",
+              "executable",
+              "estimated_whmcs_calls",
+              "expected_latency_class",
+              "catalog_version",
+              "expires_at",
+              "provenance",
+              "plan_hash"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "preflight_operation_plan",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "checks": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "executable": {
+            "const": false,
+            "type": "boolean"
+          },
+          "plan": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "plan_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "executable",
+          "plan_hash",
+          "checks",
+          "blockers"
+        ],
         "type": "object"
       }
     },
