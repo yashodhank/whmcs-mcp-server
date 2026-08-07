@@ -52,17 +52,20 @@ required ownership-reassignment API.
 
 ```text
 AI host (Cursor / Claude / other MCP host)
-        │ MCP stdio by default, Streamable HTTP when explicitly enabled
+        │ 2025 compatibility or 2026 request-stateless MCP
         ▼
-whmcs-mcp-server (this repository)
-        ├─ tool/resource/prompt registrations: src/index.ts
-        ├─ input validation + canonical output mapping
-        ├─ governance and consumer projection
-        ├─ controlled write-flow and live authorization
-        └─ HTTPS requests to WHMCS External API
-                 │
-                 ▼
-        WHMCS installation (system of record)
+Protocol adapters → authenticated request/policy context
+        │
+        ▼
+Control plane: typed catalog + capability evidence + governance + PlanIR
+        │
+        ▼
+Execution plane: domain handlers + controlled write flow
+        │
+        ▼
+Typed WHMCS request pipeline
+        ├─ HTTPS → WHMCS External API
+        └─ guarded opt-in owner-transfer only → direct DB write transaction
 ```
 
 Startup reads configuration from environment files and process environment.
@@ -208,23 +211,26 @@ seal is active.
 
 ## Approved MCP architecture roadmap
 
-The plan-only MCP server/client intelligence roadmap merged through PR #87 on
-2026-08-07. Its canonical index is
+The MCP server/client intelligence roadmap was approved in PR #87 and fully
+implemented through PR #97 on 2026-08-07. Its canonical index and completion
+record are
 [`advisor-plans/README.md`](../advisor-plans/README.md). The plans are approved
-product direction, not claims that the runtime work is already implemented.
-Execute them through separate focused PRs in this order:
+product direction plus design history; current runtime posture is described
+below. The implementation used separate focused PRs in this order:
 
-| Order | Plan | Priority | Required outcome |
-|---:|---|---:|---|
-| 1 | [Safety baseline, protocol contracts and conformance](../advisor-plans/001-protocol-contract-baseline.md) | P0 | Clear the documented format/dependency baseline, then pin the public MCP contract and conformance behavior |
-| 2 | [MCP v2 dual-era stateless runtime](../advisor-plans/002-mcp-v2-stateless-runtime.md) | P0 | Add modern stateless protocol support without removing measured legacy compatibility or weakening per-request identity |
-| 3 | [Unified capability catalog](../advisor-plans/003-unified-capability-catalog.md) | P1 | Establish one typed source for registration, capability evidence, effects, risk, governance and cost |
-| 4 | [Composable WHMCS execution pipeline](../advisor-plans/004-whmcs-execution-pipeline.md) | P1 | Extract transport/retry/repair stages and accelerate only safe reads with deadlines, bounds and telemetry |
-| 5 | [Safe operations planner](../advisor-plans/005-safe-operations-planner.md) | P1 | Add host-side brainstorming plus deterministic PlanIR validation; planner-created writes stop at governed drafts |
+| Order | Plan | Priority | Implemented outcome | Evidence |
+|---:|---|---:|---|---|
+| 1 | [Safety baseline, protocol contracts and conformance](../advisor-plans/001-protocol-contract-baseline.md) | P0 | Pinned public MCP contracts, hermetic catalog checks, symlink entry smoke, and official conformance | PRs [#90](https://github.com/yashodhank/whmcs-mcp-server/pull/90), [#91](https://github.com/yashodhank/whmcs-mcp-server/pull/91) |
+| 2 | [MCP v2 dual-era stateless runtime](../advisor-plans/002-mcp-v2-stateless-runtime.md) | P0 | Added modern request-stateless MCP alongside measured 2025 compatibility | PR [#92](https://github.com/yashodhank/whmcs-mcp-server/pull/92) |
+| 3 | [Unified capability catalog](../advisor-plans/003-unified-capability-catalog.md) | P1 | Added typed catalog metadata, target-scoped capability evidence, and consumer-filtered discovery | PR [#93](https://github.com/yashodhank/whmcs-mcp-server/pull/93) |
+| 4 | [Composable WHMCS execution pipeline](../advisor-plans/004-whmcs-execution-pipeline.md) | P1 | Added typed stages, bounded/fair safe reads, opt-in coalescing, deadlines, and low-cardinality telemetry | PR [#94](https://github.com/yashodhank/whmcs-mcp-server/pull/94) |
+| 5 | [Safe operations planner](../advisor-plans/005-safe-operations-planner.md) | P1 | Added host-side brainstorming plus deterministic, non-executable PlanIR and governed draft-only conversion | PR [#97](https://github.com/yashodhank/whmcs-mcp-server/pull/97) |
 
-Plans 003 and 004 may proceed in parallel only after Plan 001. Plan 005 depends
-on the typed catalog from Plan 003 and should use the modern protocol adapter
-from Plan 002 before exposing modern-only interaction features.
+PR #95 integrated authenticated request context, cancellation, deadlines, fair
+consumer lanes, and catalog grants across Plans 002–004; its persistent-stdio
+review fix derives a fresh bounded context for every callback. PR #96 fixed the
+write-flow PAN guard so opaque transport/intent controls cannot be mistaken for
+operator-supplied card content while semantic write fields remain scanned.
 
 Plans 001 and 002 establish the implementation baseline: split MCP SDK v2
 `2.0.0` is the primary dual-era runtime, `2026-07-28` HTTP requests are
@@ -253,9 +259,8 @@ bridge, rejects Host/Origin/auth/routing failures before dispatch, and drains
 in-flight work for at most `MCP_HTTP_DRAIN_TIMEOUT_MS`. Modern discovery and
 catalog lists use a private 30-second TTL partitioned by a descriptor hash;
 dynamic resource reads remain private with zero TTL. Tasks and multi-round-trip
-input remain unadvertised: the MRTR no-write demonstration is deferred to Plan
-005 to avoid adding a synthetic catalog tool or changing write authorization in
-this migration. The pinned
+input remain unadvertised. Plan 005 uses the normal prompt/tool loop and did not
+add a synthetic MRTR surface or change write authorization. The pinned
 official conformance runner covers `2025-11-25`; deterministic dual-era tests
 cover the modern lifecycle until an official `2026-07-28` runner is published.
 The detailed protocol matrix, error contract, conformance scope, and retirement
@@ -275,10 +280,11 @@ intersects consumer-filtered operations with bounded grants from the
 transport-authenticated `ConsumerProfile`; request bodies cannot override
 identity or grants. Legacy and stdio reads have no authenticated transport
 profile and fail closed for those operations. CI checks the deterministic
-catalog fixture and the Plan 001 public catalog. Remaining capability shells
-and other domains are still manual and
-must migrate one pack per focused PR; controlled writes have not moved into the
-catalog. See [`docs/design/capability-catalog.md`](design/capability-catalog.md).
+catalog fixture and the Plan 001 public catalog. Plan 005 adds descriptor-only
+planner operations; their handlers still use the existing governed seams.
+Remaining capability shells and other domains are manual and must migrate one
+pack per focused PR; controlled-write execution has not moved into the catalog.
+See [`docs/design/capability-catalog.md`](design/capability-catalog.md).
 
 Plan 005 now adds the first deterministic safe-planning slice. The host prompt
 brainstorms alternatives while the server validates a versioned, expiring,
@@ -332,10 +338,10 @@ Roadmap invariants remain operational requirements:
   state machine, consumer scope checks, execution gate, kill switch and
   `WhmcsClient.mutate()` backstop;
 - opt-in legacy direct-mutate tools enabled by
-  `MCP_ENABLE_LEGACY_WRITE_TOOLS=true` are an explicit exception: they bypass
-  the intent state machine and execution gate, retain their tool-level controls
-  plus the `WhmcsClient` mode backstop, and must not be expanded or used by this
-  roadmap;
+  `MCP_ENABLE_LEGACY_WRITE_TOOLS=true` together with `MCP_MODE=full` are an
+  explicit exception: they bypass the intent state machine and execution gate,
+  retain their tool-level controls plus the `WhmcsClient.mutate()` mode
+  backstop, and must not be expanded or used by this roadmap;
 - mutation requests are never cached, coalesced or automatically retried;
 - transport identity cannot be overridden by tool arguments;
 - governance remains the governed-data output boundary; and
