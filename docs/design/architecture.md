@@ -1,6 +1,6 @@
-# Architecture: write-flow, workflow tools, and governance
+# Architecture: write-flow, workflow tools, governance, and WHMCS requests
 
-This document covers three internal subsystems in depth, with diagrams grounded in the live source.  For overall system context see the README; for governance policy rationale see [governance.md](governance.md); for the write-flow design decisions see [controlled-writes-phase-f.md](controlled-writes-phase-f.md) and [controlled-writes-phase-i.md](controlled-writes-phase-i.md).
+This document covers four internal subsystems in depth, with diagrams grounded in the live source.  For overall system context see the README; for governance policy rationale see [governance.md](governance.md); for request-pipeline rollout details see [whmcs-request-pipeline.md](whmcs-request-pipeline.md); for the write-flow design decisions see [controlled-writes-phase-f.md](controlled-writes-phase-f.md) and [controlled-writes-phase-i.md](controlled-writes-phase-i.md).
 
 ---
 
@@ -273,6 +273,47 @@ When `MCP_GOVERNANCE_ENABLED` is not set, `applyGovernanceOrLegacy()` returns th
 
 ---
 
+## D5 — Composable WHMCS request pipeline
+
+`WhmcsClient` is a compatibility facade. Reads first cross the action-policy
+guard, then optional process-local acceleration; all API exchanges use typed,
+independently testable request stages. Writes bypass the cache, coalescer, and
+automatic retry paths entirely.
+
+```mermaid
+flowchart LR
+    R[read] --> P{read policy}
+    P --> C{cache hit?}
+    C -- yes --> O[isolated result copy]
+    C -- no --> K[scope-aware coalescing key]
+    K --> Q[fair bounded scheduler]
+    Q --> X[request pipeline]
+
+    W[mutation] --> M[mode / controlled-write backstop]
+    M --> X
+
+    X --> E[credential encoder]
+    E --> T[WHMCS External API transport]
+    T --> D[decoder + error classifier]
+    D --> RR{read only?}
+    RR -- yes --> B[bounded retry / one repair]
+    RR -- no --> U[outcome or outcome-unknown]
+    B --> O
+
+    style W fill:#f9d5a7,color:#000
+    style M fill:#f9d5a7,color:#000
+    style O fill:#6a6,color:#fff
+```
+
+Low-cardinality telemetry surrounds queue, transport, retry/repair, cache,
+coalescing, and completion stages without recording action names, parameters,
+bodies, credentials, entity IDs, consumer IDs, or free-form errors. This flow
+targets only the WHMCS External API. It creates no general database read path;
+direct database access remains restricted to the guarded opt-in owner-transfer
+write transaction.
+
+---
+
 ## Cross-references
 
 | Topic | Document |
@@ -280,3 +321,4 @@ When `MCP_GOVERNANCE_ENABLED` is not set, `applyGovernanceOrLegacy()` returns th
 | Write-flow design rationale and six-tool ceremony | [controlled-writes-phase-f.md](controlled-writes-phase-f.md) |
 | Phase I write-flow recommendation (predecessor design) | [controlled-writes-phase-i.md](controlled-writes-phase-i.md) |
 | Governance policy, contracts, and field classifications | [governance.md](governance.md) |
+| WHMCS request stages and rollout controls | [whmcs-request-pipeline.md](whmcs-request-pipeline.md) |

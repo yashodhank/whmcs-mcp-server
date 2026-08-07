@@ -23,6 +23,7 @@ Architecture decisions, governance contracts, and phase-based design records.
 | [design/oauth.md](design/oauth.md) | OAuth 2.1 / PRM resource-server design (components 1–4) |
 | [design/mcp-adoption.md](design/mcp-adoption.md) | MCP protocol adoption notes, open items, and HTTP-transport follow-ups |
 | [design/capability-catalog.md](design/capability-catalog.md) | Typed operation catalog, invariants, capability evidence, discovery, and incremental domain-pack migration |
+| [design/whmcs-request-pipeline.md](design/whmcs-request-pipeline.md) | Typed WHMCS request stages, bounded/coalesced read acceleration, deadlines, telemetry, and rollout controls |
 
 ## Operations handoff
 

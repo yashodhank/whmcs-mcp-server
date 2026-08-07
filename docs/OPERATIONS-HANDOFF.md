@@ -271,15 +271,30 @@ enrichment actions. Capability evidence is isolated by opaque installation and
 configuration fingerprints, probe shape and catalog version, and carries
 expiry and provenance. The additive `whmcs://capabilities/v2` resource exposes
 only globally permitted/effective catalog operations and fails closed for
-consumer-filtered operations until Plan 002 provides request-bound resource
-identity. CI checks the deterministic catalog fixture and the Plan 001 public
-catalog. Remaining capability shells and other domains are still manual and
+consumer-filtered operations until the protocol/catalog integration seam
+supplies request-bound resource identity. CI checks the deterministic catalog
+fixture and the Plan 001 public catalog. Remaining capability shells and other
+domains are still manual and
 must migrate one pack per focused PR; controlled writes have not moved into the
 catalog. See [`docs/design/capability-catalog.md`](design/capability-catalog.md).
 
 The current public catalog is 57 tools, 9 prompts, 4 concrete resources, and 9
 resource templates; the only intended additive Plan 003 surface is
 `whmcs://capabilities/v2`.
+
+Plan 004 is now implemented as a compatible `WhmcsClient` facade over typed
+encoding, transport, decoding, classification, retry/repair, deadline and
+telemetry stages. All reads pass through a fair per-client scheduler capped by
+`MCP_READ_MAX_CONCURRENCY` (default `8`). Completed-result caching remains off
+by default (`MCP_READ_CACHE_TTL_MS=0`), and identical in-flight read coalescing
+is a canary opt-in (`MCP_READ_COALESCE_ENABLED=false`). Coalescing is restricted
+to cache-allowlisted, non-log/non-probe reads and keys on installation, normalized
+request, policy version and raw-data governance scope. Cancellation covers queue,
+transport and backoff; a dispatched mutation whose response is lost is reported
+as outcome-unknown. Low-cardinality telemetry omits parameters, bodies,
+credentials, entity identifiers and error text. See
+[`docs/design/whmcs-request-pipeline.md`](design/whmcs-request-pipeline.md) for
+rollout, rollback and deterministic load characterization.
 
 Roadmap invariants remain operational requirements:
 
