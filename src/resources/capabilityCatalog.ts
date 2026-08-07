@@ -22,8 +22,9 @@ export function registerCapabilityCatalogResource(
   server.resource('capability-catalog-v2', 'whmcs://capabilities/v2', (uri) => {
     const payload = buildCapabilityDiscovery(catalog, {
       operationAllowed: isToolAllowed,
-      // Pre-Plan-002 resource reads have no request-bound consumer identity.
-      // Omitting allowedCapabilityIds fails closed for consumer-filtered reads.
+      // Legacy resource registration has no request-bound consumer identity.
+      // It therefore fails closed for consumer-filtered operations until the
+      // protocol/catalog integration seam supplies that identity.
       evidenceTarget,
       availableProtocolFeatures: ['resources', 'tools'],
     });
