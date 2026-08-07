@@ -219,6 +219,19 @@ describe('write-flow tools (read-only + production posture)', () => {
     expect(J(v).error).toMatch(/does not belong/i);
   });
 
+  it('does not mistake a server-issued intent UUID digit run for PAN input', async () => {
+    const { handlers } = harness();
+    const uuidWithLuhnRun = '41111111-1111-1111-aaaa-aaaaaaaaaaaa';
+    const response = await handlers.validate_write_intent({
+      intent_id: uuidWithLuhnRun,
+      ...tok('writer'),
+    });
+
+    expect(response.isError).toBe(true);
+    expect(J(response).error).toMatch(/intent not found/i);
+    expect(J(response).error).not.toMatch(/credit card|PAN/i);
+  });
+
   it('invalid params are rejected at validate (state=rejected), no mutate', async () => {
     const { handlers, mutate } = harness();
     const d = await handlers.draft_write_intent({
