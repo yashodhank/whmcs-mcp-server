@@ -32,7 +32,9 @@ PII. IDs and capability proof may not be inferred from prose.
 | Partial failures | Return status-only preflight checks and per-step draft results; stop at the first denial and mark any already-created drafts as partial |
 
 `draft_operation_plan` first verifies the complete plan and every eligible
-scope, then calls only the existing `draftWorkflowIntent` seam. It cannot
+scope, then reruns bounded privacy checks and the strict server-owned operation
+schema even when a caller supplies a self-consistent recomputed hash. It calls
+only the existing `draftWorkflowIntent` seam. It cannot
 validate, approve or execute an intent and never reaches `WhmcsClient.mutate()`.
 Multi-step drafting is intentionally non-atomic: it stops on the first denial,
 returns each attempted result, and sets `partial:true` when an earlier draft was
@@ -50,6 +52,8 @@ do not add database reads or any other database path.
 - `compile_operation_plan`: pure deterministic validation and canonical hash.
 - `preflight_operation_plan`: only explicitly allowlisted pure/safe-read
   operations with resolved inputs; returns result status, not raw WHMCS data.
+  Cancellation reaches the HTTP request and never records degraded capability
+  evidence for the cancelled probe.
 - `draft_operation_plan`: creates governed draft intent IDs only; returns
   `executed:false`, per-step results and an explicit partial flag.
 

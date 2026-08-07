@@ -49,6 +49,8 @@ import { OperationCatalog } from '../../src/catalog/registry.js';
 import type { OperationDefinition } from '../../src/catalog/types.js';
 import { registerPlanningTools } from '../../src/tools/planning.js';
 import { __resetCapabilityEvidenceForTests } from '../../src/governance/capabilityEvidence.js';
+import { canonicalPlanHash } from '../../src/planning/compiler.js';
+import type { PlanIR } from '../../src/planning/types.js';
 
 type Handler = (
   params: Record<string, unknown>,
@@ -281,6 +283,34 @@ describe('planning tools', () => {
     );
   });
 
+  it('revalidates strict schema and privacy even when a caller rehashes a modified plan', async () => {
+    const compiled = await call('compile_operation_plan', {
+      auth_token: 'transport-bound',
+      candidate: candidate('services.suspend.draft', 'draft_only'),
+    });
+    const tampered = structuredClone(compiled.structuredContent.plan) as PlanIR;
+    const paramsInput = tampered.steps[0].inputs.params;
+    if (paramsInput?.kind !== 'value' || paramsInput.value === null) {
+      throw new Error('expected materialized params');
+    }
+    (paramsInput.value as Record<string, unknown>).password = 'credential-sentinel';
+    const { plan_hash: _oldHash, ...unhashed } = tampered;
+    void _oldHash;
+    const rehashed = { ...tampered, plan_hash: canonicalPlanHash(unhashed) };
+    const response = await call('draft_operation_plan', {
+      auth_token: 'transport-bound',
+      plan: rehashed,
+    });
+    expect(draftWorkflowIntent).not.toHaveBeenCalled();
+    expect(response.structuredContent.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('password') }),
+        expect.objectContaining({ reason: expect.stringContaining('strict server-owned') }),
+      ])
+    );
+    expect(JSON.stringify(response.structuredContent)).not.toContain('credential-sentinel');
+  });
+
   it('rechecks current consumer grants immediately before creating drafts', async () => {
     const compiled = await call('compile_operation_plan', {
       auth_token: 'transport-bound',
@@ -431,5 +461,16 @@ describe('planning tools', () => {
     expect(interrupted.structuredContent.blockers).toContainEqual(
       expect.objectContaining({ reason: 'Preflight was cancelled.' })
     );
+
+    whmcsRead.mockResolvedValueOnce({ result: 'success', invoices: { invoice: [] } });
+    const retry = await call('preflight_operation_plan', {
+      auth_token: 'transport-bound',
+      candidate: readCandidate,
+    });
+    expect(whmcsRead).toHaveBeenCalledTimes(2);
+    expect(retry.structuredContent).toMatchObject({
+      blockers: [],
+      plan: expect.objectContaining({ executable: false }),
+    });
   });
 });

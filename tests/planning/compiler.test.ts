@@ -263,6 +263,16 @@ describe('PlanIR compiler', () => {
     const withPii = candidate(step(), 'analyse');
     withPii.goal = 'Review person@example.invalid';
     expect(compile(withPii).accepted).toBe(false);
+
+    for (const key of ['auth-token', 'api-key', 'authorizationHeader', 'client.secret']) {
+      const disguised = candidate(step(), 'analyse');
+      disguised.steps[0].inputs = {
+        extra: { kind: 'value', value: { [key]: 'credential-sentinel' } },
+      };
+      const result = compile(disguised);
+      expect(result.accepted, key).toBe(false);
+      expect(JSON.stringify(result), key).not.toContain('credential-sentinel');
+    }
   });
 
   it('rejects PII-shaped fields and pathologically nested values before hashing', () => {
@@ -292,6 +302,15 @@ describe('PlanIR compiler', () => {
     expect(bounded.issues).toContainEqual(
       expect.objectContaining({ reason: expect.stringContaining('nesting depth') })
     );
+
+    const tooManyInputs = candidate(step(), 'analyse');
+    tooManyInputs.steps[0].inputs = Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [
+        `input_${index}`,
+        { kind: 'value' as const, value: index },
+      ])
+    );
+    expect(compile(tooManyInputs).accepted).toBe(false);
   });
 
   it('fails closed with a structured issue for an undeclared catalog action', () => {
