@@ -90,6 +90,15 @@ describe('OperationCatalog invariants', () => {
         governance: { scope: 'client:update', output: 'canonical', rawWhmcsOutput: false },
       }),
     ],
+    [
+      'write destructive declaration',
+      definition({
+        effects: 'write',
+        riskTier: 'medium',
+        annotations: { readOnlyHint: false },
+        governance: { scope: 'client:update', output: 'canonical', rawWhmcsOutput: false },
+      }),
+    ],
     ['read capability', definition({ effects: 'read', riskTier: 'low' })],
     [
       'unknown read action',
@@ -139,6 +148,21 @@ describe('OperationCatalog invariants', () => {
 
   it.each(invalid)('rejects invalid %s metadata', (_label, candidate) => {
     expect(() => new OperationCatalog([candidate], 2, 100)).toThrow(CatalogValidationError);
+  });
+
+  it('accepts an explicitly non-destructive governed write', () => {
+    const candidate = definition({
+      id: 'client.note.create',
+      publicName: 'create_client_note_catalog_test',
+      effects: 'write',
+      riskTier: 'medium',
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      governance: { scope: 'client:note:create', output: 'canonical', rawWhmcsOutput: false },
+    });
+    expect(new OperationCatalog([candidate], 2, 100).getById(candidate.id)).toMatchObject({
+      effects: 'write',
+      annotations: { destructiveHint: false },
+    });
   });
 });
 
@@ -224,6 +248,20 @@ describe('consumer-safe capability discovery', () => {
 });
 
 describe('target-scoped capability evidence', () => {
+  const evidenceReadDefinition = definition({
+    id: 'clients.list.read',
+    publicName: 'list_clients_catalog_test',
+    effects: 'read',
+    riskTier: 'low',
+    whmcsActions: ['GetClients'],
+    capability: { mode: 'all', probe: 'read_safe' },
+    governance: { scope: null, output: 'canonical', rawWhmcsOutput: true },
+    inputSchema: { limit: z.number().int().max(100).default(25) },
+    auth: { toolAuthRequired: true, consumerFiltered: true },
+    cost: { kind: 'constant', maxWhmcsCalls: 1, maxItems: 100 },
+    pagination: { defaultLimit: 25, maxLimit: 100 },
+  });
+  const evidenceCatalog = new OperationCatalog([evidenceReadDefinition], 2, 100);
   const targetA = fingerprintCapabilityEvidenceTarget({
     installationIdentity: 'https://a.invalid/includes/api.php',
     configuration: { role: 'read-a' },
@@ -284,6 +322,92 @@ describe('target-scoped capability evidence', () => {
     expect(getCapability('GetContacts', targetA, 5_050).status).toBe('supported');
     expect(getCapability('GetContacts', targetB, 5_050).status).toBe('unverified');
     expect(getCapability('GetContacts', targetA, 5_100).status).toBe('unverified');
+  });
+
+  it('uses supported shaped evidence for aggregate status and discovery', async () => {
+    __resetCapabilityCacheForTests();
+    const read = vi.fn().mockResolvedValue({ result: 'success' });
+    await probeCapability(
+      'GetClients',
+      {
+        read,
+        isAllowlisted: () => true,
+        target: targetA,
+        evidenceTtlMs: 1_000,
+        now: () => 7_000,
+      },
+      { status: 'Active' }
+    );
+
+    expect(getCapability('GetClients', targetA, 7_100).status).toBe('supported');
+    const discovery = buildCapabilityDiscovery(evidenceCatalog, {
+      operationAllowed: () => true,
+      allowedCapabilityIds: new Set(['list_clients']),
+      evidenceTarget: targetA,
+      availableProtocolFeatures: ['tools'],
+      nowMs: 7_100,
+    });
+    expect(discovery.operations.find(({ id }) => id === evidenceReadDefinition.id)).toMatchObject({
+      capability: {
+        effective: true,
+        observed: [{ action: 'GetClients', status: 'supported', source: 'read_probe' }],
+      },
+    });
+  });
+
+  it('resolves conflicting probe shapes conservatively and deterministically', () => {
+    const buildConflict = (reverse: boolean) => {
+      __resetCapabilityEvidenceForTests();
+      const records = [
+        {
+          probeParams: { status: 'Active', limitnum: 1 },
+          status: 'supported' as const,
+          failureClass: 'none' as const,
+        },
+        {
+          probeParams: { status: 'Closed', limitnum: 1 },
+          status: 'unsupported' as const,
+          failureClass: 'unsupported_action' as const,
+        },
+      ];
+      for (const record of reverse ? records.reverse() : records) {
+        recordCapabilityEvidence({
+          target: targetA,
+          action: 'GetClients',
+          ...record,
+          source: 'read_probe',
+          observedAtMs: 8_000,
+          ttlMs: 1_000,
+        });
+      }
+      return buildCapabilityDiscovery(evidenceCatalog, {
+        operationAllowed: () => true,
+        allowedCapabilityIds: new Set(['list_clients']),
+        evidenceTarget: targetA,
+        availableProtocolFeatures: ['tools'],
+        nowMs: 8_100,
+      });
+    };
+
+    const forward = buildConflict(false);
+    const reverse = buildConflict(true);
+    expect(forward).toEqual(reverse);
+    expect(getCapability('GetClients', targetA, 8_100).status).toBe('unsupported');
+    expect(
+      getCapability('GetClients', targetA, 8_100, { status: 'Active', limitnum: 1 }).status
+    ).toBe('supported');
+    expect(
+      getCapability('GetClients', targetA, 8_100, { status: 'Closed', limitnum: 1 }).status
+    ).toBe('unsupported');
+    expect(forward.operations.find(({ id }) => id === evidenceReadDefinition.id)).toMatchObject({
+      capability: {
+        effective: false,
+        observed: [
+          { action: 'GetClients', status: 'unsupported' },
+          { action: 'GetClients', status: 'supported' },
+        ],
+      },
+    });
   });
 
   it('requires operator evidence for external-only declarations', async () => {

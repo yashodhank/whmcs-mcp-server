@@ -37,8 +37,14 @@ function validateDefinition(definition: OperationDefinition, globalMaxPageSize: 
   if (!readLike && definition.annotations.readOnlyHint === true) {
     throw new CatalogValidationError(`${definition.id} mutation effects cannot be read-only`);
   }
-  if (definition.effects === 'write' && definition.annotations.destructiveHint !== true) {
-    throw new CatalogValidationError(`${definition.id} writes require destructiveHint=true`);
+  if (
+    !readLike &&
+    definition.annotations.destructiveHint !== true &&
+    definition.annotations.destructiveHint !== false
+  ) {
+    throw new CatalogValidationError(
+      `${definition.id} draft/write operations require an explicit destructiveHint boolean`
+    );
   }
 
   if (definition.effects === 'write') {
