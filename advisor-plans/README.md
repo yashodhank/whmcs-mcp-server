@@ -69,8 +69,11 @@ before exposing modern-protocol-only UX such as MRTR, cache hints or Tasks.
 ## Architecture invariants
 
 - A model-proposed plan is data, never authority.
-- All mutations still pass the existing write intent state machine, execution
-  gate, consumer scope checks, kill switch and `WhmcsClient.mutate()` backstop.
+- All controlled and roadmap-created mutations still pass the existing write
+  intent state machine, execution gate, consumer scope checks, kill switch and
+  `WhmcsClient.mutate()` backstop. Opt-in legacy direct-mutate tools enabled by
+  `MCP_ENABLE_LEGACY_WRITE_TOOLS=true` are an explicit pre-roadmap exception;
+  this roadmap must not add to or depend on that surface.
 - Read policy executes before cache lookup. Cache and request coalescing never
   apply to writes or capability probes with side effects.
 - Transport identity is authoritative and cannot be overridden by tool input.

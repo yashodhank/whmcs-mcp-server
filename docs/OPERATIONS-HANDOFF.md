@@ -230,8 +230,14 @@ Roadmap invariants remain operational requirements:
 
 - model-proposed plans are data, never authorization;
 - the planner cannot approve or execute a write;
-- all mutations continue through the existing intent state machine, consumer
-  scope checks, execution gate, kill switch and `WhmcsClient.mutate()` backstop;
+- controlled and roadmap-created mutations continue through the existing intent
+  state machine, consumer scope checks, execution gate, kill switch and
+  `WhmcsClient.mutate()` backstop;
+- opt-in legacy direct-mutate tools enabled by
+  `MCP_ENABLE_LEGACY_WRITE_TOOLS=true` are an explicit exception: they bypass
+  the intent state machine and execution gate, retain their tool-level controls
+  plus the `WhmcsClient` mode backstop, and must not be expanded or used by this
+  roadmap;
 - mutation requests are never cached, coalesced or automatically retried;
 - transport identity cannot be overridden by tool arguments;
 - governance remains the governed-data output boundary; and
