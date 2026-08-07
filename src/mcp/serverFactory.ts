@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   McpServer as ModernMcpServer,
   ResourceTemplate as ModernResourceTemplate,
@@ -13,6 +14,7 @@ import {
 import { Client as LegacyClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport as LegacyInMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpServer as LegacyMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { RequestOptions as LegacyRequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { TRANSPORT_BOUND_PREFIX } from '../governance/consumers.js';
 import type { Logger } from '../logging.js';
 import { createRequestContext, type RequestContext } from './requestContext.js';
@@ -68,6 +70,8 @@ interface LegacyBridge {
   close(): Promise<void>;
 }
 
+const CATALOG_CACHE_TTL_MS = 30_000;
+
 export interface ServerFactoryDeps {
   readonly buildLegacyServer: () => LegacyMcpServer;
   readonly logger: Logger;
@@ -84,7 +88,12 @@ async function createLegacyBridge(buildLegacyServer: () => LegacyMcpServer): Pro
   const server = buildLegacyServer();
   const client = new LegacyClient({ name: 'whmcs-mcp-v2-bridge', version: '1.0.0' });
 
-  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  } catch (error) {
+    await Promise.allSettled([client.close(), server.close()]);
+    throw error;
+  }
   let closed = false;
   return {
     client,
@@ -107,6 +116,37 @@ async function collectPages<T>(
     cursor = page.nextCursor;
   } while (cursor !== undefined);
   return items;
+}
+
+function bridgeRequestOptions(context: RequestContext): LegacyRequestOptions {
+  const remainingMs = Math.max(1, context.deadline - Date.now());
+  return {
+    signal: context.signal,
+    timeout: remainingMs,
+    maxTotalTimeout: remainingMs,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    return `{${Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
+  }
+  if (value === undefined) return 'null';
+  return JSON.stringify(value);
+}
+
+function catalogRevision(catalog: {
+  readonly tools: readonly LegacyToolDescriptor[];
+  readonly prompts: readonly LegacyPromptDescriptor[];
+  readonly resources: readonly LegacyResourceDescriptor[];
+  readonly resourceTemplates: readonly LegacyResourceTemplateDescriptor[];
+}): string {
+  return createHash('sha256').update(canonicalJson(catalog)).digest('hex').slice(0, 12);
 }
 
 function promptArgumentsSchema(argumentsList: readonly LegacyPromptArgument[] | undefined) {
@@ -166,22 +206,7 @@ export async function buildModernServer(
 ): Promise<ModernServerBuild> {
   const context = createRequestContext(sdkContext, { timeoutMs: deps.requestTimeoutMs });
   const bridge = await createLegacyBridge(deps.buildLegacyServer);
-  const server = new ModernMcpServer(
-    { name: 'whmcs-mcp-server', version: '1.0.0' },
-    {
-      capabilities: { logging: {} },
-      instructions:
-        'Use tools/list, resources/list, and resources/templates/list for the WHMCS business catalog; use get_capability_matrix for verified WHMCS action evidence.',
-      cacheHints: {
-        'server/discover': { ttlMs: 0, cacheScope: 'private' },
-        'tools/list': { ttlMs: 0, cacheScope: 'private' },
-        'prompts/list': { ttlMs: 0, cacheScope: 'private' },
-        'resources/list': { ttlMs: 0, cacheScope: 'private' },
-        'resources/templates/list': { ttlMs: 0, cacheScope: 'private' },
-        'resources/read': { ttlMs: 0, cacheScope: 'private' },
-      },
-    }
-  );
+  let server!: ModernMcpServer;
 
   try {
     const capabilities = bridge.client.getServerCapabilities();
@@ -190,7 +215,8 @@ export async function buildModernServer(
         ? Promise.resolve([])
         : collectPages<LegacyToolDescriptor>(async (cursor) => {
             const page = await bridge.client.listTools(
-              cursor === undefined ? undefined : { cursor }
+              cursor === undefined ? undefined : { cursor },
+              bridgeRequestOptions(context)
             );
             return { items: page.tools as LegacyToolDescriptor[], nextCursor: page.nextCursor };
           }),
@@ -198,7 +224,8 @@ export async function buildModernServer(
         ? Promise.resolve([])
         : collectPages<LegacyPromptDescriptor>(async (cursor) => {
             const page = await bridge.client.listPrompts(
-              cursor === undefined ? undefined : { cursor }
+              cursor === undefined ? undefined : { cursor },
+              bridgeRequestOptions(context)
             );
             return { items: page.prompts as LegacyPromptDescriptor[], nextCursor: page.nextCursor };
           }),
@@ -206,7 +233,8 @@ export async function buildModernServer(
         ? Promise.resolve([])
         : collectPages<LegacyResourceDescriptor>(async (cursor) => {
             const page = await bridge.client.listResources(
-              cursor === undefined ? undefined : { cursor }
+              cursor === undefined ? undefined : { cursor },
+              bridgeRequestOptions(context)
             );
             return {
               items: page.resources as LegacyResourceDescriptor[],
@@ -217,7 +245,8 @@ export async function buildModernServer(
         ? Promise.resolve([])
         : collectPages<LegacyResourceTemplateDescriptor>(async (cursor) => {
             const page = await bridge.client.listResourceTemplates(
-              cursor === undefined ? undefined : { cursor }
+              cursor === undefined ? undefined : { cursor },
+              bridgeRequestOptions(context)
             );
             return {
               items: page.resourceTemplates as LegacyResourceTemplateDescriptor[],
@@ -226,13 +255,38 @@ export async function buildModernServer(
           }),
     ]);
 
+    const revision = catalogRevision({ tools, prompts, resources, resourceTemplates });
+    server = new ModernMcpServer(
+      { name: 'whmcs-mcp-server', version: `1.0.0+catalog.${revision}` },
+      {
+        capabilities: { logging: {} },
+        instructions:
+          'Use tools/list, resources/list, and resources/templates/list for the WHMCS business catalog; use get_capability_matrix for verified WHMCS action evidence.',
+        cacheHints: {
+          'server/discover': { ttlMs: CATALOG_CACHE_TTL_MS, cacheScope: 'private' },
+          'tools/list': { ttlMs: CATALOG_CACHE_TTL_MS, cacheScope: 'private' },
+          'prompts/list': { ttlMs: CATALOG_CACHE_TTL_MS, cacheScope: 'private' },
+          'resources/list': { ttlMs: CATALOG_CACHE_TTL_MS, cacheScope: 'private' },
+          'resources/templates/list': {
+            ttlMs: CATALOG_CACHE_TTL_MS,
+            cacheScope: 'private',
+          },
+          'resources/read': { ttlMs: 0, cacheScope: 'private' },
+        },
+      }
+    );
+
     for (const tool of tools) {
       const inputSchema = fromJsonSchema(tool.inputSchema);
       const callback = async (args: unknown): Promise<ModernCallToolResult> =>
-        (await bridge.client.callTool({
-          name: tool.name,
-          arguments: withTransportIdentity(args, context),
-        })) as unknown as ModernCallToolResult;
+        (await bridge.client.callTool(
+          {
+            name: tool.name,
+            arguments: withTransportIdentity(args, context),
+          },
+          undefined,
+          bridgeRequestOptions(context)
+        )) as unknown as ModernCallToolResult;
       const baseConfig = {
         title: tool.title,
         description: tool.description,
@@ -263,10 +317,13 @@ export async function buildModernServer(
           _meta: prompt._meta,
         },
         async (args): Promise<ModernGetPromptResult> =>
-          (await bridge.client.getPrompt({
-            name: prompt.name,
-            arguments: args,
-          })) as unknown as ModernGetPromptResult
+          (await bridge.client.getPrompt(
+            {
+              name: prompt.name,
+              arguments: args,
+            },
+            bridgeRequestOptions(context)
+          )) as unknown as ModernGetPromptResult
       );
     }
 
@@ -283,9 +340,10 @@ export async function buildModernServer(
           cacheHint: { ttlMs: 0, cacheScope: 'private' },
         },
         async (uri: URL): Promise<ModernReadResourceResult> =>
-          (await bridge.client.readResource({
-            uri: uri.href,
-          })) as unknown as ModernReadResourceResult
+          (await bridge.client.readResource(
+            { uri: uri.href },
+            bridgeRequestOptions(context)
+          )) as unknown as ModernReadResourceResult
       );
     }
 
@@ -302,9 +360,10 @@ export async function buildModernServer(
           cacheHint: { ttlMs: 0, cacheScope: 'private' },
         },
         async (uri: URL): Promise<ModernReadResourceResult> =>
-          (await bridge.client.readResource({
-            uri: uri.href,
-          })) as unknown as ModernReadResourceResult
+          (await bridge.client.readResource(
+            { uri: uri.href },
+            bridgeRequestOptions(context)
+          )) as unknown as ModernReadResourceResult
       );
     }
   } catch (error) {
@@ -316,7 +375,7 @@ export async function buildModernServer(
   deps.logger.debug('Built stateless MCP request server', {
     protocol_era: context.era,
     transport: context.identity.authMode === 'stdio' ? 'stdio' : 'http',
-    client_name: context.identity.consumerId,
+    client_name: context.identity.consumerId.slice(0, 64),
     auth_mode: context.identity.authMode,
     outcome: 'ready',
   });

@@ -25,6 +25,7 @@ import {
   InMemoryTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import { SERVER_INFO_META_KEY, type McpRequestContext } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { McpServer as LegacyMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -32,15 +33,17 @@ import { hashToken, TRANSPORT_BOUND_PREFIX } from '../../src/governance/consumer
 import { startHttpServer, type HttpServerHandle } from '../../src/http/httpServer.js';
 import { createModernHttpAdapter } from '../../src/http/httpServerV2.js';
 import type { Logger } from '../../src/logging.js';
+import { createRequestContext } from '../../src/mcp/requestContext.js';
 import { buildModernServer } from '../../src/mcp/serverFactory.js';
 import { buildContractServer, createContractHarness } from './contractHarness.js';
 
 const TOKEN = 'dual-era-runtime-test-token';
+const errorLog = vi.fn();
 const logger = {
   debug: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
-  error: vi.fn(),
+  error: errorLog,
 } as unknown as Logger;
 
 function buildIdentityServer(): LegacyMcpServer {
@@ -56,13 +59,14 @@ function buildIdentityServer(): LegacyMcpServer {
 }
 
 async function startModernServer(
-  buildLegacyServer: () => LegacyMcpServer
+  buildLegacyServer: () => LegacyMcpServer,
+  options: { readonly requestTimeoutMs?: number; readonly drainTimeoutMs?: number } = {}
 ): Promise<HttpServerHandle> {
   const modernAdapter = createModernHttpAdapter({
     logger,
     buildLegacyServer,
-    endpointPath: '/mcp',
-    drainTimeoutMs: 2_000,
+    requestTimeoutMs: options.requestTimeoutMs,
+    drainTimeoutMs: options.drainTimeoutMs ?? 2_000,
   });
   return startHttpServer({
     logger,
@@ -118,6 +122,39 @@ afterAll(async () => {
 });
 
 describe('MCP v2 stateless dual-era runtime', () => {
+  it('builds an immutable, bounded, transport-authenticated request context', () => {
+    const controller = new AbortController();
+    const sdkContext: McpRequestContext = {
+      era: 'modern',
+      requestInfo: new Request('http://localhost/mcp', {
+        headers: { 'Mcp-Name': 'x'.repeat(200) },
+        signal: controller.signal,
+      }),
+      authInfo: {
+        token: 'not-logged',
+        clientId: 'dual-era-client',
+        scopes: ['whmcs:read'],
+        extra: { authMode: 'oauth' },
+      },
+    };
+    const context = createRequestContext(sdkContext, {
+      requestId: 'request-1',
+      timeoutMs: 1_000,
+    });
+
+    expect(Object.isFrozen(context)).toBe(true);
+    expect(Object.isFrozen(context.identity)).toBe(true);
+    expect(Object.isFrozen(context.identity.scopes)).toBe(true);
+    expect(context.clientName).toHaveLength(64);
+    expect(context.identity).toEqual({
+      consumerId: 'dual-era-client',
+      scopes: ['whmcs:read'],
+      authMode: 'oauth',
+    });
+    controller.abort();
+    expect(context.signal.aborted).toBe(true);
+  });
+
   it('serves a modern request without initialize or protocol session state', async () => {
     const sessionHeaders: (string | null)[] = [];
     const client = await connectModern(first, sessionHeaders);
@@ -126,10 +163,20 @@ describe('MCP v2 stateless dual-era runtime', () => {
     expect(client.getProtocolEra()).toBe('modern');
     await expect(client.listTools()).resolves.toMatchObject({
       tools: expect.any(Array),
-      ttlMs: 0,
+      ttlMs: 30_000,
       cacheScope: 'private',
     });
     expect(client.getInstructions()).toContain('get_capability_matrix');
+    expect(client.getDiscoverResult()).toMatchObject({
+      ttlMs: 30_000,
+      cacheScope: 'private',
+      capabilities: { tools: expect.any(Object) },
+    });
+    expect(client.getServerCapabilities()).not.toHaveProperty('tasks');
+    await expect(client.readResource({ uri: 'whmcs://docs/ops-playbook' })).resolves.toMatchObject({
+      ttlMs: 0,
+      cacheScope: 'private',
+    });
     expect(sessionHeaders.length).toBeGreaterThan(0);
     expect(sessionHeaders).toEqual(sessionHeaders.map(() => null));
   });
@@ -204,6 +251,123 @@ describe('MCP v2 stateless dual-era runtime', () => {
     }
   });
 
+  it('changes the private cache identity when the published catalog changes', async () => {
+    const buildExpandedServer = (): LegacyMcpServer => {
+      const server = buildIdentityServer();
+      server.tool('second_catalog_tool', {}, async () => ({
+        content: [{ type: 'text', text: 'second' }],
+      }));
+      return server;
+    };
+    const baseHandle = await startModernServer(buildIdentityServer);
+    const expandedHandle = await startModernServer(buildExpandedServer);
+    const baseClient = await connectModern(baseHandle);
+    const expandedClient = await connectModern(expandedHandle);
+    clients.push(baseClient, expandedClient);
+    try {
+      const serverVersion = (client: Client): string | undefined => {
+        const metadata = client.getDiscoverResult()?._meta;
+        const serverInfo = metadata?.[SERVER_INFO_META_KEY] as { version?: string } | undefined;
+        return serverInfo?.version;
+      };
+      const baseVersion = serverVersion(baseClient);
+      const expandedVersion = serverVersion(expandedClient);
+      expect(baseVersion).toMatch(/^1\.0\.0\+catalog\.[a-f0-9]{12}$/);
+      expect(expandedVersion).toMatch(/^1\.0\.0\+catalog\.[a-f0-9]{12}$/);
+      expect(expandedVersion).not.toBe(baseVersion);
+    } finally {
+      await Promise.allSettled([baseHandle.close(), expandedHandle.close()]);
+    }
+  });
+
+  it('propagates client cancellation through the v1 JSON-RPC bridge', async () => {
+    let startedResolve: (() => void) | undefined;
+    let cancelledResolve: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    const cancelled = new Promise<void>((resolve) => {
+      cancelledResolve = resolve;
+    });
+    const buildCancellationServer = (): LegacyMcpServer => {
+      const server = new LegacyMcpServer({ name: 'cancel-test', version: '1.0.0' });
+      server.tool('wait_for_cancel', {}, async (_args, extra) => {
+        startedResolve?.();
+        await new Promise<void>((resolve) => {
+          if (extra.signal.aborted) resolve();
+          else extra.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        cancelledResolve?.();
+        return { content: [{ type: 'text', text: 'cancelled' }] };
+      });
+      return server;
+    };
+
+    const handle = await startModernServer(buildCancellationServer);
+    const client = await connectModern(handle);
+    clients.push(client);
+    const abort = new AbortController();
+    try {
+      const call = client.callTool(
+        { name: 'wait_for_cancel', arguments: {} },
+        { signal: abort.signal }
+      );
+      await started;
+      abort.abort();
+      await expect(call).rejects.toBeDefined();
+      await expect(cancelled).resolves.toBeUndefined();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('propagates the request deadline through the v1 JSON-RPC bridge', async () => {
+    let cancelledResolve: (() => void) | undefined;
+    const cancelled = new Promise<void>((resolve) => {
+      cancelledResolve = resolve;
+    });
+    const buildDeadlineServer = (): LegacyMcpServer => {
+      const server = new LegacyMcpServer({ name: 'deadline-test', version: '1.0.0' });
+      server.tool('wait_for_deadline', {}, async (_args, extra) => {
+        await new Promise<void>((resolve) => {
+          if (extra.signal.aborted) resolve();
+          else extra.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        cancelledResolve?.();
+        return { content: [{ type: 'text', text: 'deadline' }] };
+      });
+      return server;
+    };
+
+    const handle = await startModernServer(buildDeadlineServer, { requestTimeoutMs: 100 });
+    const client = await connectModern(handle);
+    clients.push(client);
+    try {
+      const call = client
+        .callTool({ name: 'wait_for_deadline', arguments: {} })
+        .catch(() => undefined);
+      await expect(cancelled).resolves.toBeUndefined();
+      await call;
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('contains a modern factory failure as a bounded HTTP 500', async () => {
+    const handle = await startModernServer(() => {
+      throw new Error('factory failure sentinel');
+    });
+    try {
+      await expect(connectModern(handle)).rejects.toMatchObject({ status: 500 });
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('Modern MCP'),
+        expect.objectContaining({ error_name: 'Error' })
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('serves modern stdio framing while preserving stdio consumer credentials', async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const eras: string[] = [];
@@ -263,6 +427,37 @@ describe('MCP v2 stateless dual-era runtime', () => {
     const body = await response.text();
     expect(response.status).toBe(400);
     expect(body).toContain('-32020');
+
+    const nameResponse = await fetch(`http://127.0.0.1:${first.port}/mcp`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json, text/event-stream',
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json',
+        'MCP-Protocol-Version': '2026-07-28',
+        'Mcp-Method': 'tools/call',
+        'Mcp-Name': 'different_tool',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'name-mismatch',
+        method: 'tools/call',
+        params: {
+          name: 'echo_transport_identity',
+          arguments: {},
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': {
+              name: 'dual-era-contract-client',
+              version: '1.0.0',
+            },
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      }),
+    });
+    expect(nameResponse.status).toBe(400);
+    expect(await nameResponse.text()).toContain('-32020');
   });
 
   it('rejects new work while draining and lets an in-flight read finish', async () => {

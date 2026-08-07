@@ -14,13 +14,13 @@
  * `onsessioninitialized` and use to route every subsequent request to the same
  * transport (stored in a per-process map). DELETE / transport close evicts it.
  *
- * SECURITY: every request runs an inline auth flow BEFORE the body is handed to
- * the transport, in this order:
- *   1. Origin allowlist gate (403) — no token-probing oracle.
+ * SECURITY: every request runs an inline boundary flow BEFORE the body is
+ * handed to either protocol adapter, in this order:
+ *   1. Host and Origin allowlist gates (403) — no token-probing oracle.
  *   2. Bearer/OAuth resolution to a ConsumerProfile — registry token or (when
  *      `MCP_OAUTH_ENABLED`) a verified JWT mapped to a consumer (401 with
  *      `WWW-Authenticate`, no body leak).
- *   3. Session-owner check — each session records the `profile.id` of the
+ *   3. For legacy only, session-owner check — each session records the `profile.id` of the
  *      consumer that initialized it; a subsequent request targeting an existing
  *      session whose authenticated `profile.id` differs is rejected (403), so an
  *      authenticated consumer cannot ride another consumer's `mcp-session-id`.
@@ -436,14 +436,25 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
           -32000,
           'Bad Request: no valid session id for non-initialize request'
         );
+        logger.info('HTTP MCP request completed', {
+          protocol_era: 'legacy',
+          transport: 'http',
+          client_name: profile.id.slice(0, 64),
+          auth_mode: oauthEnabled ? 'oauth' : 'registry',
+          outcome: 'rejected',
+          duration_ms: 0,
+        });
         return;
       }
     }
 
     // Hand off to the SDK transport (handles POST/GET/DELETE + SSE + session
     // headers per the spec). Pass the pre-parsed body for POST.
+    const startedAt = Date.now();
+    let outcome = 'error';
     try {
       await transport.handleRequest(req, res, body);
+      outcome = 'success';
     } catch (error) {
       logger.error('HTTP MCP transport error', {
         error: error instanceof Error ? error.message : String(error),
@@ -451,6 +462,15 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
       if (!res.headersSent) {
         writeJsonRpcError(res, 500, -32603, 'Internal error');
       }
+    } finally {
+      logger.info('HTTP MCP request completed', {
+        protocol_era: 'legacy',
+        transport: 'http',
+        client_name: profile.id.slice(0, 64),
+        auth_mode: oauthEnabled ? 'oauth' : 'registry',
+        outcome,
+        duration_ms: Date.now() - startedAt,
+      });
     }
   }
 

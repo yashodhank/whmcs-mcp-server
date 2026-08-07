@@ -18,6 +18,7 @@ vi.mock('../../src/config.js', async (importOriginal) => {
       MCP_HTTP_PORT: configOverride.port,
       MCP_HTTP_PATH: configOverride.path,
       MCP_HTTP_ALLOWED_ORIGINS: [],
+      MCP_HTTP_ALLOWED_HOSTS: ['127.0.0.1', 'localhost', '[::1]'],
       MCP_HTTP_MAX_SESSIONS: 32,
       MCP_HTTP_SESSION_IDLE_MS: 300_000,
       MCP_OAUTH_ENABLED: false,

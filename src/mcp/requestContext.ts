@@ -49,7 +49,12 @@ export function createRequestContext(
 ): RequestContext {
   const timeoutMs = Math.max(1, options.timeoutMs ?? 60_000);
   const requestId = options.requestId ?? randomUUID();
-  const clientName = sdk.requestInfo?.headers.get('mcp-name')?.trim() || 'unknown';
+  const clientName = (sdk.requestInfo?.headers.get('mcp-name')?.trim() || 'unknown').slice(0, 64);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal =
+    sdk.requestInfo === undefined
+      ? timeoutSignal
+      : AbortSignal.any([sdk.requestInfo.signal, timeoutSignal]);
 
   return Object.freeze({
     era: sdk.era,
@@ -57,6 +62,6 @@ export function createRequestContext(
     identity: freezeIdentity(sdk.authInfo),
     requestId,
     deadline: Date.now() + timeoutMs,
-    signal: sdk.requestInfo?.signal ?? AbortSignal.timeout(timeoutMs),
+    signal,
   });
 }

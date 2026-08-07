@@ -226,9 +226,13 @@ Plans 003 and 004 may proceed in parallel only after Plan 001. Plan 005 depends
 on the typed catalog from Plan 003 and should use the modern protocol adapter
 from Plan 002 before exposing modern-only interaction features.
 
-Plan 001 establishes the implementation baseline in this change: the current
-runtime remains MCP SDK v1 with `2025-11-25` stateful HTTP compatibility, while
-`2026-07-28` stateless support remains Plan 002 work. The public catalog is
+Plans 001 and 002 establish the implementation baseline: split MCP SDK v2
+`2.0.0` is the primary dual-era runtime, `2026-07-28` HTTP requests are
+request-stateless, and the retained SDK v1 path serves measured 2025-era
+compatibility. Set `MCP_PROTOCOL_RUNTIME=legacy` and restart/respawn only for a
+bounded rollback. Do not remove v1 until telemetry shows 30 consecutive days
+without legacy or unknown clients and official modern conformance is available
+and green. The public catalog is
 pinned as a compatibility-significant fixture (57 tools, 9 prompts, 3 concrete
 resources, and 9 resource templates at this baseline). In-process discovery
 and negative transport/auth tests use a WHMCS tripwire, and CI runs both
@@ -243,6 +247,17 @@ children, and proves a hostile shell/`.env` cannot change the 57/9/3/9
 baseline or pass parent secrets through. Direct-entry detection resolves real
 paths, so a built `dist/index.js` launched through a symlink starts the stdio
 transport; the bounded contract smoke test proves startup and clean shutdown.
+Modern HTTP keeps no protocol session maps, derives identity/scopes for every
+request, propagates disconnect/deadline cancellation through the compatibility
+bridge, rejects Host/Origin/auth/routing failures before dispatch, and drains
+in-flight work for at most `MCP_HTTP_DRAIN_TIMEOUT_MS`. Modern discovery and
+catalog lists use a private 30-second TTL partitioned by a descriptor hash;
+dynamic resource reads remain private with zero TTL. Tasks and multi-round-trip
+input remain unadvertised: the MRTR no-write demonstration is deferred to Plan
+005 to avoid adding a synthetic catalog tool or changing write authorization in
+this migration. The pinned
+official conformance runner covers `2025-11-25`; deterministic dual-era tests
+cover the modern lifecycle until an official `2026-07-28` runner is published.
 The detailed protocol matrix, error contract, conformance scope, and retirement
 gates are in [`docs/design/mcp-adoption.md`](design/mcp-adoption.md).
 

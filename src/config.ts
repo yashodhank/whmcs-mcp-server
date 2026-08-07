@@ -277,11 +277,9 @@ const configSchema = z
     MCP_PROD_HIGH_RISK_DAILY_CAP: z.coerce.number().min(0).default(0),
 
     // ── MCP Adoption #10 — Streamable HTTP transport (OPT-IN) ───────────────
-    // Transport selection. Default `stdio` ⇒ behaviour is byte-identical to the
-    // pre-HTTP server (StdioServerTransport). `http` starts a node:http server
-    // running the SDK StreamableHTTPServerTransport, with bearer-token auth
-    // bridged to the EXISTING consumer registry (same tokens as stdio). Full
-    // OAuth2.1/PRM is a documented follow-up (see docs/design/mcp-adoption.md #9).
+    // Transport selection. Default `stdio` stays process-local. `http` starts
+    // a node:http server with bearer-token auth bridged to the existing
+    // consumer registry (same tokens as stdio).
     MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
     // Stable v2 is primary. `legacy` is the bounded rollback switch and keeps
     // the pre-v2 SDK path intact while operators investigate a migration issue.

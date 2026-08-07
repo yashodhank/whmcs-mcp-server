@@ -153,16 +153,15 @@ async function main(): Promise<void> {
   await runStartupHealthCheck(whmcsClient, logger);
 
   // ── Transport selection (MCP Adoption #10) ───────────────────────────────
-  // Default `stdio` is byte-identical to the pre-HTTP server. `http` opts into
-  // the Streamable HTTP transport with bearer auth bridged to the consumer
-  // registry. The HTTP server builds one McpServer per session via buildServer.
+  // `stdio` remains the default transport; `MCP_PROTOCOL_RUNTIME=v2` selects
+  // the official dual-era router. HTTP authenticates before routing modern
+  // requests to the stateless adapter or 2025 requests to legacy sessions.
   if (config.MCP_TRANSPORT === 'http') {
     const modernAdapter =
       config.MCP_PROTOCOL_RUNTIME === 'v2'
         ? createModernHttpAdapter({
             logger,
             buildLegacyServer: () => buildServer({ whmcsClient, logger, rateLimiter }),
-            endpointPath: config.MCP_HTTP_PATH,
             drainTimeoutMs: config.MCP_HTTP_DRAIN_TIMEOUT_MS,
           })
         : undefined;
@@ -194,7 +193,7 @@ async function main(): Promise<void> {
       }
     );
     stdioServerHandle = handle;
-    logger.info('MCP Server ready, connecting via dual-era stdio...');
+    logger.info('MCP Server ready, connecting via stdio (dual-era)...');
     return;
   }
 

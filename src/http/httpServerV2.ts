@@ -10,7 +10,6 @@ import type { ConsumerProfile } from '../governance/types.js';
 import { buildModernServer, type ServerFactoryDeps } from '../mcp/serverFactory.js';
 
 export interface ModernHttpAdapterDeps extends ServerFactoryDeps {
-  readonly endpointPath: string;
   readonly drainTimeoutMs?: number;
 }
 
@@ -42,7 +41,7 @@ function requestUrl(req: IncomingMessage): URL {
   return new URL(req.url ?? '/', `http://${host}`);
 }
 
-function webRequest(req: IncomingMessage, parsedBody: unknown): Request {
+function webRequest(req: IncomingMessage, parsedBody: unknown, signal: AbortSignal): Request {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
     if (value === undefined) continue;
@@ -53,6 +52,7 @@ function webRequest(req: IncomingMessage, parsedBody: unknown): Request {
   return new Request(requestUrl(req), {
     method,
     headers,
+    signal,
     ...(method === 'GET' || method === 'HEAD' || parsedBody === undefined
       ? {}
       : { body: JSON.stringify(parsedBody) }),
@@ -104,6 +104,22 @@ function boundedConsumerName(auth: ModernRequestAuth): string {
   return auth.profile.id.slice(0, 64);
 }
 
+function writeInternalError(res: ServerResponse): void {
+  if (res.destroyed || res.writableEnded) return;
+  if (!res.headersSent) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: 'Internal error' },
+        id: null,
+      })
+    );
+    return;
+  }
+  res.end();
+}
+
 export function createModernHttpAdapter(deps: ModernHttpAdapterDeps): ModernHttpAdapter {
   const { logger } = deps;
   const handler: McpHttpHandler = createMcpHandler(
@@ -128,8 +144,35 @@ export function createModernHttpAdapter(deps: ModernHttpAdapterDeps): ModernHttp
 
   return {
     async handleIfModern(req, res, parsedBody, auth): Promise<boolean> {
-      const request = webRequest(req, parsedBody);
-      if (await isLegacyRequest(request, parsedBody)) return false;
+      const requestAbort = new AbortController();
+      const abortRequest = (): void => {
+        requestAbort.abort();
+      };
+      const abortClosedResponse = (): void => {
+        if (!res.writableFinished) requestAbort.abort();
+      };
+      req.once('aborted', abortRequest);
+      res.once('close', abortClosedResponse);
+      const detachAbortListeners = (): void => {
+        req.off('aborted', abortRequest);
+        res.off('close', abortClosedResponse);
+      };
+      const request = webRequest(req, parsedBody, requestAbort.signal);
+      let legacyRequest: boolean;
+      try {
+        legacyRequest = await isLegacyRequest(request, parsedBody);
+      } catch (error) {
+        detachAbortListeners();
+        logger.error('Modern MCP request classification failed', {
+          error_name: error instanceof Error ? error.name : 'UnknownError',
+        });
+        writeInternalError(res);
+        return true;
+      }
+      if (legacyRequest) {
+        detachAbortListeners();
+        return false;
+      }
 
       if (closing) {
         res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '1' });
@@ -140,6 +183,15 @@ export function createModernHttpAdapter(deps: ModernHttpAdapterDeps): ModernHttp
             id: null,
           })
         );
+        logger.info('HTTP MCP request completed', {
+          protocol_era: 'modern',
+          transport: 'http',
+          client_name: boundedConsumerName(auth),
+          auth_mode: auth.authMode,
+          outcome: 'draining',
+          duration_ms: 0,
+        });
+        detachAbortListeners();
         return true;
       }
 
@@ -153,7 +205,13 @@ export function createModernHttpAdapter(deps: ModernHttpAdapterDeps): ModernHttp
         });
         await writeWebResponse(response, res);
         outcome = response.ok ? 'success' : 'rejected';
+      } catch (error) {
+        logger.error('Modern MCP request failed', {
+          error_name: error instanceof Error ? error.name : 'UnknownError',
+        });
+        writeInternalError(res);
       } finally {
+        detachAbortListeners();
         logger.info('HTTP MCP request completed', {
           protocol_era: 'modern',
           transport: 'http',
