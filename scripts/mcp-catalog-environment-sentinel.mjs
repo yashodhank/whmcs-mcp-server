@@ -7,7 +7,7 @@ import { buildServer } from '../dist/index.js';
 const expected = Object.freeze({
   tools: 57,
   prompts: 9,
-  resources: 3,
+  resources: 4,
   resourceTemplates: 9,
 });
 const whmcsCalls = [];
