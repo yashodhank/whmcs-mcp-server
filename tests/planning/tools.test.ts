@@ -268,6 +268,29 @@ describe('planning tools', () => {
     );
   });
 
+  it('creates no draft when the request is already cancelled', async () => {
+    const compiled = await call('compile_operation_plan', {
+      auth_token: 'transport-bound',
+      candidate: candidate('services.suspend.draft', 'draft_only'),
+    });
+    const cancelled = new AbortController();
+    cancelled.abort(new Error('operator cancelled'));
+
+    const response = await call(
+      'draft_operation_plan',
+      { auth_token: 'transport-bound', plan: compiled.structuredContent.plan },
+      cancelled.signal
+    );
+
+    expect(draftWorkflowIntent).not.toHaveBeenCalled();
+    expect(response.structuredContent).toMatchObject({
+      executed: false,
+      partial: false,
+      drafts: [],
+      blockers: [expect.objectContaining({ path: 'request' })],
+    });
+  });
+
   it('blocks edited and expired plans before drafting', async () => {
     const compiled = await call('compile_operation_plan', {
       auth_token: 'transport-bound',

@@ -868,8 +868,11 @@
               },
               "assumptions": {
                 "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
                   "type": "string"
                 },
+                "maxItems": 50,
                 "type": "array"
               },
               "catalog_version": {
@@ -909,6 +912,8 @@
                 "type": "string"
               },
               "goal": {
+                "maxLength": 2000,
+                "minLength": 1,
                 "type": "string"
               },
               "plan_hash": {
@@ -954,9 +959,12 @@
                 "type": "object"
               },
               "requested_outcome": {
+                "maxLength": 2000,
+                "minLength": 1,
                 "type": "string"
               },
               "selected_alternative_id": {
+                "minLength": 1,
                 "type": "string"
               },
               "steps": {
@@ -1164,6 +1172,7 @@
                   ],
                   "type": "object"
                 },
+                "maxItems": 100,
                 "type": "array"
               }
             },
@@ -7902,8 +7911,11 @@
               },
               "assumptions": {
                 "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
                   "type": "string"
                 },
+                "maxItems": 50,
                 "type": "array"
               },
               "catalog_version": {
@@ -7943,6 +7955,8 @@
                 "type": "string"
               },
               "goal": {
+                "maxLength": 2000,
+                "minLength": 1,
                 "type": "string"
               },
               "plan_hash": {
@@ -7988,9 +8002,12 @@
                 "type": "object"
               },
               "requested_outcome": {
+                "maxLength": 2000,
+                "minLength": 1,
                 "type": "string"
               },
               "selected_alternative_id": {
+                "minLength": 1,
                 "type": "string"
               },
               "steps": {
@@ -8198,6 +8215,7 @@
                   ],
                   "type": "object"
                 },
+                "maxItems": 100,
                 "type": "array"
               }
             },

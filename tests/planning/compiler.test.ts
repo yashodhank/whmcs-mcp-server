@@ -14,6 +14,7 @@ import {
 } from '../../src/planning/types.js';
 import type { CapabilityEvidence } from '../../src/governance/capabilityEvidence.js';
 import { fingerprintPlanningPolicy } from '../../src/planning/policyFingerprint.js';
+import { planIRSchema } from '../../src/planning/schema.js';
 
 const inert = (() => ({ content: [] })) as OperationDefinition['handler'];
 
@@ -388,5 +389,24 @@ describe('PlanIR compiler', () => {
         expect.objectContaining({ path: 'expires_at' }),
       ])
     );
+  });
+
+  it('bounds compiled PlanIR before draft/preflight handlers receive it', () => {
+    const result = compile(candidate(step(), 'analyse'));
+    if (!result.accepted) throw new Error('fixture did not compile');
+
+    expect(planIRSchema.safeParse({ ...result.plan, goal: 'x'.repeat(2_001) }).success).toBe(false);
+    expect(
+      planIRSchema.safeParse({
+        ...result.plan,
+        assumptions: Array.from({ length: 51 }, (_, index) => `assumption-${index}`),
+      }).success
+    ).toBe(false);
+    expect(
+      planIRSchema.safeParse({
+        ...result.plan,
+        steps: Array.from({ length: 101 }, () => result.plan.steps[0]),
+      }).success
+    ).toBe(false);
   });
 });
