@@ -237,6 +237,12 @@ and negative transport/auth tests use a WHMCS tripwire, and CI runs both
 scenarios explicitly and does not require live WHMCS or operator credentials.
 Its external runner receives only an explicit minimal environment, and CI also
 checks repository-wide formatting plus import safety when no entry argv exists.
+The contract command likewise uses a minimal child environment, explicitly
+pins all current catalog-shaping switches, disables env-file loading in test
+children, and proves a hostile shell/`.env` cannot change the 57/9/3/9
+baseline or pass parent secrets through. Direct-entry detection resolves real
+paths, so a built `dist/index.js` launched through a symlink starts the stdio
+transport; the bounded contract smoke test proves startup and clean shutdown.
 The detailed protocol matrix, error contract, conformance scope, and retirement
 gates are in [`docs/design/mcp-adoption.md`](design/mcp-adoption.md).
 

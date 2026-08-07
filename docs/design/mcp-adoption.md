@@ -29,6 +29,15 @@ the official in-memory SDK transport and a WHMCS call tripwire. It discovers
 and normalizes the complete public catalog, then compares it with
 `tests/fixtures/mcp/catalog-v1.json`.
 
+The command launches its probes and Vitest files with a minimal child
+environment instead of inheriting the operator shell. It pins every current
+catalog-shaping input: `MCP_TOOL_ALLOWLIST` is empty,
+`MCP_ENABLE_LEGACY_WRITE_TOOLS` is false, and `MCP_MAX_PAGE_SIZE` is 100.
+Environment-file loading is disabled only in these hermetic test children, so
+an operator `.env` cannot restore those switches or expose local credentials.
+A hostile-shell and hostile-`.env` sentinel must still discover exactly 57
+tools, 9 prompts, 3 concrete resources, and 9 resource templates.
+
 Normalization sorts catalog entries and JSON object keys only. It preserves:
 
 - tool input and output JSON Schemas, including required fields and constraints;
@@ -44,6 +53,9 @@ normalize away fields that a client can observe or use for validation.
 ## Transport, authentication, and error contract
 
 - stdio remains the default transport and reserves stdout for JSON-RPC.
+- Direct-entry detection compares canonical real paths. Launching the built
+  entry point through a symlink starts stdio normally; missing, non-file, or
+  unresolvable entry paths fail closed for safe factory imports.
 - Streamable HTTP remains opt-in and stateful for the implemented 2025-era
   protocol. Every session is bound to the consumer that initialized it.
 - HTTP checks the Origin boundary before bearer/OAuth authentication. Missing

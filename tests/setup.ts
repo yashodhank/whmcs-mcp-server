@@ -8,7 +8,11 @@
  * - No modifications to existing accounts, domains, or services
  */
 
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+
+if (process.env.MCP_TEST_DISABLE_ENV_FILES !== '1') {
+  loadEnv({ quiet: true });
+}
 
 export async function setup() {
   // Validate that required env vars are set for testing
