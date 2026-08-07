@@ -531,27 +531,64 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
     const src = intent.params.source_clientid;
     const dst = intent.params.dest_clientid;
     if (typeof src !== 'number' || !Number.isInteger(src) || src <= 0)
-      issues.push({ code: 'invalid_clientid', severity: 'error', message: 'service:transfer_owner `source_clientid` must be a positive integer' });
+      issues.push({
+        code: 'invalid_clientid',
+        severity: 'error',
+        message: 'service:transfer_owner `source_clientid` must be a positive integer',
+      });
     if (typeof dst !== 'number' || !Number.isInteger(dst) || dst <= 0)
-      issues.push({ code: 'invalid_clientid', severity: 'error', message: 'service:transfer_owner `dest_clientid` must be a positive integer' });
+      issues.push({
+        code: 'invalid_clientid',
+        severity: 'error',
+        message: 'service:transfer_owner `dest_clientid` must be a positive integer',
+      });
     if (typeof src === 'number' && src === dst)
-      issues.push({ code: 'same_source_dest', severity: 'error', message: 'service:transfer_owner source and destination clients must differ' });
+      issues.push({
+        code: 'same_source_dest',
+        severity: 'error',
+        message: 'service:transfer_owner source and destination clients must differ',
+      });
     const ids = intent.params.service_ids;
-    if (!Array.isArray(ids) || ids.length === 0 || ids.some((s) => typeof s !== 'number' || !Number.isInteger(s) || s <= 0))
-      issues.push({ code: 'invalid_service_ids_shape', severity: 'error', message: 'service:transfer_owner `service_ids` must be a non-empty array of positive integers' });
+    if (
+      !Array.isArray(ids) ||
+      ids.length === 0 ||
+      ids.some((s) => typeof s !== 'number' || !Number.isInteger(s) || s <= 0)
+    )
+      issues.push({
+        code: 'invalid_service_ids_shape',
+        severity: 'error',
+        message:
+          'service:transfer_owner `service_ids` must be a non-empty array of positive integers',
+      });
     const mode = intent.params.invoice_mode;
     if (mode !== 'none' && mode !== 'unpaid_only' && mode !== 'all')
-      issues.push({ code: 'invalid_invoice_mode', severity: 'error', message: "service:transfer_owner `invoice_mode` must be 'none' | 'unpaid_only' | 'all'" });
+      issues.push({
+        code: 'invalid_invoice_mode',
+        severity: 'error',
+        message: "service:transfer_owner `invoice_mode` must be 'none' | 'unpaid_only' | 'all'",
+      });
     if (intent.params.dry_run !== undefined && typeof intent.params.dry_run !== 'boolean')
-      issues.push({ code: 'invalid_dry_run', severity: 'error', message: 'service:transfer_owner `dry_run` must be a boolean when provided' });
+      issues.push({
+        code: 'invalid_dry_run',
+        severity: 'error',
+        message: 'service:transfer_owner `dry_run` must be a boolean when provided',
+      });
   }
   if (intent.scope === 'billing:invoice:reassign') {
     const inv = intent.params.invoice_id;
     if (typeof inv !== 'number' || !Number.isInteger(inv) || inv <= 0)
-      issues.push({ code: 'invalid_invoiceid', severity: 'error', message: 'billing:invoice:reassign `invoice_id` must be a positive integer' });
+      issues.push({
+        code: 'invalid_invoiceid',
+        severity: 'error',
+        message: 'billing:invoice:reassign `invoice_id` must be a positive integer',
+      });
     const dst = intent.params.dest_clientid;
     if (typeof dst !== 'number' || !Number.isInteger(dst) || dst <= 0)
-      issues.push({ code: 'invalid_clientid', severity: 'error', message: 'billing:invoice:reassign `dest_clientid` must be a positive integer' });
+      issues.push({
+        code: 'invalid_clientid',
+        severity: 'error',
+        message: 'billing:invoice:reassign `dest_clientid` must be a positive integer',
+      });
   }
 
   // service:domain_rename — serviceid positive int; domain a valid
