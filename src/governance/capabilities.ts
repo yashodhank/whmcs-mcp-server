@@ -116,7 +116,11 @@ export function getCapability(
 /** Dependencies injected into the probe so it never owns transport/policy. */
 export interface ProbeDeps {
   /** Read-only WHMCS boundary (WhmcsClient.read). */
-  read: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
+  read: (
+    action: string,
+    params?: Record<string, unknown>,
+    options?: { bypassCache?: boolean; bypassCoalescing?: boolean }
+  ) => Promise<unknown>;
   /** True iff the action is in the existing read allowlist (assertReadAction). */
   isAllowlisted: (action: string) => boolean;
   /** Opaque installation + configuration fingerprints used to isolate evidence. */
@@ -278,7 +282,10 @@ export async function probeCapability(
   let failureClass: CapabilityFailureClass = 'none';
   let note = 'Probe succeeded against the live WHMCS install.';
   try {
-    const response = await deps.read(action, probeParams);
+    const response = await deps.read(action, probeParams, {
+      bypassCache: true,
+      bypassCoalescing: true,
+    });
     const result = readResultIsError(response);
     if (result.isError) {
       const classified = classifyFailure(result.message);

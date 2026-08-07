@@ -1,521 +1,235 @@
 /**
- * WHMCS API Client
+ * Backward-compatible facade over the typed WHMCS request pipeline.
  *
- * Provides a type-safe wrapper around the WHMCS External API.
- * Handles authentication, error handling, response normalization, and mode enforcement.
+ * Encoding, transport, decoding, classification, retries, repairs, deadlines,
+ * scheduling, coalescing, cache policy, and telemetry live in independently
+ * tested stages under `src/whmcs/request/` and adjacent coordinator modules.
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
-import https from 'node:https';
-import { AppConfig, McpMode, getWhmcsApiEndpoint } from '../config.js';
-import { Logger } from '../logging.js';
-import { normalizeWhmcsResponse, boolToWhmcs } from './normalizers.js';
+import { getWhmcsApiEndpoint, type AppConfig, type McpMode } from '../config.js';
+import type { Logger } from '../logging.js';
+import {
+  classifyWhmcsAction,
+  NOOP_WHMCS_TELEMETRY,
+  type WhmcsTelemetry,
+} from '../observability/whmcsTelemetry.js';
 import { assertReadAction } from './actionPolicy.js';
+import {
+  buildReadCoordinationKey,
+  mutationInvalidationTags,
+  resolveReadCachePolicy,
+} from './cachePolicy.js';
 import { ReadCache } from './readCache.js';
-import { attemptIpAllowlistHeal } from './ipAllowlistHeal.js';
+import { ReadCoordinator } from './readCoordinator.js';
+import { normalizeWhmcsParams } from './request/encoder.js';
+import { WhmcsBusinessError } from './request/errors.js';
+import {
+  WhmcsRequestPipeline,
+  type WhmcsPipelineOptions,
+  type WhmcsRequestPipelineDependencies,
+} from './request/pipeline.js';
+import type { WhmcsRequestOptions } from './request/types.js';
 
-/**
- * WHMCS business-level error
- * Thrown when WHMCS API returns result='error'
- */
-export class WhmcsBusinessError extends Error {
-  code?: string | number;
-  details?: unknown;
+export { WhmcsBusinessError, WhmcsTransportError } from './request/errors.js';
+export type { WhmcsRequestOptions } from './request/types.js';
 
-  constructor(message: string, code?: string | number, details?: unknown) {
-    super(message);
-    this.name = 'WhmcsBusinessError';
-    this.code = code;
-    this.details = details;
-  }
-}
-
-/**
- * WHMCS protocol/transport error
- * Thrown when HTTP request fails or returns non-200
- */
-export class WhmcsTransportError extends Error {
-  statusCode?: number;
-
-  constructor(message: string, statusCode?: number) {
-    super(message);
-    this.name = 'WhmcsTransportError';
-    this.statusCode = statusCode;
-  }
-}
-
-/**
- * Common WHMCS API response structure
- */
-interface WhmcsResponse {
-  result: 'success' | 'error';
-  message?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Options for WHMCS API calls
- */
-export interface WhmcsCallOptions {
-  /** Whether this is a mutating operation */
+export interface WhmcsCallOptions extends WhmcsPipelineOptions {
+  /** Whether this is a mutating operation. */
   isMutating?: boolean;
-  /** Enable response normalization for this action */
-  normalize?: boolean;
-  /** Simulated response for simulate mode */
+  /** Simulated response for simulate mode. */
   simulatedResponse?: unknown;
-  /** Allow retries for this call (defaults to true for reads, false for mutates) */
-  allowRetry?: boolean;
 }
 
-/**
- * Retry configuration constants
- */
-const RETRY_CONFIG = {
-  /** Maximum number of retry attempts */
-  MAX_RETRIES: 3,
-  /** Base delay in ms for exponential backoff */
-  BASE_DELAY_MS: 1000,
-  /** Maximum delay cap in ms */
-  MAX_DELAY_MS: 10000,
-  /** HTTP status codes that are retryable */
-  RETRYABLE_STATUS_CODES: [500, 502, 503, 504, 429] as readonly number[],
-};
-
-/**
- * Sleep utility for retry delays
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export interface WhmcsClientDependencies extends WhmcsRequestPipelineDependencies {
+  telemetry?: WhmcsTelemetry;
+  maxReadConcurrency?: number;
+  coalescingEnabled?: boolean;
 }
 
-/**
- * Calculate exponential backoff delay with jitter
- */
-function getBackoffDelay(attempt: number): number {
-  const exponentialDelay = RETRY_CONFIG.BASE_DELAY_MS * Math.pow(2, attempt);
-  const jitter = Math.random() * RETRY_CONFIG.BASE_DELAY_MS;
-  return Math.min(exponentialDelay + jitter, RETRY_CONFIG.MAX_DELAY_MS);
+export interface WhmcsClientDiagnostics {
+  cache: ReturnType<WhmcsClient['cacheMetricsSnapshot']>;
+  coordinator: { active: number; queued: number; inflight: number };
 }
 
-/**
- * Extract the WHMCS error message from a failed request, plus the source IP
- * WHMCS reports for an "Invalid IP <X>" rejection. WHMCS returns these in the
- * JSON body even on a 403, so the self-heal can both (a) confirm the 403 is an
- * IP-allowlist rejection vs a permissions/auth error, and (b) use the exact IP
- * WHMCS saw instead of guessing via public-IP providers.
- */
-function extractWhmcsError(error: unknown): { message?: string; reportedIp?: string } {
-  if (!axios.isAxiosError(error)) {
-    return {};
-  }
-  const data = (error as AxiosError).response?.data as { message?: string } | string | undefined;
-  let message: string | undefined;
-  if (typeof data === 'string') {
-    message = data;
-  } else if (data && typeof data === 'object' && typeof data.message === 'string') {
-    message = data.message;
-  }
-  if (!message) {
-    return {};
-  }
-  // e.g. "Invalid IP 117.217.28.213" or an IPv6 form.
-  const match = /invalid\s+ip\s+([0-9a-fA-F:.]+)/i.exec(message);
-  return { message, reportedIp: match?.[1] };
-}
-
-/**
- * WHMCS API Client
- */
 export class WhmcsClient {
-  private readonly axios: AxiosInstance;
-  private readonly config: AppConfig;
-  private readonly logger: Logger;
   private readonly mode: McpMode;
-  /**
-   * F1: per-instance short-TTL read cache. Disabled by default (TTL 0). Caches
-   * only idempotent, allowlisted reference reads on the read() path.
-   */
   private readonly readCache: ReadCache;
-  /**
-   * Explicit keep-alive agent so a stuck/flagged pooled socket can be reset.
-   * Node >=19 defaults keepAlive=true; a long-lived process that hits a
-   * transient connection-level edge/WAF/fail2ban flag would otherwise reuse the
-   * flagged socket and 403 forever until restart (observed 2026-06-19). On an
-   * edge 403 the call path destroys this agent's sockets and retries once on a
-   * fresh connection.
-   */
-  private readonly httpsAgent: https.Agent;
+  private readonly cacheableActions: ReadonlySet<string>;
+  private readonly coordinator: ReadCoordinator;
+  private readonly pipeline: WhmcsRequestPipeline;
+  private readonly telemetry: WhmcsTelemetry;
+  private readonly endpoint: string;
+  private readonly coalescingEnabled: boolean;
+  private cacheEpoch = 0;
 
-  constructor(config: AppConfig, logger: Logger) {
-    this.config = config;
-    this.logger = logger;
+  constructor(
+    private readonly config: AppConfig,
+    private readonly logger: Logger,
+    dependencies: WhmcsClientDependencies = {}
+  ) {
     this.mode = config.MCP_MODE;
+    this.endpoint = getWhmcsApiEndpoint();
+    this.telemetry = dependencies.telemetry ?? NOOP_WHMCS_TELEMETRY;
+    const cacheActions = Reflect.get(config, 'MCP_READ_CACHE_ACTIONS') as string[] | undefined;
+    const cacheTtl = Reflect.get(config, 'MCP_READ_CACHE_TTL_MS') as number | undefined;
+    const coalescingEnabled = Reflect.get(config, 'MCP_READ_COALESCE_ENABLED') as
+      | boolean
+      | undefined;
+    const maxReadConcurrency = Reflect.get(config, 'MCP_READ_MAX_CONCURRENCY') as
+      | number
+      | undefined;
+    this.cacheableActions = new Set(cacheActions ?? []);
     this.readCache = new ReadCache({
-      ttlMs: config.MCP_READ_CACHE_TTL_MS,
-      cacheableActions: config.MCP_READ_CACHE_ACTIONS,
+      ttlMs: cacheTtl ?? 0,
+      cacheableActions: [...this.cacheableActions],
     });
-
-    this.httpsAgent = new https.Agent({ keepAlive: true });
-    this.axios = axios.create({
-      baseURL: getWhmcsApiEndpoint(),
-      timeout: 30000, // 30 second timeout
-      httpsAgent: this.httpsAgent,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+    this.coalescingEnabled = dependencies.coalescingEnabled ?? coalescingEnabled ?? false;
+    this.coordinator = new ReadCoordinator({
+      maxConcurrency: dependencies.maxReadConcurrency ?? maxReadConcurrency ?? 8,
+      telemetry: this.telemetry,
     });
+    this.pipeline = new WhmcsRequestPipeline(config, logger, this.endpoint, dependencies);
   }
 
-  /**
-   * Get the current operation mode
-   */
   getMode(): McpMode {
     return this.mode;
   }
 
-  /**
-   * Check if in read-only mode
-   */
   isReadOnly(): boolean {
     return this.mode === 'read_only';
   }
 
-  /**
-   * Check if in simulate mode
-   */
   isSimulate(): boolean {
     return this.mode === 'simulate';
   }
 
-  /**
-   * Transform parameters for WHMCS API
-   * - Convert booleans to WHMCS format
-   * - Remove undefined values
-   */
-  private transformParams(params: Record<string, unknown>): Record<string, unknown> {
-    const transformed: Record<string, unknown> = {};
-
-    for (const [key, value] of Object.entries(params)) {
-      if (value === undefined) {
-        continue;
-      }
-
-      if (typeof value === 'boolean') {
-        transformed[key] = boolToWhmcs(value);
-      } else {
-        transformed[key] = value;
-      }
-    }
-
-    return transformed;
-  }
-
-  /**
-   * Make a call to the WHMCS API
-   *
-   * @param action - WHMCS API action name
-   * @param params - Parameters for the action
-   * @param options - Call options
-   * @returns Typed response from WHMCS
-   * @throws WhmcsBusinessError for API-level errors
-   * @throws WhmcsTransportError for network/HTTP errors
-   */
   async call<T>(
     action: string,
     params: Record<string, unknown> = {},
     options: WhmcsCallOptions = {}
   ): Promise<T> {
-    const { isMutating = false, normalize = true, simulatedResponse } = options;
-
-    // Log the API call
-    this.logger.logWhmcsCall(action, params, isMutating);
-
-    // Handle simulate mode for mutating operations
+    const { isMutating = false, simulatedResponse, ...pipelineOptions } = options;
     if (this.mode === 'simulate' && isMutating) {
+      this.logger.logWhmcsCall(action, params, true);
       this.logger.info('Simulated WHMCS call (not executed)', {
         action,
         params,
         mode: 'simulate',
       });
-
-      if (simulatedResponse) {
-        return simulatedResponse as T;
-      }
-
-      // Return a generic success response
-      return {
-        result: 'success',
-        message: `Simulated ${action} call`,
-      } as unknown as T;
+      if (simulatedResponse !== undefined) return simulatedResponse as T;
+      return { result: 'success', message: `Simulated ${action} call` } as T;
     }
-
-    // Build request body
-    const body = new URLSearchParams({
+    return this.pipeline.execute<T>(
       action,
-      identifier: this.config.WHMCS_IDENTIFIER,
-      secret: this.config.WHMCS_SECRET,
-      ...(this.config.WHMCS_ACCESS_KEY ? { accesskey: this.config.WHMCS_ACCESS_KEY } : {}),
-      responsetype: 'json',
-      ...this.transformParams(params),
-    } as Record<string, string>);
-
-    // Determine if retries are allowed
-    // Default: retries allowed for reads, not for mutating operations (safety)
-    const canRetry = options.allowRetry ?? !isMutating;
-    const maxAttempts = canRetry ? RETRY_CONFIG.MAX_RETRIES : 1;
-
-    let lastError: Error | null = null;
-    // Ensures the IP-allowlist self-heal runs at most once per call (no loops).
-    let healAttempted = false;
-    // One connection-reset retry per call for an edge/WAF 403 on a stuck socket.
-    let connResetAttempted = false;
-    // Narrates the 403 decision into the surfaced error so it is self-diagnosing.
-    let healNote: string | undefined;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const response = await this.axios.post<WhmcsResponse>('', body);
-
-        // Check HTTP status
-        if (response.status !== 200) {
-          throw new WhmcsTransportError(`WHMCS returned HTTP ${response.status}`, response.status);
-        }
-
-        const data = response.data;
-
-        // Check for WHMCS business error
-        if (data.result === 'error') {
-          let message = data.message || 'Unknown WHMCS error';
-          // Self-diagnosing hint for the most time-expensive failure mode: WHMCS
-          // returns "An admin user is required" (HTTP 200) when an authenticated
-          // request can't establish an admin context — classically because the
-          // request hit /includes/api.php/includes/api.php (WHMCS_API_URL already
-          // contained the API path and it was appended again), but also a
-          // disabled/under-permissioned admin or an IP-allowlist block. Surface
-          // the actionable checks + the resolved endpoint so this is never a
-          // multi-hour debug again.
-          if (/an admin user is required/i.test(message)) {
-            message +=
-              ` — the API request could not establish an admin context. Check, in order: ` +
-              `(1) WHMCS_API_URL is the base origin, NOT the full /includes/api.php endpoint ` +
-              `(resolved endpoint: ${getWhmcsApiEndpoint()}); ` +
-              `(2) the credential's linked admin is active with sufficient role permissions; ` +
-              `(3) the caller IP is in the WHMCS API allowlist. ` +
-              `See docs/runbooks/api-connectivity-troubleshooting.md`;
-          }
-          throw new WhmcsBusinessError(message, undefined, data);
-        }
-
-        // Normalize response if enabled
-        let result = data as unknown as T;
-        if (normalize && typeof result === 'object' && result !== null) {
-          result = normalizeWhmcsResponse(result as Record<string, unknown>, action) as T;
-        }
-
-        return result;
-      } catch (error) {
-        // Re-throw our custom errors that shouldn't be retried
-        if (error instanceof WhmcsBusinessError) {
-          throw error;
-        }
-
-        // Store the error for potential re-throw after all retries
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        // Check if this error is retryable
-        let isRetryable = false;
-        let statusCode: number | undefined;
-
-        if (error instanceof WhmcsTransportError) {
-          statusCode = error.statusCode;
-          isRetryable =
-            statusCode !== undefined && RETRY_CONFIG.RETRYABLE_STATUS_CODES.includes(statusCode);
-        } else if (axios.isAxiosError(error)) {
-          const axiosError = error as AxiosError;
-          statusCode = axiosError.response?.status;
-
-          // Retry on 5xx errors, network errors, or timeouts
-          isRetryable =
-            (statusCode !== undefined &&
-              RETRY_CONFIG.RETRYABLE_STATUS_CODES.includes(statusCode)) ||
-            axiosError.code === 'ECONNRESET' ||
-            axiosError.code === 'ETIMEDOUT' ||
-            axiosError.code === 'ECONNABORTED';
-        }
-
-        // A WHMCS 403 has several distinct causes — each handled differently and
-        // narrated into `healNote` so the surfaced error is self-diagnosing:
-        //  - "Invalid IP <X>" (WHMCS body): the ONLY case the IP-allowlist heal
-        //    addresses. A permissions/auth 403 must NOT trigger a pointless SSH
-        //    run. WHMCS reports the exact source IP it saw, so pass it to the
-        //    updater as the authoritative target (no proxy/NAT skew).
-        //  - No WHMCS body: an edge/WAF/proxy 403. A long-lived process can get
-        //    stuck on a flagged keep-alive socket and 403 forever; drop pooled
-        //    sockets and retry ONCE on a fresh connection (auto-recovers a
-        //    transient connection-level WAF/fail2ban flag — observed 2026-06-19).
-        // healAttempted / connResetAttempted each bound their retry to once.
-        if (statusCode === 403) {
-          const { message, reportedIp } = extractWhmcsError(error);
-          const isInvalidIp = !!message && /invalid\s+ip/i.test(message);
-          if (this.config.WHMCS_AUTO_IP_HEAL && !healAttempted && isInvalidIp) {
-            healAttempted = true;
-            const healed = await attemptIpAllowlistHeal(this.config, this.logger, reportedIp);
-            if (healed) {
-              this.logger.warn('WHMCS 403 (Invalid IP): allowlist updated, retrying call once', {
-                action,
-                reportedIp,
-              });
-              attempt = -1; // fresh attempt budget for the single post-heal retry
-              continue;
-            }
-            healNote =
-              'auto-heal ran but did not resolve the allowlist (check SSH identity / updater logs)';
-          } else if (isInvalidIp && !this.config.WHMCS_AUTO_IP_HEAL) {
-            healNote = 'looks like an IP-allowlist rejection but WHMCS_AUTO_IP_HEAL is off';
-          } else if (!message && !connResetAttempted) {
-            connResetAttempted = true;
-            healNote =
-              'edge/WAF 403 (no WHMCS body): reset the keep-alive connection and retried once';
-            this.logger.warn(
-              'WHMCS 403 with no body (edge/WAF): resetting connection and retrying once',
-              { action }
-            );
-            this.httpsAgent.destroy();
-            attempt = -1; // fresh attempt budget for the single post-reset retry
-            continue;
-          } else if (message) {
-            healNote = 'not an IP-allowlist rejection (permission/auth) — auto-heal not applicable';
-            this.logger.warn('WHMCS 403 not auto-healed', { action, message, healNote });
-          } else {
-            healNote =
-              'edge/WAF 403 persisted after a fresh-connection retry — likely a real WAF/fingerprint block or rate limit (verify: curl the same endpoint+IP; if curl works, it is a WAF/fingerprint block)';
-            this.logger.warn('WHMCS 403 persisted after connection reset', { action });
-          }
-        }
-
-        // If not retryable or last attempt, convert to proper error and throw
-        if (!isRetryable || attempt >= maxAttempts - 1) {
-          if (axios.isAxiosError(error)) {
-            const axiosError = error as AxiosError;
-
-            if (axiosError.response) {
-              const status = axiosError.response.status;
-              const body = axiosError.response.data;
-              // Log 5xx response body for debugging (no secrets in typical PHP error output)
-              if (status >= 500 && body !== undefined && body !== null) {
-                this.logger.warn('WHMCS HTTP 5xx response body', {
-                  action,
-                  status,
-                  responseBody:
-                    typeof body === 'string'
-                      ? body.substring(0, 2000)
-                      : typeof body === 'object'
-                        ? JSON.stringify(body).substring(0, 2000)
-                        : typeof body === 'number' || typeof body === 'boolean'
-                          ? String(body)
-                          : '[unserializable]',
-                });
-              }
-              if (status === 403) {
-                const hint =
-                  'HTTP 403 from WHMCS — one of: (1) caller IP not in the WHMCS API allowlist ' +
-                  '(APIAllowedIPs); (2) an edge/WAF/proxy block on the client request/connection ' +
-                  '(verify by curling the same endpoint+IP — if curl works but this client gets 403, ' +
-                  'it is a WAF/connection block, NOT an IP or credential issue); (3) a permission/role ' +
-                  'ACL on the credential. ' +
-                  (healNote ? `Auto-heal: ${healNote}. ` : '') +
-                  'See docs/runbooks/api-connectivity-troubleshooting.md';
-                throw new WhmcsTransportError(`WHMCS HTTP error: 403 — ${hint}`, 403);
-              }
-              throw new WhmcsTransportError(`WHMCS HTTP error: ${status}`, status);
-            }
-
-            if (axiosError.request) {
-              const isTimeout = axiosError.code === 'ECONNABORTED';
-              throw new WhmcsTransportError(
-                isTimeout
-                  ? 'WHMCS request timed out after 30s — host slow or unreachable'
-                  : `WHMCS connection error: ${axiosError.message}`
-              );
-            }
-          }
-
-          throw new WhmcsTransportError(`Unexpected error calling WHMCS: ${lastError.message}`);
-        }
-
-        // Calculate backoff delay and wait
-        const delay = getBackoffDelay(attempt);
-        this.logger.warn('WHMCS call failed, retrying...', {
-          action,
-          attempt: attempt + 1,
-          maxAttempts,
-          statusCode,
-          delayMs: Math.round(delay),
-          error: lastError.message,
-        });
-
-        await sleep(delay);
-      }
-    }
-
-    // Should never reach here, but TypeScript needs it
-    throw lastError ?? new WhmcsTransportError('Unknown error after retries');
+      normalizeWhmcsParams(params),
+      isMutating ? 'write' : 'read',
+      pipelineOptions
+    );
   }
 
-  /**
-   * Make a read-only API call
-   * Convenience method that enforces non-mutating behavior
-   */
-  async read<T>(action: string, params: Record<string, unknown> = {}): Promise<T> {
-    // Policy guard stays BEFORE the cache so a denied action is never cached
-    // and a deny is never satisfied from cache.
+  async read<T>(
+    action: string,
+    params: Record<string, unknown> = {},
+    options: WhmcsRequestOptions = {}
+  ): Promise<T> {
+    // The policy guard must precede every acceleration layer.
     assertReadAction(action);
+    const normalizedParams = normalizeWhmcsParams(params);
+    const policy = resolveReadCachePolicy(
+      action,
+      normalizedParams,
+      this.cacheableActions,
+      (Reflect.get(this.config, 'MCP_READ_CACHE_TTL_MS') as number | undefined) ?? 0
+    );
+    const actionClass = classifyWhmcsAction(action);
+    const cacheEpoch = this.cacheEpoch;
 
-    // Key the cache on the SAME params shape sent to WHMCS (transformParams
-    // drops `undefined` and normalizes booleans) so the key-space matches the
-    // request-space — otherwise `{x: undefined}` and `{}` would be distinct
-    // cache slots for an identical API call.
-    const cacheParams = this.transformParams(params);
-
-    // F1 cache: returns undefined when disabled (TTL 0), not allowlisted, or miss.
-    const cached = this.readCache.get(action, cacheParams);
-    if (cached !== undefined) {
-      return cached as T;
+    if (!options.bypassCache && policy.cacheable) {
+      const cached = this.readCache.get(action, normalizedParams);
+      this.telemetry.record({
+        phase: 'cache',
+        outcome: cached === undefined ? 'miss' : 'hit',
+        effect: 'read',
+        actionClass,
+      });
+      if (cached !== undefined) return cached as T;
     }
 
-    const result = await this.call<T>(action, params, { isMutating: false });
-    // Only successful reads reach here (call() throws on error). set() is a
-    // no-op when caching is disabled or the action is not allowlisted.
-    this.readCache.set(action, cacheParams, result);
+    const deadlineAt =
+      options.timeoutMs !== undefined
+        ? Math.min(options.deadlineAt ?? Infinity, Date.now() + Math.max(0, options.timeoutMs))
+        : options.deadlineAt;
+    const key = buildReadCoordinationKey(
+      this.endpoint,
+      action,
+      normalizedParams,
+      policy.version,
+      options.rawDataScope ?? 'process'
+    );
+    const result = await this.coordinator.run<T>(
+      (signal) =>
+        this.pipeline.execute<T>(action, normalizedParams, 'read', {
+          ...options,
+          timeoutMs: undefined,
+          deadlineAt: undefined,
+          signal,
+        }),
+      {
+        key,
+        actionClass,
+        consumerKey: options.consumerKey,
+        signal: options.signal,
+        deadlineAt,
+        coalesce: this.coalescingEnabled && policy.coalescible && !options.bypassCoalescing,
+      }
+    );
+    if (!options.bypassCache && policy.cacheable && cacheEpoch === this.cacheEpoch) {
+      this.readCache.set(action, normalizedParams, result, policy.tags);
+    }
     return result;
   }
 
-  /**
-   * Clear the per-instance read cache. Exposed for tests / explicit bypass.
-   */
   clearReadCache(): void {
+    this.cacheEpoch += 1;
     this.readCache.clear();
   }
 
-  /**
-   * Make a mutating API call
-   * Checks mode restrictions before executing
-   *
-   * @throws Error if in read_only mode
-   */
   async mutate<T>(
     action: string,
     params: Record<string, unknown> = {},
-    simulatedResponse?: T
+    simulatedResponse?: T,
+    options: WhmcsRequestOptions = {}
   ): Promise<T> {
-    // Block in read_only mode
     if (this.mode === 'read_only') {
       throw new WhmcsBusinessError('Operation not allowed in read_only mode', 'MODE_RESTRICTED');
     }
-
-    return this.call<T>(action, params, {
+    const result = await this.call<T>(action, params, {
+      ...options,
       isMutating: true,
+      allowRetry: false,
       simulatedResponse,
     });
+    // A successful write invalidates proven entity tags. Unknown mutations
+    // conservatively clear only this process-local read cache.
+    const tags = mutationInvalidationTags(action, normalizeWhmcsParams(params));
+    this.cacheEpoch += 1;
+    if (tags) this.readCache.invalidateTags(tags);
+    else this.readCache.clear();
+    return result;
+  }
+
+  private cacheMetricsSnapshot() {
+    return this.readCache.metrics;
+  }
+
+  getDiagnostics(): WhmcsClientDiagnostics {
+    return {
+      cache: this.cacheMetricsSnapshot(),
+      coordinator: {
+        active: this.coordinator.activeCount,
+        queued: this.coordinator.queued,
+        inflight: this.coordinator.inflightCount,
+      },
+    };
   }
 }

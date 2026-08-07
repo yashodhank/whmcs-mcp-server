@@ -151,6 +151,14 @@ const configSchema = z
           'GetCurrencies',
         ])
     ),
+    // Plan 004 read acceleration. The scheduler bound is always active; it is
+    // deliberately below the existing global rate-limit default. Coalescing is
+    // canary opt-in and applies only to the cache-action allowlist above.
+    MCP_READ_MAX_CONCURRENCY: z.coerce.number().int().positive().max(64).default(8),
+    MCP_READ_COALESCE_ENABLED: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
     // Optional id:label map for client custom fields (e.g. "12:Tax ID,34:VAT Number").
     // Configured labels override WHMCS-provided field names when set.
     MCP_CLIENT_CUSTOM_FIELD_LABELS: z.preprocess((val) => {
