@@ -22,6 +22,7 @@ import {
   DEFAULT_CAPABILITY_EVIDENCE_TARGET,
   getCapabilityEvidence,
   recordCapabilityEvidence,
+  resolveCapabilityEvidence,
   type CapabilityEvidenceTarget,
   type CapabilityFailureClass,
 } from './capabilityEvidence.js';
@@ -81,9 +82,13 @@ function synthesizeCapabilityId(action: string): string {
 export function getCapability(
   action: string,
   target: CapabilityEvidenceTarget = DEFAULT_CAPABILITY_EVIDENCE_TARGET,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  probeParams?: Readonly<Record<string, unknown>>
 ): CapabilityStatus {
-  const evidence = getCapabilityEvidence(target, action, nowMs);
+  const evidence =
+    probeParams === undefined
+      ? resolveCapabilityEvidence(target, action, nowMs)
+      : getCapabilityEvidence(target, action, nowMs, probeParams);
   if (evidence !== undefined) {
     return {
       action,

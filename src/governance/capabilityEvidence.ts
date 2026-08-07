@@ -150,6 +150,42 @@ export function getCapabilityEvidence(
   return evidence;
 }
 
+const CONSERVATIVE_STATUS_ORDER: Readonly<Record<CapabilityStatusValue, number>> = Object.freeze({
+  supported: 0,
+  fallback_available: 1,
+  unverified: 2,
+  degraded: 3,
+  not_authorized: 4,
+  unsupported: 5,
+});
+
+/**
+ * Resolve evidence when the caller does not know the exact probe shape.
+ *
+ * Different safe probes can legitimately produce different observations. The
+ * aggregate lookup therefore fails closed: the least-permissive live status
+ * wins. Equal statuses prefer the newest observation, then stable evidence
+ * fields, so insertion order cannot change discovery output.
+ */
+export function resolveCapabilityEvidence(
+  target: CapabilityEvidenceTarget,
+  action: string,
+  nowMs = Date.now()
+): CapabilityEvidence | undefined {
+  return listCapabilityEvidence(target, nowMs)
+    .filter((item) => item.action === action)
+    .sort((left, right) => {
+      const statusDifference =
+        CONSERVATIVE_STATUS_ORDER[right.status] - CONSERVATIVE_STATUS_ORDER[left.status];
+      if (statusDifference !== 0) return statusDifference;
+      const observedDifference = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+      if (observedDifference !== 0) return observedDifference;
+      return `${left.probeShapeHash}:${left.source}:${left.failureClass}`.localeCompare(
+        `${right.probeShapeHash}:${right.source}:${right.failureClass}`
+      );
+    })[0];
+}
+
 export function listCapabilityEvidence(
   target: CapabilityEvidenceTarget,
   nowMs = Date.now()
