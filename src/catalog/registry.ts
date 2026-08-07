@@ -140,6 +140,11 @@ function validateDefinition(definition: OperationDefinition, globalMaxPageSize: 
 function freezeDefinition(definition: OperationDefinition): OperationDefinition {
   return Object.freeze({
     ...definition,
+    inputSchema: Object.freeze({ ...definition.inputSchema }),
+    outputSchema:
+      definition.outputSchema instanceof z.ZodType
+        ? definition.outputSchema
+        : Object.freeze({ ...definition.outputSchema }),
     annotations: Object.freeze({ ...definition.annotations }),
     whmcsActions: Object.freeze([...definition.whmcsActions]),
     capability: Object.freeze({ ...definition.capability }),
