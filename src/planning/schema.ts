@@ -20,10 +20,9 @@ function rejectOversizedInputRecord(value: unknown): unknown {
   return value;
 }
 
-const boundedStepInputsSchema = z.preprocess(
-  rejectOversizedInputRecord,
-  z.record(z.string(), planInputSchema)
-).nonoptional();
+const boundedStepInputsSchema = z
+  .preprocess(rejectOversizedInputRecord, z.record(z.string(), planInputSchema))
+  .nonoptional();
 
 export const candidatePlanSchema = z
   .object({
