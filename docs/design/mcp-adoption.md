@@ -1,26 +1,26 @@
 # MCP protocol adoption and compatibility
 
-Status: Plan 001 safety baseline, 2026-08-07
+Status: Plan 002 dual-era runtime, 2026-08-07
 
 This document defines the protocol boundary the server supports today and the
-gates for adopting MCP `2026-07-28`. It is a compatibility contract, not a
-claim that roadmap-only behavior is already live.
+gates for eventually retiring the 2025-era compatibility path.
 
 ## Support matrix
 
 | Client or protocol era | stdio | Streamable HTTP | Current posture |
 |---|---:|---:|---|
-| MCP `2025-11-25` | Supported | Supported when `MCP_TRANSPORT=http` | Primary implemented protocol; HTTP uses `initialize` plus `Mcp-Session-Id` |
+| MCP `2025-11-25` | Supported | Supported when `MCP_TRANSPORT=http` | Explicit compatibility path; HTTP uses `initialize` plus `Mcp-Session-Id` |
 | Earlier versions negotiated by SDK v1 (`2025-06-18`, `2025-03-26`, `2024-11-05`, `2024-10-07`) | Compatibility path | Compatibility path | Preserve while measured clients still require them; contract tests pin the published catalog rather than promising every older optional feature |
-| MCP `2026-07-28` stateless requests | Not yet supported | Not yet supported | Approved Plan 002 direction; do not route production traffic until its dual-era adapter and rollout gates pass |
+| MCP `2026-07-28` stateless requests | Supported by the v2 stdio router | Supported when `MCP_TRANSPORT=http` | Primary runtime (`MCP_PROTOCOL_RUNTIME=v2`); HTTP creates one request-scoped server and emits no session header |
 | `io.modelcontextprotocol/tasks` | Not advertised | Not advertised | Tasks is an opt-in extension in `2026-07-28`, not experimental core behavior; adoption belongs after the modern protocol adapter and durable task semantics exist |
 
-The current TypeScript SDK dependency is the patched v1 line and negotiates
-`2025-11-25`. The [2026-07-28 release](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
-removes the protocol handshake and session header, moves identity/capabilities
-to each request, and exposes optional discovery. Those semantics require the
-Plan 002 adapter; changing a version string or disabling session storage is not
-a migration.
+The runtime pins split SDK v2 packages (`@modelcontextprotocol/server`,
+`client`, `core`, and `node`) at `2.0.0` and Zod at `4.4.3`, while retaining
+the patched v1 SDK during the compatibility period. The modern factory reaches
+the unchanged v1 business surface only through a linked in-memory JSON-RPC
+transport; v1 and v2 SDK objects do not cross that boundary. Plan 003 can
+replace this bridge with the unified catalog without changing either transport
+adapter.
 
 ## Catalog compatibility policy
 
@@ -50,26 +50,49 @@ Any intentional catalog change must update the fixture in the same PR and
 explain compatibility impact. Ordering-only changes may be normalized. Never
 normalize away fields that a client can observe or use for validation.
 
+The modern catalog is identical except that `execution.taskSupport` is absent:
+the 2026 protocol removed that 2025-only field. Discovery and catalog-list
+results use a bounded private 30-second TTL. Their server identity includes a
+12-hex SHA-256 revision of the canonical published descriptors, so a catalog or
+allowlist change creates a different client cache partition. Dynamic resource
+reads remain private with `ttlMs: 0`. `server/discover` describes protocol
+capabilities and directs clients to the standard list methods and
+`get_capability_matrix` for WHMCS evidence; it does not conflate protocol
+discovery with business authorization.
+
 ## Transport, authentication, and error contract
 
 - stdio remains the default transport and reserves stdout for JSON-RPC.
 - Direct-entry detection compares canonical real paths. Launching the built
   entry point through a symlink starts stdio normally; missing, non-file, or
   unresolvable entry paths fail closed for safe factory imports.
-- Streamable HTTP remains opt-in and stateful for the implemented 2025-era
-  protocol. Every session is bound to the consumer that initialized it.
-- HTTP checks the Origin boundary before bearer/OAuth authentication. Missing
-  or invalid credentials return bounded `401` responses; forbidden origins or
-  session-owner mismatches return bounded `403` responses. Tokens and internal
-  credential details must never appear in response bodies or logs.
+- With `MCP_PROTOCOL_RUNTIME=v2` (the default), stdio uses the official v2
+  dual-era router. A modern connection receives v2 framing; a 2025 opening is
+  pinned to a compatibility instance for that connection. Stdio retains the
+  existing tool-supplied consumer credential because it has no authenticated
+  HTTP transport identity.
+- Modern Streamable HTTP is request-stateless: it has no transport,
+  last-activity, or session-owner map. The 2025-era adapter remains stateful and
+  binds every session to its initializing consumer.
+- HTTP checks Host and Origin before bearer/OAuth authentication. Missing or
+  invalid credentials return bounded `401` responses; forbidden hosts,
+  origins, or legacy session-owner mismatches return bounded `403` responses.
+  Tokens and internal credential details never appear in response bodies or
+  protocol telemetry.
+- Modern HTTP derives consumer identity and OAuth scopes on every request and
+  overwrites any body `auth_token` with the transport-authenticated identity.
+  The validated v2 header/body routing ladder runs before dispatch.
 - Malformed JSON, unsupported content types/methods, unknown capabilities, and
   invalid tool arguments produce protocol-shaped, bounded errors. Negative
   requests must not call WHMCS or mutate server state.
 - A client that proposes an unknown 2025-era protocol version receives the
   server's supported negotiated version in the initialize response and remains
   responsible for accepting it or disconnecting, as required by that lifecycle.
-- The future `2026-07-28` path must bind identity and policy on every request;
-  it may not infer authorization from a removed transport session.
+- Graceful shutdown rejects new modern work with `503`, waits up to
+  `MCP_HTTP_DRAIN_TIMEOUT_MS` for in-flight work, and then closes the adapter.
+- Structured stderr telemetry uses bounded fields only: `protocol_era`,
+  `transport`, registry consumer id as `client_name`, `auth_mode`, `outcome`,
+  and `duration_ms`. It contains no params, PII, or credential values.
 
 ## Conformance policy
 
@@ -101,18 +124,42 @@ browser Origins, while the production transport's safer default denies every
 present Origin unless the operator explicitly allowlists it. The deterministic
 HTTP contract tests cover the actual project policy.
 
-This baseline does not claim `2026-07-28` conformance. Plan 002 must pin a
-runner version that understands the stateless lifecycle and add the applicable
-modern scenarios before enabling that protocol in production.
+The pinned official runner has no `2026-07-28` scenarios. Therefore this
+release does not claim official modern conformance. `npm run
+mcp:test:contracts` adds a deterministic v2 suite covering stateless HTTP,
+catalog parity, cache posture, 100 round-robin requests across independent
+instances, cache-identity rollover, per-request identity binding, propagated
+cancellation/deadlines, modern stdio, header/body mismatch, contained factory
+failure, and bounded drain. Pin and run an official modern suite as soon as
+one is published; this remains a retirement gate, not a reason to mislabel the
+existing runner.
+
+## Rollback and application-state boundary
+
+Set `MCP_PROTOCOL_RUNTIME=legacy` and restart the HTTP process or respawn the
+stdio child to return to the pre-v2 SDK transport path. Do not remove the v1
+dependency or legacy tests until the retirement gates pass. The switch changes
+only protocol serving; it does not change catalog, governance, write
+authorization, or WHMCS request behavior.
+
+Application continuity uses explicit handles such as write-intent ids, never a
+protocol session. Multi-round-trip input and the Tasks extension are not
+advertised in this release. The Plan 002 Step 6 MRTR demonstration is explicitly
+deferred to Plan 005 because adding a synthetic public tool would break the
+pinned catalog while adapting a write handler would mix authorization changes
+into the protocol migration. Plan 005 must provide an executable no-write,
+decline, cancellation, and retry test before advertising MRTR. Ephemeral intent
+state must not be presented as a durable task store.
 
 ## Retirement gates
 
 Do not retire the 2025-era path until all of the following are true:
 
 1. The dual-era adapter passes deterministic catalog, auth, negative transport,
-   identity-binding, and official conformance gates for both eras.
-2. Production client inventory and telemetry show which protocol each named
-   consumer uses; unknown clients count as legacy.
+   identity-binding, and official conformance gates for both eras once a modern
+   official runner exists.
+2. Production client inventory and telemetry show **30 consecutive days** with
+   no legacy or unknown traffic; unknown clients count as legacy.
 3. Every supported host has a tested `2026-07-28` configuration and rollback
    path, including per-request identity and governance evidence.
 4. A canary period demonstrates no catalog drift, authorization regressions,

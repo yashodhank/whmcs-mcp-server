@@ -92,3 +92,33 @@ Allowlist entry authorizes by WHMCS action (broad) OR write scope (narrow), so
 two scopes sharing one action (service:price_restore, service:domain_rename →
 UpdateClientProduct) gate independently. Idempotency key includes `scope`.
 See `allowlistAuthorizes`, `src/write/idempotency.ts`.
+
+---
+
+## 2026-08-07 — MCP v2 primary runtime with an isolated v1 compatibility bridge
+
+**Decision:** Pin split MCP SDK v2 packages at `2.0.0` and Zod at `4.4.3` as
+the primary protocol runtime. Modern HTTP creates a new request-scoped v2
+server and holds no protocol session maps. Existing v1 tool/resource/prompt
+registrations are reached only through a linked in-memory JSON-RPC transport;
+nominal v1/v2 SDK objects never cross the boundary. The official v2 stdio
+router serves modern framing and tested 2025 fallback from the same factory.
+
+**Identity and state:** HTTP identity/scopes are transport-derived on every
+request and overwrite body identity. Stdio preserves its established
+tool-supplied credential. Workflow continuity remains explicit application
+state (for example intent ids), never hidden transport state. Tasks and MRTR
+are not advertised in this release.
+
+**Observability and cache posture:** Structured stderr records bounded
+protocol-era, transport, registry consumer id, auth mode, outcome, and duration
+fields. Modern discovery/catalog lists use a private 30-second TTL and a server
+identity containing a canonical-descriptor hash; allowlist/catalog changes
+therefore move to a new cache partition. Dynamic resource reads use private
+zero-TTL results.
+
+**Rollback and retirement:** `MCP_PROTOCOL_RUNTIME=legacy` plus process restart
+or stdio respawn restores the pre-v2 transport path without changing business
+or write semantics. Keep v1 until an official modern conformance runner is
+green, rollback is rehearsed, and production telemetry shows 30 consecutive
+days with no legacy or unknown client traffic.

@@ -14,6 +14,7 @@ const hostileParent = {
   WHMCS_SECRET: 'parent-secret-must-not-reach-child',
   MCP_TOOL_ALLOWLIST: 'search_clients',
   MCP_ENABLE_LEGACY_WRITE_TOOLS: 'true',
+  MCP_PROTOCOL_RUNTIME: 'legacy',
   MCP_MAX_PAGE_SIZE: '499',
   MCP_CONTRACT_PARENT_SECRET_SENTINEL: 'must-not-reach-child',
 };
@@ -75,6 +76,7 @@ try {
     'if (process.env.MCP_CONTRACT_PARENT_SECRET_SENTINEL !== undefined) process.exit(81);',
     "if (process.env.WHMCS_SECRET !== 'mcp-contract-placeholder') process.exit(82);",
     "for (const [key, value] of Object.entries(expected)) if ((process.env[key] ?? '') !== value) process.exit(83);",
+    "if (process.env.MCP_PROTOCOL_RUNTIME !== 'v2') process.exit(84);",
   ].join('');
   await runChild('minimal child-environment probe', '-e', [environmentProbe], {
     cwd: temporaryHome,
@@ -100,6 +102,7 @@ try {
       'tests/mcp/catalogContract.test.ts',
       'tests/mcp/transportContract.test.ts',
       'tests/mcp/entryPoint.test.ts',
+      'tests/mcp/dualEraRuntime.test.ts',
       'tests/http/auth.test.ts',
       'tests/http/transport.test.ts',
     ],

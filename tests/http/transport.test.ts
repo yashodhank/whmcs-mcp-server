@@ -170,21 +170,30 @@ describe('Streamable HTTP transport — auth bridge over a real socket', () => {
   });
 });
 
-describe('Transport selection default', () => {
-  it('MCP_TRANSPORT defaults to stdio when unset (default unchanged)', async () => {
-    // Verify against the REAL config module (not the mock): with MCP_TRANSPORT
-    // unset in the environment, the parsed value is 'stdio', so index.ts takes
-    // the StdioServerTransport branch exactly as before HTTP was added.
-    const hadTransport = 'MCP_TRANSPORT' in process.env;
-    const prev = process.env.MCP_TRANSPORT;
+describe('Transport selection defaults', () => {
+  it('defaults to dual-era stdio and a loopback Host boundary', async () => {
+    const previous = {
+      MCP_TRANSPORT: process.env.MCP_TRANSPORT,
+      MCP_PROTOCOL_RUNTIME: process.env.MCP_PROTOCOL_RUNTIME,
+      MCP_HTTP_ALLOWED_HOSTS: process.env.MCP_HTTP_ALLOWED_HOSTS,
+    };
     delete process.env.MCP_TRANSPORT;
+    delete process.env.MCP_PROTOCOL_RUNTIME;
+    delete process.env.MCP_HTTP_ALLOWED_HOSTS;
     try {
       vi.resetModules();
       const real =
         await vi.importActual<typeof import('../../src/config.js')>('../../src/config.js');
       expect(real.config.MCP_TRANSPORT).toBe('stdio');
+      expect(real.config.MCP_PROTOCOL_RUNTIME).toBe('v2');
+      expect(real.config.MCP_HTTP_ALLOWED_HOSTS).toEqual(['127.0.0.1', 'localhost', '[::1]']);
     } finally {
-      if (hadTransport) process.env.MCP_TRANSPORT = prev;
+      if (previous.MCP_TRANSPORT === undefined) delete process.env.MCP_TRANSPORT;
+      else process.env.MCP_TRANSPORT = previous.MCP_TRANSPORT;
+      if (previous.MCP_PROTOCOL_RUNTIME === undefined) delete process.env.MCP_PROTOCOL_RUNTIME;
+      else process.env.MCP_PROTOCOL_RUNTIME = previous.MCP_PROTOCOL_RUNTIME;
+      if (previous.MCP_HTTP_ALLOWED_HOSTS === undefined) delete process.env.MCP_HTTP_ALLOWED_HOSTS;
+      else process.env.MCP_HTTP_ALLOWED_HOSTS = previous.MCP_HTTP_ALLOWED_HOSTS;
     }
   });
 });

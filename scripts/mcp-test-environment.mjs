@@ -49,6 +49,7 @@ export function createMcpTestEnvironment(parentEnvironment, temporaryHome) {
     MCP_MODE: 'read_only',
     MCP_STARTUP_HEALTHCHECK: 'off',
     MCP_TRANSPORT: 'stdio',
+    MCP_PROTOCOL_RUNTIME: 'v2',
     MCP_GOVERNANCE_ENABLED: 'false',
     MCP_OAUTH_ENABLED: 'false',
     MCP_INTEGRATION_SKIP: '1',
