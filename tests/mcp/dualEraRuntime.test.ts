@@ -38,6 +38,9 @@ import { buildModernServer } from '../../src/mcp/serverFactory.js';
 import { buildContractServer, createContractHarness } from './contractHarness.js';
 
 const TOKEN = 'dual-era-runtime-test-token';
+// Full-suite worker contention can exceed Vitest's default for these two
+// integration-heavy catalog paths; focused contract coverage remains bounded.
+const MODERN_CATALOG_TEST_TIMEOUT_MS = 30_000;
 const errorLog = vi.fn();
 const logger = {
   debug: vi.fn(),
@@ -155,6 +158,7 @@ describe('MCP v2 stateless dual-era runtime', () => {
     expect(context.signal.aborted).toBe(true);
   });
 
+  // prettier-ignore
   it('serves a modern request without initialize or protocol session state', async () => {
     const sessionHeaders: (string | null)[] = [];
     const client = await connectModern(first, sessionHeaders);
@@ -179,8 +183,9 @@ describe('MCP v2 stateless dual-era runtime', () => {
     });
     expect(sessionHeaders.length).toBeGreaterThan(0);
     expect(sessionHeaders).toEqual(sessionHeaders.map(() => null));
-  });
+  }, MODERN_CATALOG_TEST_TIMEOUT_MS);
 
+  // prettier-ignore
   it('keeps the published catalog equal across protocol eras', async () => {
     const legacy = await createContractHarness();
     const modern = await connectModern(first);
@@ -214,7 +219,7 @@ describe('MCP v2 stateless dual-era runtime', () => {
     } finally {
       await legacy.close();
     }
-  });
+  }, MODERN_CATALOG_TEST_TIMEOUT_MS);
 
   it('routes 100 concurrent calls across independent instances without stickiness', async () => {
     const leftHandle = await startModernServer(buildIdentityServer);
