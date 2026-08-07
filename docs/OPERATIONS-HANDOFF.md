@@ -289,6 +289,15 @@ validates, approves, executes, calls a model provider, stores long-term client
 data, or introduces a database path. See
 [`docs/design/safe-operations-planner.md`](design/safe-operations-planner.md).
 
+PlanIR provenance is bound to opaque installation, configuration, catalog and
+consumer-policy fingerprints. The policy fingerprint covers the authenticated
+consumer id plus effective capability, write-scope, contract, write-mode and
+client-allowlist grants without storing any raw identity or bearer token.
+Preflight and drafting require an exact current match and recheck operation
+visibility. Preflight emits status only and propagates cancellation to the
+bounded WHMCS read. Multi-step drafting stops on the first denial and reports
+partial results explicitly; already-created records remain drafts only.
+
 The current public catalog is 61 tools, 10 prompts, 5 concrete resources, and
 9 resource templates. The additive Plan 003/005 surfaces are
 `whmcs://capabilities/v2`, `whmcs://planning/planir/v1`, four planning tools,

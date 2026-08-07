@@ -13,6 +13,7 @@ import {
   type CandidatePlan,
 } from '../../src/planning/types.js';
 import type { CapabilityEvidence } from '../../src/governance/capabilityEvidence.js';
+import { fingerprintPlanningPolicy } from '../../src/planning/policyFingerprint.js';
 
 const inert = (() => ({ content: [] })) as OperationDefinition['handler'];
 
@@ -82,6 +83,7 @@ const catalog = new OperationCatalog(
 );
 
 const context: AuthenticatedPlanningContext = {
+  policyFingerprint: `sha256-${'1'.repeat(64)}`,
   evidenceTarget: {
     installationId: 'installation-hash',
     configFingerprint: 'config-hash',
@@ -156,6 +158,28 @@ function compile(candidateInput: CandidatePlan, evidenceInput: readonly Capabili
 }
 
 describe('PlanIR compiler', () => {
+  it('fingerprints effective grants deterministically without exposing consumer identity', () => {
+    const first = fingerprintPlanningPolicy({
+      consumerId: 'private-consumer-id',
+      allowedCapabilityIds: ['b', 'a'],
+      allowedWriteScopes: ['service:suspend'],
+      allowedContracts: ['llm_safe_summary'],
+      allowedClientIds: [42, 7],
+      writeCapability: 'draft_only',
+    });
+    const reordered = fingerprintPlanningPolicy({
+      consumerId: 'private-consumer-id',
+      allowedCapabilityIds: ['a', 'b'],
+      allowedWriteScopes: ['service:suspend'],
+      allowedContracts: ['llm_safe_summary'],
+      allowedClientIds: [7, 42],
+      writeCapability: 'draft_only',
+    });
+    expect(first).toBe(reordered);
+    expect(first).toMatch(/^sha256-[a-f0-9]{64}$/);
+    expect(first).not.toContain('private-consumer-id');
+  });
+
   it('compiles a normalized, expiring, permanently non-executable plan', () => {
     const result = compile(candidate(step(), 'analyse'));
     expect(result.accepted).toBe(true);
@@ -185,6 +209,15 @@ describe('PlanIR compiler', () => {
         { ...evidence(), status: 'not_authorized', probeShapeHash: 'other-shape' },
       ]).accepted
     ).toBe(false);
+  });
+
+  it('never outlives the capability evidence used to compile it', () => {
+    const read = step('billing.invoices.read');
+    read.inputs = { clientid: { kind: 'value', value: 42 } };
+    const result = compile(candidate(read, 'read_only'), [evidence('2026-08-07T01:06:00.000Z')]);
+    expect(result.accepted).toBe(true);
+    if (!result.accepted) return;
+    expect(result.plan.expires_at).toBe('2026-08-07T01:06:00.000Z');
   });
 
   it.each([
@@ -232,6 +265,64 @@ describe('PlanIR compiler', () => {
     expect(compile(withPii).accepted).toBe(false);
   });
 
+  it('rejects PII-shaped fields and pathologically nested values before hashing', () => {
+    const draft = {
+      ...step('services.suspend.draft'),
+      expected_effect: 'draft' as const,
+      expected_risk: 'medium' as const,
+      inputs: {
+        natural_key: { kind: 'value' as const, value: 'service:42' },
+        projected_effect: { kind: 'value' as const, value: 'Review suspension' },
+        params: {
+          kind: 'value' as const,
+          value: { serviceid: 42, firstname: 'Sensitive', reason: 'policy threshold' },
+        },
+      },
+    };
+    const pii = compile(candidate(draft, 'draft_only'));
+    expect(pii.accepted).toBe(false);
+    expect(JSON.stringify(pii)).not.toContain('Sensitive');
+
+    let nested: Record<string, unknown> = { leaf: true };
+    for (let depth = 0; depth < 10; depth += 1) nested = { nested };
+    const deeplyNested = candidate(step(), 'analyse');
+    deeplyNested.steps[0].inputs = { extra: { kind: 'value', value: nested } };
+    const bounded = compile(deeplyNested);
+    expect(bounded.accepted).toBe(false);
+    expect(bounded.issues).toContainEqual(
+      expect.objectContaining({ reason: expect.stringContaining('nesting depth') })
+    );
+  });
+
+  it('fails closed with a structured issue for an undeclared catalog action', () => {
+    const badDefinition = definition({
+      id: 'bad.read',
+      publicName: 'bad_read',
+      effects: 'read',
+      riskTier: 'low',
+      whmcsActions: ['UndeclaredReadAction'],
+      capability: { mode: 'all', probe: 'read_safe' },
+      auth: { toolAuthRequired: true, consumerFiltered: true },
+    });
+    const badCatalog = {
+      version: 7,
+      getById: (id: string) => (id === 'bad.read' ? badDefinition : undefined),
+    } as OperationCatalog;
+    const result = compileOperationPlan({
+      candidate: candidate(step('bad.read'), 'read_only'),
+      context,
+      catalog: badCatalog,
+      evidence: [],
+      limits: DEFAULT_PLANNING_LIMITS,
+      nowMs: Date.parse('2026-08-07T01:05:00.000Z'),
+      ttlMs: 120_000,
+    });
+    expect(result.accepted).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ reason: expect.stringContaining('not declared') })
+    );
+  });
+
   it('rejects forward dependencies/cycles and excessive call budgets', () => {
     const read = step('billing.invoices.read');
     read.id = 'second';
@@ -257,6 +348,14 @@ describe('PlanIR compiler', () => {
     const result = compile(candidate(step(), 'analyse'));
     if (!result.accepted) throw new Error('fixture did not compile');
     expect(verifyCompiledPlan(result.plan, 7, Date.parse('2026-08-07T01:06:00.000Z'))).toEqual([]);
+    expect(
+      verifyCompiledPlan(
+        result.plan,
+        7,
+        Date.parse('2026-08-07T01:06:00.000Z'),
+        `sha256-${'9'.repeat(64)}`
+      )
+    ).toContainEqual(expect.objectContaining({ path: 'provenance.policy_fingerprint' }));
     expect(
       verifyCompiledPlan(
         { ...result.plan, goal: 'tampered' },
