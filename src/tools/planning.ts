@@ -609,7 +609,7 @@ export function registerPlanningTools(
       drafts: z.array(z.record(z.string(), z.unknown())),
       blockers: z.array(z.record(z.string(), z.unknown())),
     },
-    ((params) => {
+    ((params, extra) => {
       const resolved = planningContext(params.auth_token as string | undefined, catalog);
       if (!resolved.ok) return fail(resolved.reason);
       const plan = params.plan as PlanIR;
@@ -654,6 +654,15 @@ export function registerPlanningTools(
           reason: 'Current transport-authenticated consumer cannot create drafts.',
           safe_repair: 'Use analysis/read-only mode or obtain a draft-capable consumer grant.',
         });
+      }
+      if (extra.signal.aborted) {
+        blockers.push(
+          planningIssue(
+            'request',
+            'Draft creation was cancelled before dispatch.',
+            'Retry explicitly if governed draft creation is still desired.'
+          )
+        );
       }
       for (const step of plan.steps) {
         if (step.effect !== 'draft' && step.effect !== 'write') continue;
@@ -781,6 +790,16 @@ export function registerPlanningTools(
         });
       const drafts: Record<string, unknown>[] = [];
       for (const { stepId, scope, args } of candidates) {
+        if (extra.signal.aborted) {
+          blockers.push(
+            planningIssue(
+              stepId,
+              'Draft creation was cancelled; no later plan steps were dispatched.',
+              'Review any earlier draft ids, then retry remaining steps explicitly if needed.'
+            )
+          );
+          break;
+        }
         let result: ReturnType<typeof draftWorkflowIntent>;
         try {
           result = draftWorkflowIntent({
