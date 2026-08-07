@@ -143,13 +143,12 @@ only protocol serving; it does not change catalog, governance, write
 authorization, or WHMCS request behavior.
 
 Application continuity uses explicit handles such as write-intent ids, never a
-protocol session. Multi-round-trip input and the Tasks extension are not
-advertised in this release. The Plan 002 Step 6 MRTR demonstration is explicitly
-deferred to Plan 005 because adding a synthetic public tool would break the
-pinned catalog while adapting a write handler would mix authorization changes
-into the protocol migration. Plan 005 must provide an executable no-write,
-decline, cancellation, and retry test before advertising MRTR. Ephemeral intent
-state must not be presented as a durable task store.
+protocol session. Multi-round-trip input and the Tasks extension remain
+unadvertised. Plan 005 landed a prompt/tool planning loop without adding a
+synthetic MRTR surface or changing write authorization. Any future MRTR PR must
+add executable no-write, decline, cancellation, and retry tests before
+advertising the feature. Ephemeral intent state must not be presented as a
+durable task store.
 
 ## Retirement gates
 
