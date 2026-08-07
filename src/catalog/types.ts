@@ -19,7 +19,8 @@ export interface GovernanceDescriptor {
 }
 
 export type CachePolicy =
-  { readonly mode: 'none' } | { readonly mode: 'ttl'; readonly ttlMs: number };
+  | { readonly mode: 'none' }
+  | { readonly mode: 'ttl'; readonly ttlMs: number };
 
 export type CostHint =
   | {

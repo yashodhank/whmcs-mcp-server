@@ -1,8 +1,7 @@
 import type { McpServer, ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { config, isToolAllowed, resolveWhmcsApiEndpoint } from '../config.js';
-import { CAPABILITY_REGISTRY } from '../governance/capabilities.js';
-import { probeCapability } from '../governance/capabilities.js';
+import { CAPABILITY_REGISTRY, probeCapability } from '../governance/capabilities.js';
 import {
   fingerprintCapabilityEvidenceTarget,
   listCapabilityEvidence,
@@ -92,8 +91,7 @@ function operationVisible(
   }
   if (!definition.auth.consumerFiltered) return true;
   return definition.whmcsActions.every((action) => {
-    const capability = CAPABILITY_REGISTRY[action]?.capability;
-    return capability !== undefined && context.allowedCapabilityIds.has(capability);
+    return context.allowedCapabilityIds.has(CAPABILITY_REGISTRY[action].capability);
   });
 }
 
@@ -186,9 +184,10 @@ export function registerPlanningTools(
       if (!resolved.ok) return fail(resolved.reason);
       const operations = catalog
         .machineView()
-        .operations.filter((definition) =>
-          operationVisible(catalog.getById(definition.id)!, resolved.context)
-        )
+        .operations.filter((definition) => {
+          const stored = catalog.getById(definition.id);
+          return stored !== undefined && operationVisible(stored, resolved.context);
+        })
         .filter((definition) => params.domain === undefined || definition.domain === params.domain)
         .filter(
           (definition) => params.effect === undefined || definition.effects === params.effect
@@ -279,8 +278,7 @@ export function registerPlanningTools(
             const definition = catalog.getById(step.operation_id);
             const args = materializeInputs(step.inputs);
             if (
-              definition === undefined ||
-              definition.effects !== 'read' ||
+              definition?.effects !== 'read' ||
               !PREFLIGHT_OPERATION_ALLOWLIST.has(step.operation_id) ||
               args === null ||
               whmcs === undefined
@@ -357,8 +355,7 @@ export function registerPlanningTools(
           const definition = catalog.getById(step.operation_id);
           const args = materializeInputs(step.inputs);
           if (
-            definition === undefined ||
-            definition.handler === undefined ||
+            definition?.handler === undefined ||
             !PREFLIGHT_OPERATION_ALLOWLIST.has(step.operation_id) ||
             args === null
           ) {
