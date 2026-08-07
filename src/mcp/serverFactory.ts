@@ -9,6 +9,7 @@ import {
   type JsonSchemaType,
   type McpRequestContext as SdkRequestContext,
   type ReadResourceResult as ModernReadResourceResult,
+  type ServerContext,
   type ToolAnnotations,
 } from '@modelcontextprotocol/server';
 import { Client as LegacyClient } from '@modelcontextprotocol/sdk/client/index.js';
@@ -17,7 +18,11 @@ import type { McpServer as LegacyMcpServer } from '@modelcontextprotocol/sdk/ser
 import type { RequestOptions as LegacyRequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { TRANSPORT_BOUND_PREFIX } from '../governance/consumers.js';
 import type { Logger } from '../logging.js';
-import { createRequestContext, type RequestContext } from './requestContext.js';
+import {
+  createRequestContext,
+  runWithRequestContext,
+  type RequestContext,
+} from './requestContext.js';
 
 interface LegacyToolDescriptor {
   readonly name: string;
@@ -125,6 +130,14 @@ function bridgeRequestOptions(context: RequestContext): LegacyRequestOptions {
     timeout: remainingMs,
     maxTotalTimeout: remainingMs,
   };
+}
+
+function withCallbackSignal(context: RequestContext, callbackSignal: AbortSignal): RequestContext {
+  if (callbackSignal === context.signal) return context;
+  return Object.freeze({
+    ...context,
+    signal: AbortSignal.any([context.signal, callbackSignal]),
+  });
 }
 
 function canonicalJson(value: unknown): string {
@@ -278,15 +291,24 @@ export async function buildModernServer(
 
     for (const tool of tools) {
       const inputSchema = fromJsonSchema(tool.inputSchema);
-      const callback = async (args: unknown): Promise<ModernCallToolResult> =>
-        (await bridge.client.callTool(
-          {
-            name: tool.name,
-            arguments: withTransportIdentity(args, context),
-          },
-          undefined,
-          bridgeRequestOptions(context)
-        )) as unknown as ModernCallToolResult;
+      const callback = async (
+        args: unknown,
+        callbackContext: ServerContext
+      ): Promise<ModernCallToolResult> => {
+        const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+        return runWithRequestContext(
+          activeContext,
+          async () =>
+            (await bridge.client.callTool(
+              {
+                name: tool.name,
+                arguments: withTransportIdentity(args, activeContext),
+              },
+              undefined,
+              bridgeRequestOptions(activeContext)
+            )) as unknown as ModernCallToolResult
+        );
+      };
       const baseConfig = {
         title: tool.title,
         description: tool.description,
@@ -316,14 +338,20 @@ export async function buildModernServer(
           icons: prompt.icons,
           _meta: prompt._meta,
         },
-        async (args): Promise<ModernGetPromptResult> =>
-          (await bridge.client.getPrompt(
-            {
-              name: prompt.name,
-              arguments: args,
-            },
-            bridgeRequestOptions(context)
-          )) as unknown as ModernGetPromptResult
+        async (args, callbackContext): Promise<ModernGetPromptResult> => {
+          const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+          return runWithRequestContext(
+            activeContext,
+            async () =>
+              (await bridge.client.getPrompt(
+                {
+                  name: prompt.name,
+                  arguments: args,
+                },
+                bridgeRequestOptions(activeContext)
+              )) as unknown as ModernGetPromptResult
+          );
+        }
       );
     }
 
@@ -339,11 +367,17 @@ export async function buildModernServer(
           _meta: resource._meta,
           cacheHint: { ttlMs: 0, cacheScope: 'private' },
         },
-        async (uri: URL): Promise<ModernReadResourceResult> =>
-          (await bridge.client.readResource(
-            { uri: uri.href },
-            bridgeRequestOptions(context)
-          )) as unknown as ModernReadResourceResult
+        async (uri: URL, callbackContext): Promise<ModernReadResourceResult> => {
+          const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+          return runWithRequestContext(
+            activeContext,
+            async () =>
+              (await bridge.client.readResource(
+                { uri: uri.href },
+                bridgeRequestOptions(activeContext)
+              )) as unknown as ModernReadResourceResult
+          );
+        }
       );
     }
 
@@ -359,11 +393,17 @@ export async function buildModernServer(
           _meta: template._meta,
           cacheHint: { ttlMs: 0, cacheScope: 'private' },
         },
-        async (uri: URL): Promise<ModernReadResourceResult> =>
-          (await bridge.client.readResource(
-            { uri: uri.href },
-            bridgeRequestOptions(context)
-          )) as unknown as ModernReadResourceResult
+        async (uri: URL, _variables, callbackContext): Promise<ModernReadResourceResult> => {
+          const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+          return runWithRequestContext(
+            activeContext,
+            async () =>
+              (await bridge.client.readResource(
+                { uri: uri.href },
+                bridgeRequestOptions(activeContext)
+              )) as unknown as ModernReadResourceResult
+          );
+        }
       );
     }
   } catch (error) {

@@ -70,14 +70,14 @@ with the effective cataloged operations, effects, risk, cost, pagination,
 prerequisites, fallbacks and protocol features. Global tool exposure is applied
 before an operation appears.
 
-Before the Plan 002 request-bound resource identity API is available, a
-resource read has no safe consumer grant to consult. Discovery therefore fails
-closed by omitting consumer-filtered WHMCS operations. The current migrated
-operation is pure and non-consumer-specific. Plan 002 can pass request-bound
-grants into the same pure discovery builder; it must not accept identity or
-policy overrides from tool/resource arguments. Modern MCP cache-hint metadata
-is likewise deferred until that adapter exists; legacy clients can still read
-the same JSON payload.
+Modern HTTP resource reads carry a bounded, immutable grant list derived from
+the transport-authenticated `ConsumerProfile`. Discovery maps declared WHMCS
+action or capability grants to capability ids and intersects them with global
+exposure. Body arguments never supply identity or grants. Legacy and stdio
+resource reads have no authenticated transport profile, so consumer-filtered
+operations remain omitted (fail closed). The current migrated operation is
+pure and non-consumer-specific. Legacy clients can still read the same JSON
+payload.
 
 ## Change control and next packs
 

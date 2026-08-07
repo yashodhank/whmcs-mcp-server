@@ -8,6 +8,7 @@
 
 import { getWhmcsApiEndpoint, type AppConfig, type McpMode } from '../config.js';
 import type { Logger } from '../logging.js';
+import { getCurrentRequestContext } from '../mcp/requestContext.js';
 import {
   classifyWhmcsAction,
   NOOP_WHMCS_TELEMETRY,
@@ -49,6 +50,32 @@ export interface WhmcsClientDependencies extends WhmcsRequestPipelineDependencie
 export interface WhmcsClientDiagnostics {
   cache: ReturnType<WhmcsClient['cacheMetricsSnapshot']>;
   coordinator: { active: number; queued: number; inflight: number };
+}
+
+function mergeSignals(explicit: AbortSignal | undefined, inherited: AbortSignal): AbortSignal {
+  if (explicit === undefined || explicit === inherited) return inherited;
+  return AbortSignal.any([explicit, inherited]);
+}
+
+function withCurrentRequestContext<T extends WhmcsRequestOptions>(
+  options: T,
+  effect: 'read' | 'write'
+): T {
+  const context = getCurrentRequestContext();
+  if (context === undefined) return options;
+  const deadlineAt = Math.min(options.deadlineAt ?? Infinity, context.deadline);
+  return {
+    ...options,
+    signal: mergeSignals(options.signal, context.signal),
+    deadlineAt,
+    requestId: options.requestId ?? context.requestId,
+    ...(effect === 'read'
+      ? {
+          consumerKey: options.consumerKey ?? context.identity.consumerId,
+          rawDataScope: options.rawDataScope ?? `consumer:${context.identity.consumerId}`,
+        }
+      : {}),
+  };
 }
 
 export class WhmcsClient {
@@ -108,7 +135,8 @@ export class WhmcsClient {
     params: Record<string, unknown> = {},
     options: WhmcsCallOptions = {}
   ): Promise<T> {
-    const { isMutating = false, simulatedResponse, ...pipelineOptions } = options;
+    const { isMutating = false, simulatedResponse, ...callerOptions } = options;
+    const pipelineOptions = withCurrentRequestContext(callerOptions, isMutating ? 'write' : 'read');
     if (this.mode === 'simulate' && isMutating) {
       this.logger.logWhmcsCall(action, params, true);
       this.logger.info('Simulated WHMCS call (not executed)', {
@@ -132,6 +160,7 @@ export class WhmcsClient {
     params: Record<string, unknown> = {},
     options: WhmcsRequestOptions = {}
   ): Promise<T> {
+    const effectiveOptions = withCurrentRequestContext(options, 'read');
     // The policy guard must precede every acceleration layer.
     assertReadAction(action);
     const normalizedParams = normalizeWhmcsParams(params);
@@ -144,7 +173,7 @@ export class WhmcsClient {
     const actionClass = classifyWhmcsAction(action);
     const cacheEpoch = this.cacheEpoch;
 
-    if (!options.bypassCache && policy.cacheable) {
+    if (!effectiveOptions.bypassCache && policy.cacheable) {
       const cached = this.readCache.get(action, normalizedParams);
       this.telemetry.record({
         phase: 'cache',
@@ -156,20 +185,23 @@ export class WhmcsClient {
     }
 
     const deadlineAt =
-      options.timeoutMs !== undefined
-        ? Math.min(options.deadlineAt ?? Infinity, Date.now() + Math.max(0, options.timeoutMs))
-        : options.deadlineAt;
+      effectiveOptions.timeoutMs !== undefined
+        ? Math.min(
+            effectiveOptions.deadlineAt ?? Infinity,
+            Date.now() + Math.max(0, effectiveOptions.timeoutMs)
+          )
+        : effectiveOptions.deadlineAt;
     const key = buildReadCoordinationKey(
       this.endpoint,
       action,
       normalizedParams,
       policy.version,
-      options.rawDataScope ?? 'process'
+      effectiveOptions.rawDataScope ?? 'process'
     );
     const result = await this.coordinator.run<T>(
       (signal) =>
         this.pipeline.execute<T>(action, normalizedParams, 'read', {
-          ...options,
+          ...effectiveOptions,
           timeoutMs: undefined,
           deadlineAt: undefined,
           signal,
@@ -177,13 +209,14 @@ export class WhmcsClient {
       {
         key,
         actionClass,
-        consumerKey: options.consumerKey,
-        signal: options.signal,
+        consumerKey: effectiveOptions.consumerKey,
+        signal: effectiveOptions.signal,
         deadlineAt,
-        coalesce: this.coalescingEnabled && policy.coalescible && !options.bypassCoalescing,
+        coalesce:
+          this.coalescingEnabled && policy.coalescible && !effectiveOptions.bypassCoalescing,
       }
     );
-    if (!options.bypassCache && policy.cacheable && cacheEpoch === this.cacheEpoch) {
+    if (!effectiveOptions.bypassCache && policy.cacheable && cacheEpoch === this.cacheEpoch) {
       this.readCache.set(action, normalizedParams, result, policy.tags);
     }
     return result;

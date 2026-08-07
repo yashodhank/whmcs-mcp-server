@@ -144,9 +144,40 @@ describe('ReadCoordinator scheduler', () => {
     );
     controller.abort();
     await expect(queued).rejects.toBeTruthy();
+    expect(coordinator.queued).toBe(0);
     release?.();
     await blocker;
     expect(queuedOperation).not.toHaveBeenCalled();
+  });
+
+  it('does not retain repeatedly cancelled queued reads behind a blocked lane', async () => {
+    const coordinator = new ReadCoordinator({ maxConcurrency: 1 });
+    let release: (() => void) | undefined;
+    const blocker = coordinator.run(
+      async () => new Promise<void>((resolve) => (release = resolve)),
+      opts('blocker', { coalesce: false })
+    );
+    const queuedOperation = vi.fn(async () => 'unexpected');
+    const controllers = Array.from({ length: 100 }, () => new AbortController());
+    const queued = controllers.map((controller, index) =>
+      coordinator
+        .run(
+          queuedOperation,
+          opts(`queued-${index}`, {
+            coalesce: false,
+            consumerKey: `consumer-${index % 4}`,
+            signal: controller.signal,
+          })
+        )
+        .catch((error: unknown) => error)
+    );
+    expect(coordinator.queued).toBe(100);
+    for (const controller of controllers) controller.abort();
+    await Promise.all(queued);
+    expect(coordinator.queued).toBe(0);
+    expect(queuedOperation).not.toHaveBeenCalled();
+    release?.();
+    await blocker;
   });
 
   it('does not enqueue or dispatch an already-aborted read', async () => {

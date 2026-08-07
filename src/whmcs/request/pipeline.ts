@@ -82,7 +82,16 @@ function scopedAbortSignal(
   }
   return {
     signal: controller.signal,
-    isDeadline: () => deadline,
+    // ReadCoordinator owns queued/read deadlines and aborts its derived signal
+    // with a TimeoutError. Preserve that classification when the signal enters
+    // the pipeline instead of misreporting it as ordinary cancellation.
+    isDeadline: () => {
+      const reason: unknown = source?.reason;
+      return (
+        deadline ||
+        (source?.aborted === true && reason instanceof Error && reason.name === 'TimeoutError')
+      );
+    },
     cleanup: () => {
       source?.removeEventListener('abort', forwardAbort);
       if (timer) clearTimeout(timer);

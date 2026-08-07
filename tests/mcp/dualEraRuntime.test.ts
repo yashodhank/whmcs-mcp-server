@@ -152,6 +152,7 @@ describe('MCP v2 stateless dual-era runtime', () => {
     expect(context.identity).toEqual({
       consumerId: 'dual-era-client',
       scopes: ['whmcs:read'],
+      capabilityActionGrants: [],
       authMode: 'oauth',
     });
     controller.abort();

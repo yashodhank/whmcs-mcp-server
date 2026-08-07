@@ -186,8 +186,10 @@ export class ReadCoordinator {
         enqueuedAt: Date.now(),
       };
       const onAbort = (): void => {
+        if (task.cancelled) return;
         task.cancelled = true;
-        reject(cancellationError(options.signal));
+        this.removeQueuedTask(consumer, task as QueuedTask<unknown>);
+        task.reject(cancellationError(options.signal));
         this.pump();
       };
       options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -214,6 +216,22 @@ export class ReadCoordinator {
       });
       this.pump();
     });
+  }
+
+  private removeQueuedTask(consumer: string, task: QueuedTask<unknown>): void {
+    const queue = this.queues.get(consumer);
+    if (queue === undefined) return;
+    const taskIndex = queue.indexOf(task);
+    if (taskIndex < 0) return;
+    queue.splice(taskIndex, 1);
+    if (queue.length > 0) return;
+
+    this.queues.delete(consumer);
+    const consumerIndex = this.consumers.indexOf(consumer);
+    if (consumerIndex < 0) return;
+    this.consumers.splice(consumerIndex, 1);
+    if (consumerIndex < this.cursor) this.cursor -= 1;
+    if (this.consumers.length === 0 || this.cursor >= this.consumers.length) this.cursor = 0;
   }
 
   private nextTask(): QueuedTask<unknown> | undefined {
