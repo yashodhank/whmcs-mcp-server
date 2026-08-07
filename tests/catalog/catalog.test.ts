@@ -108,6 +108,23 @@ describe('OperationCatalog invariants', () => {
       }),
     ],
     [
+      'draft scope',
+      definition({
+        effects: 'draft',
+        riskTier: 'medium',
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+    ],
+    [
+      'draft risk',
+      definition({
+        effects: 'draft',
+        riskTier: 'low',
+        annotations: { readOnlyHint: false, destructiveHint: true },
+        governance: { scope: 'service:suspend', output: 'canonical', rawWhmcsOutput: false },
+      }),
+    ],
+    [
       'write destructive declaration',
       definition({
         effects: 'write',

@@ -5,6 +5,11 @@ import type { OperationDefinition } from './types.js';
 /** Register a catalog definition without changing the existing MCP contract. */
 export function registerCatalogOperation(server: McpServer, definition: OperationDefinition): void {
   if (!isToolAllowed(definition.publicName)) return;
+  if (definition.handler === undefined) {
+    throw new Error(
+      `Catalog operation '${definition.id}' is descriptor-only and cannot be registered`
+    );
+  }
   server.registerTool(
     definition.publicName,
     {

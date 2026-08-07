@@ -1,7 +1,172 @@
 {
   "schema_version": 1,
-  "catalog_version": 2,
+  "catalog_version": 3,
   "operations": [
+    {
+      "id": "billing.ar_aging.read",
+      "public_name": "get_accounts_receivable_aging",
+      "domain": "billing",
+      "description": "Governed accounts-receivable aging read.",
+      "effects": "read",
+      "risk_tier": "low",
+      "whmcs_actions": [
+        "GetInvoices"
+      ],
+      "capability": {
+        "mode": "all",
+        "probe": "read_safe"
+      },
+      "governance": {
+        "scope": null,
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "bounded_fanout",
+        "maxWhmcsCalls": 1,
+        "maxItems": 200,
+        "maxConcurrency": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [],
+      "fallbacks": [],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "billing.quote_create.draft",
+      "public_name": "draft_quote_create",
+      "domain": "billing",
+      "description": "Create a governed quote draft; never approve or execute it.",
+      "effects": "draft",
+      "risk_tier": "medium",
+      "whmcs_actions": [],
+      "capability": {
+        "mode": "none",
+        "probe": "none"
+      },
+      "governance": {
+        "scope": "billing:quote:create",
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "constant",
+        "maxWhmcsCalls": 0,
+        "maxItems": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [
+        "existing controlled-write draft boundary"
+      ],
+      "fallbacks": [
+        "retain the plan as analysis and request operator input"
+      ],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "billing.reconciliation.read",
+      "public_name": "get_reconciliation_snapshot",
+      "domain": "billing",
+      "description": "Governed bounded invoice and transaction reconciliation.",
+      "effects": "read",
+      "risk_tier": "low",
+      "whmcs_actions": [
+        "GetInvoices",
+        "GetTransactions"
+      ],
+      "capability": {
+        "mode": "all",
+        "probe": "read_safe"
+      },
+      "governance": {
+        "scope": null,
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "bounded_fanout",
+        "maxWhmcsCalls": 2,
+        "maxItems": 200,
+        "maxConcurrency": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [],
+      "fallbacks": [
+        "billing.ar_aging.read"
+      ],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "billing.refund_record.draft",
+      "public_name": "draft_refund_record",
+      "domain": "billing",
+      "description": "Create a governed refund-record draft; never approve or execute it.",
+      "effects": "draft",
+      "risk_tier": "high",
+      "whmcs_actions": [],
+      "capability": {
+        "mode": "none",
+        "probe": "none"
+      },
+      "governance": {
+        "scope": "billing:refund:record",
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "constant",
+        "maxWhmcsCalls": 0,
+        "maxItems": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [
+        "existing controlled-write draft boundary"
+      ],
+      "fallbacks": [
+        "retain the plan as analysis and request operator input"
+      ],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
     {
       "id": "capabilities.matrix.read",
       "public_name": "get_capability_matrix",
@@ -34,7 +199,177 @@
       "pagination": null,
       "prerequisites": [],
       "fallbacks": [],
-      "protocol_features": ["tools"],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "clients.account_360.read",
+      "public_name": "get_account_360",
+      "domain": "clients",
+      "description": "Governed, bounded account 360 read.",
+      "effects": "read",
+      "risk_tier": "low",
+      "whmcs_actions": [
+        "GetClientsDetails",
+        "GetClientsProducts",
+        "GetClientsDomains",
+        "GetInvoices",
+        "GetOrders",
+        "GetTickets"
+      ],
+      "capability": {
+        "mode": "all",
+        "probe": "read_safe"
+      },
+      "governance": {
+        "scope": null,
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "bounded_fanout",
+        "maxWhmcsCalls": 6,
+        "maxItems": 200,
+        "maxConcurrency": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [],
+      "fallbacks": [],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "domains.portfolio.read",
+      "public_name": "get_domain_portfolio_snapshot",
+      "domain": "domains",
+      "description": "Governed bounded domain portfolio and renewal-cost read.",
+      "effects": "read",
+      "risk_tier": "low",
+      "whmcs_actions": [
+        "GetClientsDomains",
+        "GetTLDPricing"
+      ],
+      "capability": {
+        "mode": "all",
+        "probe": "read_safe"
+      },
+      "governance": {
+        "scope": null,
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "bounded_fanout",
+        "maxWhmcsCalls": 2,
+        "maxItems": 200,
+        "maxConcurrency": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [],
+      "fallbacks": [],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "domains.renew.draft",
+      "public_name": "draft_domain_renewal",
+      "domain": "domains",
+      "description": "Create a governed domain-renewal draft; never approve or execute it.",
+      "effects": "draft",
+      "risk_tier": "high",
+      "whmcs_actions": [],
+      "capability": {
+        "mode": "none",
+        "probe": "none"
+      },
+      "governance": {
+        "scope": "domain:renew",
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "constant",
+        "maxWhmcsCalls": 0,
+        "maxItems": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [
+        "existing controlled-write draft boundary"
+      ],
+      "fallbacks": [
+        "retain the plan as analysis and request operator input"
+      ],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
+      "id": "services.suspend.draft",
+      "public_name": "draft_service_suspend",
+      "domain": "services",
+      "description": "Create a governed suspension draft; never approve or execute it.",
+      "effects": "draft",
+      "risk_tier": "medium",
+      "whmcs_actions": [],
+      "capability": {
+        "mode": "none",
+        "probe": "none"
+      },
+      "governance": {
+        "scope": "service:suspend",
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "constant",
+        "maxWhmcsCalls": 0,
+        "maxItems": 1
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": true
+      },
+      "pagination": null,
+      "prerequisites": [
+        "existing controlled-write draft boundary"
+      ],
+      "fallbacks": [
+        "retain the plan as analysis and request operator input"
+      ],
+      "protocol_features": [
+        "tools"
+      ],
       "version": 1
     }
   ]

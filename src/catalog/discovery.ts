@@ -10,6 +10,8 @@ export interface CapabilityDiscoveryOptions {
   readonly operationAllowed: (publicName: string) => boolean;
   /** Omit for conservative discovery when no request-bound consumer exists. */
   readonly allowedCapabilityIds?: ReadonlySet<string>;
+  /** Required independently for draft/write descriptors; never inferred from read grants. */
+  readonly allowedWriteScopes?: ReadonlySet<string>;
   readonly evidenceTarget?: CapabilityEvidenceTarget;
   readonly nowMs?: number;
   readonly availableProtocolFeatures: readonly string[];
@@ -51,7 +53,13 @@ export function buildCapabilityDiscovery(
     .definitions()
     .filter((definition) => options.operationAllowed(definition.publicName))
     .filter((definition) => {
-      if (!definition.auth.consumerFiltered || definition.whmcsActions.length === 0) return true;
+      if (!definition.auth.consumerFiltered) return true;
+      if (definition.effects === 'draft' || definition.effects === 'write') {
+        return (
+          definition.governance.scope !== null &&
+          options.allowedWriteScopes?.has(definition.governance.scope) === true
+        );
+      }
       if (options.allowedCapabilityIds === undefined) return false;
       const allowedCapabilityIds = options.allowedCapabilityIds;
       return definition.whmcsActions.every((action) => {
