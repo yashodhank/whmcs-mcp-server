@@ -33,7 +33,11 @@ import { hashToken, TRANSPORT_BOUND_PREFIX } from '../../src/governance/consumer
 import { startHttpServer, type HttpServerHandle } from '../../src/http/httpServer.js';
 import { createModernHttpAdapter } from '../../src/http/httpServerV2.js';
 import type { Logger } from '../../src/logging.js';
-import { createRequestContext } from '../../src/mcp/requestContext.js';
+import {
+  createRequestContext,
+  getCurrentRequestContext,
+  type RequestContext,
+} from '../../src/mcp/requestContext.js';
 import { buildModernServer } from '../../src/mcp/serverFactory.js';
 import { buildContractServer, createContractHarness } from './contractHarness.js';
 
@@ -399,6 +403,80 @@ describe('MCP v2 stateless dual-era runtime', () => {
       expect(client.getProtocolEra()).toBe('modern');
       expect(eras).toEqual(['modern']);
       expect(result.content).toEqual([{ type: 'text', text: 'stdio-consumer-token' }]);
+    } finally {
+      await Promise.allSettled([client.close(), handle.close()]);
+    }
+  });
+
+  it('refreshes persistent stdio callback deadlines after the factory context expires', async () => {
+    let factoryContext: RequestContext | undefined;
+    let lateContext: RequestContext | undefined;
+    let startedResolve: (() => void) | undefined;
+    let cancelledResolve: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    const cancelled = new Promise<void>((resolve) => {
+      cancelledResolve = resolve;
+    });
+    const buildPersistentStdioServer = (): LegacyMcpServer => {
+      const server = new LegacyMcpServer({ name: 'persistent-stdio-test', version: '1.0.0' });
+      server.tool('late_stdio_dispatch', {}, async () => {
+        lateContext = getCurrentRequestContext();
+        return { content: [{ type: 'text', text: 'late-dispatch-ok' }] };
+      });
+      server.tool('cancel_stdio_dispatch', {}, async () => {
+        const context = getCurrentRequestContext();
+        startedResolve?.();
+        await new Promise<void>((resolve) => {
+          if (context?.signal.aborted) resolve();
+          else context?.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        cancelledResolve?.();
+        return { content: [{ type: 'text', text: 'cancelled' }] };
+      });
+      return server;
+    };
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const handle = serveStdio(
+      async (sdkContext) => {
+        const built = await buildModernServer(
+          {
+            logger,
+            buildLegacyServer: buildPersistentStdioServer,
+            requestTimeoutMs: 50,
+          },
+          sdkContext
+        );
+        factoryContext = built.context;
+        return built.server;
+      },
+      { legacy: 'serve', transport: serverTransport }
+    );
+    const client = new Client(
+      { name: 'persistent-stdio-client', version: '1.0.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } }
+    );
+    try {
+      await client.connect(clientTransport);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(factoryContext?.signal.aborted).toBe(true);
+
+      const late = await client.callTool({ name: 'late_stdio_dispatch', arguments: {} });
+      expect(late.content).toEqual([{ type: 'text', text: 'late-dispatch-ok' }]);
+      expect(lateContext?.signal.aborted).toBe(false);
+      expect(lateContext?.requestId).not.toBe(factoryContext?.requestId);
+      expect(lateContext?.deadline).toBeGreaterThan(Date.now());
+
+      const abort = new AbortController();
+      const pending = client.callTool(
+        { name: 'cancel_stdio_dispatch', arguments: {} },
+        { signal: abort.signal }
+      );
+      await started;
+      abort.abort();
+      await expect(pending).rejects.toBeDefined();
+      await expect(cancelled).resolves.toBeUndefined();
     } finally {
       await Promise.allSettled([client.close(), handle.close()]);
     }

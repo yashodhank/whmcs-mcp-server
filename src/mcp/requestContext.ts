@@ -72,6 +72,37 @@ export function getCurrentRequestContext(): RequestContext | undefined {
 }
 
 /**
+ * Derive the context used by one registered operation callback.
+ *
+ * HTTP factories are request-scoped, so their original disconnect signal and
+ * deadline remain authoritative and are combined with callback cancellation.
+ * Modern stdio factories are connection-scoped and can live indefinitely, so
+ * each callback receives a fresh request id, deadline, and timeout signal
+ * instead of inheriting an expired factory-time timeout.
+ */
+export function createCallbackRequestContext(
+  context: RequestContext,
+  callbackSignal: AbortSignal,
+  timeoutMs = 60_000
+): RequestContext {
+  if (context.identity.authMode !== 'stdio') {
+    if (callbackSignal === context.signal) return context;
+    return Object.freeze({
+      ...context,
+      signal: AbortSignal.any([context.signal, callbackSignal]),
+    });
+  }
+
+  const boundedTimeoutMs = Math.max(1, timeoutMs);
+  return Object.freeze({
+    ...context,
+    requestId: randomUUID(),
+    deadline: Date.now() + boundedTimeoutMs,
+    signal: AbortSignal.any([callbackSignal, AbortSignal.timeout(boundedTimeoutMs)]),
+  });
+}
+
+/**
  * Build the immutable request context that crosses the protocol/control-plane
  * boundary. Identity is transport-derived only; request bodies never supply it.
  */
