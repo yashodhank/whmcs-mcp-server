@@ -121,6 +121,20 @@ describe('OperationCatalog invariants', () => {
       }),
     ],
     ['pagination cap', definition({ pagination: { defaultLimit: 25, maxLimit: 101 } })],
+    [
+      'pagination schema maximum',
+      definition({
+        inputSchema: { limit: z.number().int().max(500).default(25) },
+        pagination: { defaultLimit: 25, maxLimit: 100 },
+      }),
+    ],
+    [
+      'pagination schema default',
+      definition({
+        inputSchema: { limit: z.number().int().max(100).default(50) },
+        pagination: { defaultLimit: 25, maxLimit: 100 },
+      }),
+    ],
   ];
 
   it.each(invalid)('rejects invalid %s metadata', (_label, candidate) => {
@@ -176,6 +190,7 @@ describe('consumer-safe capability discovery', () => {
     whmcsActions: ['GetClients'],
     capability: { mode: 'all', probe: 'read_safe' },
     governance: { scope: null, output: 'canonical', rawWhmcsOutput: true },
+    inputSchema: { limit: z.number().int().max(100).default(25) },
     auth: { toolAuthRequired: true, consumerFiltered: true },
     cost: { kind: 'constant', maxWhmcsCalls: 1, maxItems: 100 },
     pagination: { defaultLimit: 25, maxLimit: 100 },
