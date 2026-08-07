@@ -54,6 +54,7 @@ import {
   requiredScopeForWriteScope,
   hasRequiredScope,
 } from '../auth/scopes.js';
+import type { ModernHttpAdapter } from './httpServerV2.js';
 
 /** Write-flow tool names whose required scope is a write tier (not read). */
 const WRITE_FLOW_TOOLS = new Set([
@@ -93,10 +94,26 @@ const SESSION_HEADER = 'mcp-session-id';
 /** Cap on a single request body to avoid unbounded buffering. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MiB
 
+export function isHostAllowed(
+  rawHost: string | string[] | undefined,
+  allowedHostnames: readonly string[]
+): boolean {
+  const value = Array.isArray(rawHost) ? rawHost[0] : rawHost;
+  if (value === undefined || value.trim() === '') return false;
+  try {
+    const hostname = new URL(`http://${value}`).hostname.toLowerCase();
+    return allowedHostnames.includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
 export interface HttpServerDeps {
   readonly logger: Logger;
   /** Factory that produces a fresh, fully-configured McpServer per session. */
   readonly buildServer: () => McpServer;
+  /** Optional stateless 2026-07-28 adapter; legacy requests stay on this file's session path. */
+  readonly modernAdapter?: ModernHttpAdapter;
 }
 
 export interface HttpServerHandle {
@@ -150,7 +167,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
  * Start the Streamable HTTP server. Resolves once the socket is listening.
  */
 export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerHandle> {
-  const { logger, buildServer } = deps;
+  const { logger, buildServer, modernAdapter } = deps;
 
   // Load the consumer registry ONCE at startup (same env-driven registry as
   // stdio). A malformed registry throws here and fails startup fast.
@@ -158,6 +175,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   const env = config.MCP_ENV;
   const endpointPath = config.MCP_HTTP_PATH;
   const allowedOrigins = config.MCP_HTTP_ALLOWED_ORIGINS;
+  const allowedHosts = config.MCP_HTTP_ALLOWED_HOSTS;
 
   // OAuth 2.1 resource-server (opt-in). When enabled, HTTP bearers are JWTs
   // validated against the issuer(s) with aud == resource (RFC 8707); a PRM
@@ -245,6 +263,12 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
       return;
     }
 
+    if (!isHostAllowed(req.headers.host, allowedHosts)) {
+      writeJsonRpcError(res, 403, -32002, 'Forbidden host');
+      logger.warn('HTTP MCP request rejected', { status: 403, method, reason: 'host' });
+      return;
+    }
+
     // ── Origin gate (403) BEFORE auth — no token-probing oracle. ──
     if (!isOriginAllowed(req.headers.origin, allowedOrigins)) {
       writeJsonRpcError(res, 403, -32002, 'Forbidden origin');
@@ -292,22 +316,6 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
       profile = decision.profile;
     }
 
-    const sessionId = req.headers[SESSION_HEADER];
-    const sessionIdStr = Array.isArray(sessionId) ? sessionId[0] : sessionId;
-
-    // ── Session-owner check (403) ── For any request targeting an EXISTING
-    // session, the authenticated consumer must be the one that initialized it.
-    // (Origin + bearer/OAuth already ran, so the caller is authenticated — just
-    // not the owner.) No leak: same opaque Forbidden shape as the origin gate.
-    if (sessionIdStr !== undefined) {
-      const owner = sessionOwner.get(sessionIdStr);
-      if (owner !== undefined && owner !== profile.id) {
-        writeJsonRpcError(res, 403, -32002, 'Forbidden');
-        logger.warn('HTTP MCP session owner mismatch', { status: 403, method });
-        return;
-      }
-    }
-
     // Parse body for POST; GET/DELETE carry none. Malformed JSON → JSON-RPC
     // parse error (-32700), not a crash.
     let body: unknown;
@@ -335,6 +343,31 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
     // marker for the TRANSPORT-authenticated consumer (strips any client value),
     // so the tool layer is governed by who the bearer authenticated as.
     if (body !== undefined) bindConsumerIdentity(body, profile.id);
+
+    if (
+      modernAdapter !== undefined &&
+      (await modernAdapter.handleIfModern(req, res, body, {
+        profile,
+        scopes: grantedScopes,
+        authMode: oauthEnabled ? 'oauth' : 'registry',
+      }))
+    ) {
+      return;
+    }
+
+    const sessionId = req.headers[SESSION_HEADER];
+    const sessionIdStr = Array.isArray(sessionId) ? sessionId[0] : sessionId;
+
+    // ── Session-owner check (403) ── Legacy requests targeting an EXISTING
+    // session must authenticate as the consumer that initialized it.
+    if (sessionIdStr !== undefined) {
+      const owner = sessionOwner.get(sessionIdStr);
+      if (owner !== undefined && owner !== profile.id) {
+        writeJsonRpcError(res, 403, -32002, 'Forbidden');
+        logger.warn('HTTP MCP session owner mismatch', { status: 403, method });
+        return;
+      }
+    }
 
     // Route to an existing session, or create one on an initialize POST.
     let transport: StreamableHTTPServerTransport | undefined =
@@ -456,6 +489,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
     port: boundPort,
     async close(): Promise<void> {
       clearInterval(sweeper);
+      if (modernAdapter !== undefined) await modernAdapter.close();
       for (const t of transports.values()) {
         try {
           await t.close();
