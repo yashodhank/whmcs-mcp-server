@@ -95,6 +95,35 @@ See `allowlistAuthorizes`, `src/write/idempotency.ts`.
 
 ---
 
+## 2026-08-06 — Historical plans are evidence, not executable backlog
+
+**Decision:** Preserved local plan files 001–021 are quarantined by exact path
+and hash-recorded in `docs/reference/workspace-artifact-manifest.md`. Current
+source, tests, merged PRs, `plans/README.md`, and living runbooks are
+authoritative. Do not force-add a historical plan or execute its commands
+without a new drift, sensitivity, and provenance review.
+
+**Why:** The plans contain valuable rationale but also stale commit references,
+machine-specific worktree commands, superseded deployment steps, and completion
+checkboxes that no longer describe current `main`. Treating them as active
+would recreate finished work and create operational risk.
+
+**Workflow design outcomes preserved from plan 014:**
+
+- `offboarding_checklist` was deferred because it overlaps
+  `suspend_for_nonpayment`; extend that existing workflow if the extra account
+  and provisioning checks become necessary.
+- `client_health_brief` was rejected as a standalone prompt because it is
+  read-only glue over `get_account_360` and existing aggregators.
+- `domain_renewal_batch_review` was rejected as a new prompt; any safe
+  draft-renew behavior belongs as an additive update to `domain_renewal_review`.
+- Auto-executing workflow variants remain rejected. Composite workflow tools
+  stop at governed drafts; approval and execution stay in the write-flow.
+
+**Operational split:** Machine-local MCP/agent files stay local, production-
+specific procedures stay private, and only portable examples plus sanitized
+runbooks enter the public repository.
+
 ## 2026-08-07 — MCP v2 primary runtime with an isolated v1 compatibility bridge
 
 **Decision:** Pin split MCP SDK v2 packages at `2.0.0` and Zod at `4.4.3` as
