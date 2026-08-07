@@ -1,10 +1,8 @@
 name: CI
 
 # Gate for the standing auto-merge policy: every PR into main (and every push
-# to main) must pass build + typecheck + lint + the full test suite before it
-# can be merged. `format:check` is intentionally NOT a gate here — the repo has
-# pre-existing prettier debt across ~160 files that is out of scope for per-PR
-# enforcement; formatting is applied to changed files at authoring time.
+# to main) must pass build, typecheck, lint, the repository-wide format check,
+# and the full test suite before it can be merged.
 
 on:
   push:
@@ -42,6 +40,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Format
+        run: npm run format:check
 
       - name: Test
         # The suite is fully mocked (no live WHMCS calls), but tests/setup.ts

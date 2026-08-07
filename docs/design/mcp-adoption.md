@@ -74,7 +74,11 @@ the real `buildServer` surface with inert credentials and a WHMCS tripwire, and
 runs the official `2025-11-25` scenarios for initialization, logging level,
 ping, tool listing, resource listing, and prompt listing. A missing package,
 version mismatch, scenario removal, runner failure, or WHMCS call exits
-nonzero. Results live only in a temporary directory.
+nonzero. The wrapper overwrites WHMCS configuration with inert values and
+launches every external runner process with an explicit minimal environment;
+a sentinel child-process self-check fails if parent-only environment data can
+cross that boundary. Results and the isolated child home live only in temporary
+directories.
 
 The runner prints every official scenario it does not run. Most excluded
 scenarios require conformance-fixture-specific tools, resources, prompts,

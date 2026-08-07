@@ -252,7 +252,8 @@ function installProcessHandlers(): void {
 // Start only when this module is the process entry point. Importers (including
 // the in-process MCP contract harness) receive the pure buildServer factory
 // without opening a transport or installing a second server instance.
-const isDirectEntry = import.meta.url === pathToFileURL(process.argv[1]).href;
+const entryPath = process.argv.at(1);
+const isDirectEntry = entryPath !== undefined && import.meta.url === pathToFileURL(entryPath).href;
 if (isDirectEntry) {
   installProcessHandlers();
   main().catch((error: unknown) => {
