@@ -1,5 +1,6 @@
 import type { CatalogMachineOperation, CatalogMachineView, OperationDefinition } from './types.js';
 import { DECLARED_WHMCS_CAPABILITIES } from './declaredCapabilities.js';
+import { z } from 'zod';
 
 const DECLARED_READ_ACTIONS = new Set(
   DECLARED_WHMCS_CAPABILITIES.map((declaration) => declaration.action)
@@ -110,6 +111,21 @@ function validateDefinition(definition: OperationDefinition, globalMaxPageSize: 
     ) {
       throw new CatalogValidationError(
         `${definition.id} pagination must be positive and within the global page cap`
+      );
+    }
+    if (!Object.prototype.hasOwnProperty.call(definition.inputSchema, 'limit')) {
+      throw new CatalogValidationError(`${definition.id} pagination requires a limit input schema`);
+    }
+    const limitSchema = definition.inputSchema.limit;
+    const parsedDefault = z.safeParse(limitSchema, undefined);
+    if (!parsedDefault.success || parsedDefault.data !== defaultLimit) {
+      throw new CatalogValidationError(
+        `${definition.id} limit schema default must match pagination.defaultLimit`
+      );
+    }
+    if (z.safeParse(limitSchema, maxLimit + 1).success) {
+      throw new CatalogValidationError(
+        `${definition.id} limit schema permits values above pagination.maxLimit`
       );
     }
   }
