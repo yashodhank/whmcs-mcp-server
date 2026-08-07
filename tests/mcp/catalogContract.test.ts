@@ -78,4 +78,24 @@ describe('public MCP catalog v1 contract', () => {
     expect(catalog.tools.some(({ annotations }) => annotations !== undefined)).toBe(true);
     expect(harness.whmcsCalls).toEqual([]);
   });
+
+  it('serves the additive capability v2 resource without touching WHMCS', async () => {
+    const response = await harness.client.readResource({ uri: 'whmcs://capabilities/v2' });
+    const first = response.contents[0];
+    expect(first).toMatchObject({ uri: 'whmcs://capabilities/v2', mimeType: 'application/json' });
+    expect(first).toHaveProperty('text');
+    const payload = JSON.parse((first as { text: string }).text) as {
+      schema_version: number;
+      catalog_version: number;
+      etag: string;
+      operations: { id: string; name: string }[];
+    };
+    expect(payload).toMatchObject({
+      schema_version: 2,
+      catalog_version: 2,
+      operations: [{ id: 'capabilities.matrix.read', name: 'get_capability_matrix' }],
+    });
+    expect(payload.etag).toMatch(/^sha256-[a-f0-9]{64}$/);
+    expect(harness.whmcsCalls).toEqual([]);
+  });
 });

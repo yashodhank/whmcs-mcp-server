@@ -125,6 +125,10 @@
   "protocolVersion": "2025-11-25",
   "resources": [
     {
+      "name": "capability-catalog-v2",
+      "uri": "whmcs://capabilities/v2"
+    },
+    {
       "name": "compat-9x",
       "uri": "whmcs://docs/compat-9x"
     },

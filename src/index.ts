@@ -44,6 +44,7 @@ import { registerWorkflowTools } from './tools/workflows.js';
 import { registerResources } from './resources/index.js';
 import { registerPlaybookResource } from './playbook/whmcsOpsPlaybook.js';
 import { registerCompat9xResource } from './resources/compat9x.js';
+import { registerCapabilityCatalogResource } from './resources/capabilityCatalog.js';
 
 /**
  * Build a fully-configured McpServer (capabilities + all tools/resources/
@@ -98,7 +99,7 @@ export function buildServer(deps: {
   registerSystemRefTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
-  registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
+  const operationCatalog = registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
   registerWriteFlowTools(server, whmcsClient, logger, rateLimiter);
   registerWorkflowTools(server, whmcsClient, logger, rateLimiter);
 
@@ -107,6 +108,7 @@ export function buildServer(deps: {
   registerResources(server, whmcsClient, logger, rateLimiter);
   registerPlaybookResource(server, logger);
   registerCompat9xResource(server, logger);
+  registerCapabilityCatalogResource(server, operationCatalog);
 
   // Register MCP prompts (reusable WHMCS ops playbooks)
   logger.info('Registering MCP prompts...');
