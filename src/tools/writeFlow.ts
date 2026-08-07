@@ -521,6 +521,18 @@ const INTENT_VIEW_OUTPUT_SHAPE = {
 
 type Handler = ToolCallback<z.ZodRawShape>;
 
+/**
+ * Keep transport credentials and server-issued intent identifiers out of the
+ * PAN scan. They are opaque control-plane values, not operator-supplied write
+ * content, and UUID digit runs can occasionally satisfy Luhn by chance.
+ */
+function panScannableParams(params: Record<string, unknown>): Record<string, unknown> {
+  const { auth_token: _authToken, intent_id: _intentId, ...semanticParams } = params;
+  void _authToken;
+  void _intentId;
+  return semanticParams;
+}
+
 function register(
   server: McpServer,
   name: string,
@@ -546,7 +558,7 @@ function register(
       // PCI-DSS input guard: reject raw card numbers (PAN) before any write
       // intent is drafted/validated/executed. The PAN value is NEVER echoed.
       try {
-        assertNoPAN(params);
+        assertNoPAN(panScannableParams(params));
       } catch (e) {
         if (e instanceof PANDetectedError) {
           log.logToolResult(name, false, Date.now() - t0, 'PAN detected in input (rejected)');
