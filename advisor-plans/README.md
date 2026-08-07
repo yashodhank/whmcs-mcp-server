@@ -24,7 +24,9 @@ Protocol adapters ──► identity / policy context ──► tool catalog
                                                            │
                                                WHMCS request pipeline
                                                            │
-                                                WHMCS API / read DB
+                                           WHMCS External API
+                                      or owner-transfer-only guarded
+                                             DB write transaction
 ```
 
 The control plane describes what can be done, under which policy, and at what

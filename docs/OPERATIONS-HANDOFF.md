@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-08-06
+Status: current as of 2026-08-07
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -205,6 +205,43 @@ All operator-facing kill-switch references must preserve the startup boundary:
 editing `MCP_WRITE_KILL_SWITCH` does not affect an existing process. Restart an
 HTTP service/process, or respawn the stdio child, before claiming the emergency
 seal is active.
+
+## Approved MCP architecture roadmap
+
+The plan-only MCP server/client intelligence roadmap merged through PR #87 on
+2026-08-07. Its canonical index is
+[`advisor-plans/README.md`](../advisor-plans/README.md). The plans are approved
+product direction, not claims that the runtime work is already implemented.
+Execute them through separate focused PRs in this order:
+
+| Order | Plan | Priority | Required outcome |
+|---:|---|---:|---|
+| 1 | [Safety baseline, protocol contracts and conformance](../advisor-plans/001-protocol-contract-baseline.md) | P0 | Clear the documented format/dependency baseline, then pin the public MCP contract and conformance behavior |
+| 2 | [MCP v2 dual-era stateless runtime](../advisor-plans/002-mcp-v2-stateless-runtime.md) | P0 | Add modern stateless protocol support without removing measured legacy compatibility or weakening per-request identity |
+| 3 | [Unified capability catalog](../advisor-plans/003-unified-capability-catalog.md) | P1 | Establish one typed source for registration, capability evidence, effects, risk, governance and cost |
+| 4 | [Composable WHMCS execution pipeline](../advisor-plans/004-whmcs-execution-pipeline.md) | P1 | Extract transport/retry/repair stages and accelerate only safe reads with deadlines, bounds and telemetry |
+| 5 | [Safe operations planner](../advisor-plans/005-safe-operations-planner.md) | P1 | Add host-side brainstorming plus deterministic PlanIR validation; planner-created writes stop at governed drafts |
+
+Plans 003 and 004 may proceed in parallel only after Plan 001. Plan 005 depends
+on the typed catalog from Plan 003 and should use the modern protocol adapter
+from Plan 002 before exposing modern-only interaction features.
+
+Roadmap invariants remain operational requirements:
+
+- model-proposed plans are data, never authorization;
+- the planner cannot approve or execute a write;
+- all mutations continue through the existing intent state machine, consumer
+  scope checks, execution gate, kill switch and `WhmcsClient.mutate()` backstop;
+- mutation requests are never cached, coalesced or automatically retried;
+- transport identity cannot be overridden by tool arguments;
+- governance remains the governed-data output boundary; and
+- direct database access remains limited to the documented owner-transfer
+  capability and its guarded write transaction. The roadmap does not authorize
+  general WHMCS database reads or another direct-database execution path.
+
+Every roadmap implementation PR must update this handoff when it changes
+runtime/transport posture, compatibility retirement criteria, data access,
+write behavior, operational ownership or deployment requirements.
 
 A production discovery quote was prepared as an unsent draft through the
 governed flow. The current tree omits customer identity and commercial terms;
