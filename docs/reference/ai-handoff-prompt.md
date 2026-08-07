@@ -72,7 +72,7 @@ All mutations flow through ONE governed model. There are **no** direct
 `MCP_ENABLE_LEGACY_WRITE_TOOLS`).
 
 - **Flow:** `draft_write_intent` → `validate_write_intent` → `approve_write_intent`
-  → `execute_write_intent` (tools in `src/tools/writeFlow.ts`). A write _intent_
+  → `execute_write_intent` (tools in `src/tools/writeFlow.ts`). A write *intent*
   is a pure, non-executing description; nothing hits WHMCS until execute.
 - **The frozen seam** (`src/write/types.ts`): every scope is one entry in
   `WRITE_SCOPES` + `SCOPE_ACTION` (→ WHMCS action) + `SCOPE_RISK`
@@ -123,7 +123,6 @@ status/merge), orders (read + accept), servers (GetServers/GetHealthStatus),
 system refs (stats/activity/automation/todos/currencies/payment-methods).
 
 Notable still-missing (see `docs/` coverage notes for the full matrix):
-
 - Reads: `DomainGetNameservers/LockingStatus/WhoisInfo`, `GetTicketNotes`,
   `GetTicketPredefinedReplies/Cats`, `GetOrderStatuses`, `GetPromotions`,
   `GetEmailTemplates`, `GetStaffOnline`, `GetAdminUsers`.
@@ -140,7 +139,6 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 ## How to extend
 
 **Add a READ tool** (shell → probe → promote):
-
 1. Allowlist the action in `src/whmcs/actionPolicy.ts` (per-action, narrow).
 2. Add a canonical mapper in `src/canonical/` (assign FieldClasses) + a tool in
    `src/tools/`.
@@ -149,7 +147,6 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 4. Tests: mapper field-class coverage + tool-level with mocked `whmcs.read`.
 
 **Add a WRITE scope** (one entry per file, the seam is TS-enforced):
-
 1. `src/write/types.ts`: add to `WRITE_SCOPES`, `SCOPE_ACTION`, `SCOPE_RISK`.
    Destructive/permanent → also add to `PROD_NEVER_EXECUTABLE(_SCOPES)`.
 2. `src/write/validation.ts`: add `REQUIRED_PARAMS` + a per-scope validator.
@@ -218,9 +215,12 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 ## Key files (extension seams)
 
 - Reads: `src/whmcs/actionPolicy.ts`, `src/canonical/*`,
-  `src/governance/capabilities.ts`, and the matching registrar under
-  `src/tools/`.
-- Writes: the scope modules under `src/write/` and `src/tools/writeFlow.ts`.
+  `src/governance/capabilities.ts`, `src/tools/{listTools,reportingListTools,
+  capabilityShellTools,aggregators,infraTools,quoteTools,contactsTools,
+  ticketMetaTools,systemRefTools,billingReadTools}.ts`
+- Catalog: `src/catalog/*`, `src/governance/capabilityEvidence.ts`
+- Writes: `src/write/{types,validation,paramMapping,executionGate,idempotency,
+  audit}.ts`, `src/tools/writeFlow.ts`
 - Governance: `src/governance/{types,contracts,projection,consumers,pipeline}.ts`
 - Auth/transport: `src/auth/*`, `src/http/httpServer.ts`
 - Registration entry: `src/index.ts`

@@ -93,16 +93,16 @@ separately.
 
 ## Repository and project boundary
 
-| Boundary                   | Current decision / fact                                                                                                                                                                   |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canonical repository       | Public GitHub repository `yashodhank/whmcs-mcp-server`                                                                                                                                    |
-| Default branch             | `main`; all changes enter through pull requests                                                                                                                                           |
-| Product placement          | Keep the MCP adapter, governance, write-flow, tests, and docs together in this repository                                                                                                 |
-| WHMCS application          | External dependency and system of record; do not patch WHMCS core from this repository                                                                                                    |
-| Local WHMCS test stack     | `deploy/whmcs-test/` in this repository; intentionally separate from `securiace-vps-platform`                                                                                             |
-| Client proposals           | `securiace-clients-proposals` is a separate business/proposal workspace; never copy secrets or customer PII into this public repository                                                   |
-| Production deployment      | No production host, image registry, service name, or immutable image digest is declared in this repository; record those in the private deployment inventory before claiming a deployment |
-| Separate GitHub repository | None currently; do not create one for ordinary addon changes                                                                                                                              |
+| Boundary | Current decision / fact |
+|---|---|
+| Canonical repository | Public GitHub repository `yashodhank/whmcs-mcp-server` |
+| Default branch | `main`; all changes enter through pull requests |
+| Product placement | Keep the MCP adapter, governance, write-flow, tests, and docs together in this repository |
+| WHMCS application | External dependency and system of record; do not patch WHMCS core from this repository |
+| Local WHMCS test stack | `deploy/whmcs-test/` in this repository; intentionally separate from `securiace-vps-platform` |
+| Client proposals | `securiace-clients-proposals` is a separate business/proposal workspace; never copy secrets or customer PII into this public repository |
+| Production deployment | No production host, image registry, service name, or immutable image digest is declared in this repository; record those in the private deployment inventory before claiming a deployment |
+| Separate GitHub repository | None currently; do not create one for ordinary addon changes |
 
 The Dockerfile and `docker-compose.yml` provide a buildable container and a
 local/dev-oriented compose setup. They are not proof of a production
@@ -117,15 +117,15 @@ named human/team owner is not encoded in the repository yet; this is an
 explicit assignment gap, not a reason to guess. Until assigned, use this
 interim responsibility model:
 
-| Responsibility              | Interim owner                                                                                  | Required handoff                                                              |
-| --------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Product decisions and scope | Securiace technology/product owner — **name pending**                                          | Approve new capabilities, risk changes, and customer commitments              |
-| Code and test maintenance   | Repository maintainer through `yashodhank/whmcs-mcp-server` PRs — **named maintainer pending** | Keep CI green; update tests and docs in the same PR                           |
-| Production operations       | Securiace infrastructure/operator — **name and host inventory pending**                        | Own runtime, secrets, process health, backups, deployment, and rollback       |
-| Approval authority          | Separate authorized operator/approver — **name/group pending**                                 | Approve production write intents; do not self-approve high-risk work          |
-| Security review             | Securiace security owner — **name pending**                                                    | Review auth, secret handling, direct DB access, and production write changes  |
-| WHMCS administration        | Client WHMCS administrator or designated client operator                                       | Own WHMCS roles, API credentials, IP allowlist, and WHMCS-side changes        |
-| Customer delivery records   | Client/proposal workspace, not this public repository                                          | Keep quotes, billing identifiers, PII, and private execution evidence private |
+| Responsibility | Interim owner | Required handoff |
+|---|---|---|
+| Product decisions and scope | Securiace technology/product owner — **name pending** | Approve new capabilities, risk changes, and customer commitments |
+| Code and test maintenance | Repository maintainer through `yashodhank/whmcs-mcp-server` PRs — **named maintainer pending** | Keep CI green; update tests and docs in the same PR |
+| Production operations | Securiace infrastructure/operator — **name and host inventory pending** | Own runtime, secrets, process health, backups, deployment, and rollback |
+| Approval authority | Separate authorized operator/approver — **name/group pending** | Approve production write intents; do not self-approve high-risk work |
+| Security review | Securiace security owner — **name pending** | Review auth, secret handling, direct DB access, and production write changes |
+| WHMCS administration | Client WHMCS administrator or designated client operator | Own WHMCS roles, API credentials, IP allowlist, and WHMCS-side changes |
+| Customer delivery records | Client/proposal workspace, not this public repository | Keep quotes, billing identifiers, PII, and private execution evidence private |
 
 Required assignments before the next production deployment:
 
@@ -214,13 +214,13 @@ The plan-only MCP server/client intelligence roadmap merged through PR #87 on
 product direction, not claims that the runtime work is already implemented.
 Execute them through separate focused PRs in this order:
 
-| Order | Plan                                                                                                      | Priority | Required outcome                                                                                                       |
-| ----: | --------------------------------------------------------------------------------------------------------- | -------: | ---------------------------------------------------------------------------------------------------------------------- |
-|     1 | [Safety baseline, protocol contracts and conformance](../advisor-plans/001-protocol-contract-baseline.md) |       P0 | Clear the documented format/dependency baseline, then pin the public MCP contract and conformance behavior             |
-|     2 | [MCP v2 dual-era stateless runtime](../advisor-plans/002-mcp-v2-stateless-runtime.md)                     |       P0 | Add modern stateless protocol support without removing measured legacy compatibility or weakening per-request identity |
-|     3 | [Unified capability catalog](../advisor-plans/003-unified-capability-catalog.md)                          |       P1 | Establish one typed source for registration, capability evidence, effects, risk, governance and cost                   |
-|     4 | [Composable WHMCS execution pipeline](../advisor-plans/004-whmcs-execution-pipeline.md)                   |       P1 | Extract transport/retry/repair stages and accelerate only safe reads with deadlines, bounds and telemetry              |
-|     5 | [Safe operations planner](../advisor-plans/005-safe-operations-planner.md)                                |       P1 | Add host-side brainstorming plus deterministic PlanIR validation; planner-created writes stop at governed drafts       |
+| Order | Plan | Priority | Required outcome |
+|---:|---|---:|---|
+| 1 | [Safety baseline, protocol contracts and conformance](../advisor-plans/001-protocol-contract-baseline.md) | P0 | Clear the documented format/dependency baseline, then pin the public MCP contract and conformance behavior |
+| 2 | [MCP v2 dual-era stateless runtime](../advisor-plans/002-mcp-v2-stateless-runtime.md) | P0 | Add modern stateless protocol support without removing measured legacy compatibility or weakening per-request identity |
+| 3 | [Unified capability catalog](../advisor-plans/003-unified-capability-catalog.md) | P1 | Establish one typed source for registration, capability evidence, effects, risk, governance and cost |
+| 4 | [Composable WHMCS execution pipeline](../advisor-plans/004-whmcs-execution-pipeline.md) | P1 | Extract transport/retry/repair stages and accelerate only safe reads with deadlines, bounds and telemetry |
+| 5 | [Safe operations planner](../advisor-plans/005-safe-operations-planner.md) | P1 | Add host-side brainstorming plus deterministic PlanIR validation; planner-created writes stop at governed drafts |
 
 Plans 003 and 004 may proceed in parallel only after Plan 001. Plan 005 depends
 on the typed catalog from Plan 003 and should use the modern protocol adapter
