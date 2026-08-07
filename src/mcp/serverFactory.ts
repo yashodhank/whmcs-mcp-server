@@ -19,6 +19,7 @@ import type { RequestOptions as LegacyRequestOptions } from '@modelcontextprotoc
 import { TRANSPORT_BOUND_PREFIX } from '../governance/consumers.js';
 import type { Logger } from '../logging.js';
 import {
+  createCallbackRequestContext,
   createRequestContext,
   runWithRequestContext,
   type RequestContext,
@@ -130,14 +131,6 @@ function bridgeRequestOptions(context: RequestContext): LegacyRequestOptions {
     timeout: remainingMs,
     maxTotalTimeout: remainingMs,
   };
-}
-
-function withCallbackSignal(context: RequestContext, callbackSignal: AbortSignal): RequestContext {
-  if (callbackSignal === context.signal) return context;
-  return Object.freeze({
-    ...context,
-    signal: AbortSignal.any([context.signal, callbackSignal]),
-  });
 }
 
 function canonicalJson(value: unknown): string {
@@ -295,7 +288,11 @@ export async function buildModernServer(
         args: unknown,
         callbackContext: ServerContext
       ): Promise<ModernCallToolResult> => {
-        const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+        const activeContext = createCallbackRequestContext(
+          context,
+          callbackContext.mcpReq.signal,
+          deps.requestTimeoutMs
+        );
         return runWithRequestContext(
           activeContext,
           async () =>
@@ -339,7 +336,11 @@ export async function buildModernServer(
           _meta: prompt._meta,
         },
         async (args, callbackContext): Promise<ModernGetPromptResult> => {
-          const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+          const activeContext = createCallbackRequestContext(
+            context,
+            callbackContext.mcpReq.signal,
+            deps.requestTimeoutMs
+          );
           return runWithRequestContext(
             activeContext,
             async () =>
@@ -368,7 +369,11 @@ export async function buildModernServer(
           cacheHint: { ttlMs: 0, cacheScope: 'private' },
         },
         async (uri: URL, callbackContext): Promise<ModernReadResourceResult> => {
-          const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+          const activeContext = createCallbackRequestContext(
+            context,
+            callbackContext.mcpReq.signal,
+            deps.requestTimeoutMs
+          );
           return runWithRequestContext(
             activeContext,
             async () =>
@@ -394,7 +399,11 @@ export async function buildModernServer(
           cacheHint: { ttlMs: 0, cacheScope: 'private' },
         },
         async (uri: URL, _variables, callbackContext): Promise<ModernReadResourceResult> => {
-          const activeContext = withCallbackSignal(context, callbackContext.mcpReq.signal);
+          const activeContext = createCallbackRequestContext(
+            context,
+            callbackContext.mcpReq.signal,
+            deps.requestTimeoutMs
+          );
           return runWithRequestContext(
             activeContext,
             async () =>
