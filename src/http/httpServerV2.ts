@@ -64,7 +64,10 @@ function authInfo(auth: ModernRequestAuth): AuthInfo {
     token: `${TRANSPORT_BOUND_PREFIX}${auth.profile.id}`,
     clientId: auth.profile.id,
     scopes: [...auth.scopes],
-    extra: Object.freeze({ authMode: auth.authMode }),
+    extra: Object.freeze({
+      authMode: auth.authMode,
+      capabilityActionGrants: Object.freeze([...auth.profile.allowedActions]),
+    }),
   });
 }
 

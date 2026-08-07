@@ -270,11 +270,13 @@ are declared once for legacy migration tracking, including internal probe or
 enrichment actions. Capability evidence is isolated by opaque installation and
 configuration fingerprints, probe shape and catalog version, and carries
 expiry and provenance. The additive `whmcs://capabilities/v2` resource exposes
-only globally permitted/effective catalog operations and fails closed for
-consumer-filtered operations until the protocol/catalog integration seam
-supplies request-bound resource identity. CI checks the deterministic catalog
-fixture and the Plan 001 public catalog. Remaining capability shells and other
-domains are still manual and
+only globally permitted/effective catalog operations. Modern HTTP discovery
+intersects consumer-filtered operations with bounded grants from the
+transport-authenticated `ConsumerProfile`; request bodies cannot override
+identity or grants. Legacy and stdio reads have no authenticated transport
+profile and fail closed for those operations. CI checks the deterministic
+catalog fixture and the Plan 001 public catalog. Remaining capability shells
+and other domains are still manual and
 must migrate one pack per focused PR; controlled writes have not moved into the
 catalog. See [`docs/design/capability-catalog.md`](design/capability-catalog.md).
 

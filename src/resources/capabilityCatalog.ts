@@ -3,6 +3,19 @@ import { config, isToolAllowed, resolveWhmcsApiEndpoint } from '../config.js';
 import { buildCapabilityDiscovery } from '../catalog/discovery.js';
 import type { OperationCatalog } from '../catalog/registry.js';
 import { fingerprintCapabilityEvidenceTarget } from '../governance/capabilityEvidence.js';
+import { CAPABILITY_REGISTRY } from '../governance/capabilities.js';
+import { getCurrentRequestContext } from '../mcp/requestContext.js';
+
+function currentCapabilityGrants(): ReadonlySet<string> | undefined {
+  const context = getCurrentRequestContext();
+  if (context === undefined || context.identity.authMode === 'stdio') return undefined;
+  const grants = new Set(context.identity.capabilityActionGrants);
+  return new Set(
+    Object.values(CAPABILITY_REGISTRY)
+      .filter((capability) => grants.has(capability.action) || grants.has(capability.capability))
+      .map((capability) => capability.capability)
+  );
+}
 
 export function registerCapabilityCatalogResource(
   server: McpServer,
@@ -22,9 +35,10 @@ export function registerCapabilityCatalogResource(
   server.resource('capability-catalog-v2', 'whmcs://capabilities/v2', (uri) => {
     const payload = buildCapabilityDiscovery(catalog, {
       operationAllowed: isToolAllowed,
-      // Legacy resource registration has no request-bound consumer identity.
-      // It therefore fails closed for consumer-filtered operations until the
-      // protocol/catalog integration seam supplies that identity.
+      // Modern HTTP grants come only from its authenticated ConsumerProfile.
+      // Legacy and stdio resource reads have no authenticated profile and
+      // therefore continue to fail closed for consumer-filtered operations.
+      allowedCapabilityIds: currentCapabilityGrants(),
       evidenceTarget,
       availableProtocolFeatures: ['resources', 'tools'],
     });
