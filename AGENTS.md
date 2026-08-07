@@ -45,15 +45,15 @@ Register new tools in the matching module, then wire registration from `src/inde
 
 ## Resources (read-only URIs)
 
-| URI                                    | Purpose                                  |
-| -------------------------------------- | ---------------------------------------- |
-| `whmcs://clients/{clientid}/summary`   | Client identity + counts                 |
-| `whmcs://clients/{clientid}/log`       | Recent client activity                   |
-| `whmcs://invoices/{invoiceid}/history` | Invoice + transactions                   |
-| `whmcs://tickets/{ticketid}/thread`    | Ticket thread                            |
-| `whmcs://system/activity`              | Global activity (admin)                  |
-| `whmcs://docs/ops-playbook`            | Agent behavioral playbook                |
-| `whmcs://docs/compat-9x`               | WHMCS 8.13 / 9.x compatibility notes     |
+| URI                                    | Purpose                              |
+| -------------------------------------- | ------------------------------------ |
+| `whmcs://clients/{clientid}/summary`   | Client identity + counts             |
+| `whmcs://clients/{clientid}/log`       | Recent client activity               |
+| `whmcs://invoices/{invoiceid}/history` | Invoice + transactions               |
+| `whmcs://tickets/{ticketid}/thread`    | Ticket thread                        |
+| `whmcs://system/activity`              | Global activity (admin)              |
+| `whmcs://docs/ops-playbook`            | Agent behavioral playbook            |
+| `whmcs://docs/compat-9x`               | WHMCS 8.13 / 9.x compatibility notes |
 | `whmcs://capabilities/v2`              | Versioned, filtered capability discovery |
 
 Resources do **not** use `auth_token` query params; scope is process + `MCP_ACCESS_MODE` / client allowlist.
@@ -113,18 +113,18 @@ Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/loc
 
 ## Documentation map
 
-| Doc                                                                                  | When to read                                                         |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| [README.md](README.md)                                                               | Install, MCP config, tool catalog summary                            |
-| [docs/README.md](docs/README.md)                                                     | Full doc-map index (design / runbooks / reference / archive)         |
-| [docs/design/governance.md](docs/design/governance.md)                               | Consumer contracts & projection                                      |
-| [docs/design/capability-catalog.md](docs/design/capability-catalog.md)               | Catalog metadata, evidence, discovery, and pack migration             |
-| [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)               | Promoting verified capabilities                                      |
-| [docs/design/controlled-writes-phase-i.md](docs/design/controlled-writes-phase-i.md) | Production write GO/NO-GO                                            |
-| [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program                                       |
-| [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   | Recommended Cursor skills                                            |
-| [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                             |
-| [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                             | Product boundary, ownership, runtime, release, and handoff checklist |
+| Doc                                                                                  | When to read                                                 |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| [README.md](README.md)                                                               | Install, MCP config, tool catalog summary                    |
+| [docs/README.md](docs/README.md)                                                     | Full doc-map index (design / runbooks / reference / archive) |
+| [docs/design/governance.md](docs/design/governance.md)                               | Consumer contracts & projection                              |
+| [docs/design/capability-catalog.md](docs/design/capability-catalog.md)               | Catalog metadata, evidence, discovery, and pack migration |
+| [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)               | Promoting verified capabilities                              |
+| [docs/design/controlled-writes-phase-i.md](docs/design/controlled-writes-phase-i.md) | Production write GO/NO-GO                                    |
+| [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program                               |
+| [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   | Recommended Cursor skills                                    |
+| [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                     |
+| [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                               | Product boundary, ownership, runtime, release, and handoff checklist |
 
 ## Cursor / rules
 

@@ -8,13 +8,13 @@
 
 These actions are declared in `src/catalog/declaredCapabilities.ts`:
 
-| WHMCS action       | capability id              | declared status                |
-| ------------------ | -------------------------- | ------------------------------ |
-| `GetTransactions`  | `list_client_transactions` | `supported`                    |
-| `GetStats`         | `get_system_stats`         | `supported`                    |
-| `GetUsers`         | `list_users`               | `unverified` (`external_only`) |
-| `GetToDoItems`     | `list_todo_items`          | `supported`                    |
-| `GetAutomationLog` | `list_automation_log`      | `supported`                    |
+| WHMCS action | capability id | declared status |
+|---|---|---|
+| `GetTransactions` | `list_client_transactions` | `supported` |
+| `GetStats` | `get_system_stats` | `supported` |
+| `GetUsers` | `list_users` | `unverified` (`external_only`) |
+| `GetToDoItems` | `list_todo_items` | `supported` |
+| `GetAutomationLog` | `list_automation_log` | `supported` |
 
 ## 2. Current status (verified from code)
 
@@ -41,17 +41,17 @@ There is no operator-only runtime flag that bypasses this.
 
 ## 4. Read-only probe procedure (post-allowlisting)
 
-Once an action is allowlisted (§5), `probeCapability` issues **at most one
-minimal read per evidence key within its TTL** with `{ limitnum: 1 }` forced
+Once an action is allowlisted (§5), `probeCapability` issues
+**at most one minimal read per evidence key within its TTL** with `{ limitnum: 1 }` forced
 after caller filters, against the configured production read-only credentials.
 Outcomes (from `classifyFailure` / success path):
 
-| Observation                                                               | Resulting status               | Operator reading                                            |
-| ------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------- |
-| Read succeeds                                                             | `supported` (`verifiedAt` set) | Action works; safe to promote                               |
-| Error text: access denied / permission / unauthor / authentication failed | `not_authorized`               | WHMCS API role lacks permission — adjust API role, not code |
-| Error text: action not found / invalid/unknown action                     | `unsupported`                  | Not present on this install/version — do not retry          |
-| Transport / other error                                                   | `degraded`                     | Retriable; re-run the probe later                           |
+| Observation | Resulting status | Operator reading |
+|---|---|---|
+| Read succeeds | `supported` (`verifiedAt` set) | Action works; safe to promote |
+| Error text: access denied / permission / unauthor / authentication failed | `not_authorized` | WHMCS API role lacks permission — adjust API role, not code |
+| Error text: action not found / invalid/unknown action | `unsupported` | Not present on this install/version — do not retry |
+| Transport / other error | `degraded` | Retriable; re-run the probe later |
 
 The result is cached in-process with a bounded TTL. The evidence key includes
 opaque installation/configuration fingerprints, catalog version, action, and
