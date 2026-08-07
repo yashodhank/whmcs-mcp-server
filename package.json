@@ -44,8 +44,8 @@
     "mcp:test:contracts": "node scripts/mcp-contract-tests.mjs",
     "mcp:test:import-safe": "WHMCS_API_URL=https://whmcs.invalid WHMCS_IDENTIFIER=mcp-import-placeholder WHMCS_SECRET=mcp-import-placeholder MCP_STARTUP_HEALTHCHECK=off node --input-type=module -e \"process.argv.splice(1); await import('./dist/index.js')\"",
     "mcp:test:conformance": "npm run build && npm run mcp:test:import-safe && node scripts/mcp-conformance.mjs",
-    "catalog:check": "WHMCS_API_URL=https://whmcs.invalid WHMCS_IDENTIFIER=catalog-placeholder WHMCS_SECRET=catalog-placeholder MCP_STARTUP_HEALTHCHECK=off tsx scripts/catalog-semantic-diff.ts --check",
-    "catalog:update": "WHMCS_API_URL=https://whmcs.invalid WHMCS_IDENTIFIER=catalog-placeholder WHMCS_SECRET=catalog-placeholder MCP_STARTUP_HEALTHCHECK=off tsx scripts/catalog-semantic-diff.ts --write",
+    "catalog:check": "node scripts/catalog-contract-runner.mjs --check",
+    "catalog:update": "node scripts/catalog-contract-runner.mjs --write",
     "mcp:write-probe": "tsx scripts/mcp-write-capability-probe.mjs",
     "mcp:deepdrive:reads": "node scripts/mcp-deepdrive-reads.mjs",
     "mcp:deepdrive:writes": "tsx scripts/mcp-deepdrive-writes.mjs"

@@ -36,7 +36,7 @@ function runChild(label, entry, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [entry, ...args], {
       cwd: options.cwd ?? repositoryRoot,
-      env: childEnvironment,
+      env: options.env ?? childEnvironment,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let timedOut = false;
@@ -82,6 +82,12 @@ try {
     cwd: temporaryHome,
     timeoutMs: 10_000,
   });
+  await runChild(
+    'hostile standalone capability catalog fixture',
+    resolve(repositoryRoot, 'scripts/catalog-contract-runner.mjs'),
+    ['--check'],
+    { cwd: temporaryHome, env: hostileParent, timeoutMs: 30_000 }
+  );
   await runChild(
     'hostile-shell and dotenv catalog sentinel',
     resolve(repositoryRoot, 'scripts/mcp-catalog-environment-sentinel.mjs'),
