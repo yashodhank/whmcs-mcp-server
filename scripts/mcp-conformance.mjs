@@ -7,11 +7,12 @@ import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-// buildServer imports the validated runtime config. Use inert placeholders so
-// this local-only tripwire target never needs or discovers operator secrets.
-process.env.WHMCS_API_URL ??= 'https://whmcs.invalid';
-process.env.WHMCS_IDENTIFIER ??= 'official-conformance-placeholder';
-process.env.WHMCS_SECRET ??= 'official-conformance-placeholder';
+// buildServer imports the validated runtime config. Overwrite these values so
+// this local-only tripwire target never reads operator credentials, even when
+// the invoking shell exports them.
+process.env.WHMCS_API_URL = 'https://whmcs.invalid';
+process.env.WHMCS_IDENTIFIER = 'official-conformance-placeholder';
+process.env.WHMCS_SECRET = 'official-conformance-placeholder';
 process.env.MCP_STARTUP_HEALTHCHECK = 'off';
 const { buildServer } = await import('../dist/index.js');
 
@@ -25,6 +26,19 @@ const SUPPORTED_SCENARIOS = [
   'resources-list',
   'prompts-list',
 ];
+const childHome = mkdtempSync(join(tmpdir(), 'whmcs-mcp-conformance-home-'));
+const childEnv = Object.freeze({
+  PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+  HOME: childHome,
+  TMPDIR: childHome,
+  TEMP: childHome,
+  TMP: childHome,
+  CI: '1',
+  NO_COLOR: '1',
+  NODE_ENV: 'test',
+});
+const cleanupChildHome = () => rmSync(childHome, { recursive: true, force: true });
+process.once('exit', cleanupChildHome);
 
 function fail(message) {
   process.stderr.write(`MCP conformance error: ${message}\n`);
@@ -33,7 +47,10 @@ function fail(message) {
 
 function runConformance(args) {
   return new Promise((resolvePromise) => {
-    const child = spawn(conformanceBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [conformanceEntry, ...args], {
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     let settled = false;
     let timedOut = false;
     let killTimer;
@@ -55,7 +72,9 @@ function runConformance(args) {
     child.once('close', (status) =>
       finish({
         status,
-        error: timedOut ? new Error('official conformance scenario exceeded 30 seconds') : undefined,
+        error: timedOut
+          ? new Error('official conformance scenario exceeded 30 seconds')
+          : undefined,
       })
     );
   });
@@ -80,8 +99,33 @@ if (installedVersion !== PINNED_CONFORMANCE_VERSION) {
   process.exit();
 }
 
-const conformanceBin = resolve('node_modules/.bin/conformance');
-const listed = spawnSync(conformanceBin, ['list', '--server'], { encoding: 'utf8' });
+const conformanceEntry = resolve('node_modules/@modelcontextprotocol/conformance/dist/index.js');
+const sentinelKey = 'MCP_CONFORMANCE_PARENT_SECRET_SENTINEL';
+const sentinelWasPresent = Object.hasOwn(process.env, sentinelKey);
+const previousSentinel = process.env[sentinelKey];
+process.env[sentinelKey] = 'must-not-reach-conformance-children';
+try {
+  const probe = spawnSync(
+    process.execPath,
+    ['-e', `if (process.env[${JSON.stringify(sentinelKey)}] !== undefined) process.exit(86)`],
+    { encoding: 'utf8', env: childEnv }
+  );
+  if (probe.error || probe.status !== 0) {
+    fail('sanitized child-environment self-check failed');
+    process.exit();
+  }
+} finally {
+  if (sentinelWasPresent && previousSentinel !== undefined) {
+    process.env[sentinelKey] = previousSentinel;
+  } else {
+    delete process.env[sentinelKey];
+  }
+}
+
+const listed = spawnSync(process.execPath, [conformanceEntry, 'list', '--server'], {
+  encoding: 'utf8',
+  env: childEnv,
+});
 if (listed.error || listed.status !== 0) {
   fail(
     `could not enumerate official scenarios: ${listed.error?.message ?? listed.stderr ?? `exit ${listed.status}`}`
@@ -158,7 +202,11 @@ const httpServer = createServer((request, response) => {
     if (request.headers.origin) {
       response.writeHead(403, { 'Content-Type': 'application/json' });
       response.end(
-        JSON.stringify({ jsonrpc: '2.0', error: { code: -32002, message: 'Forbidden origin' }, id: null })
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32002, message: 'Forbidden origin' },
+          id: null,
+        })
       );
       return;
     }
@@ -214,16 +262,16 @@ if (address === null || typeof address === 'string') {
     for (const scenario of SUPPORTED_SCENARIOS) {
       process.stdout.write(`\n[official-conformance] ${scenario}\n`);
       const run = await runConformance([
-          'server',
-          '--url',
-          `http://127.0.0.1:${address.port}/mcp`,
-          '--scenario',
-          scenario,
-          '--spec-version',
-          SPEC_VERSION,
-          '--output-dir',
-          outputDir,
-        ]);
+        'server',
+        '--url',
+        `http://127.0.0.1:${address.port}/mcp`,
+        '--scenario',
+        scenario,
+        '--spec-version',
+        SPEC_VERSION,
+        '--output-dir',
+        outputDir,
+      ]);
       if (run.error || run.status !== 0) {
         fail(`${scenario} failed (${run.error?.message ?? `exit ${run.status}`})`);
         break;
@@ -252,5 +300,8 @@ if (whmcsCalls.length > 0) {
   fail(`conformance invoked WHMCS methods: ${whmcsCalls.join(', ')}`);
 }
 if (process.exitCode !== 1) {
-  process.stdout.write('\nOfficial MCP conformance scenarios passed; WHMCS tripwire remained clean.\n');
+  process.stdout.write(
+    '\nOfficial MCP conformance scenarios passed; WHMCS tripwire remained clean.\n'
+  );
 }
+cleanupChildHome();

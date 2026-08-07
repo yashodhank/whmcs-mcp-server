@@ -69,9 +69,13 @@ describe('MCP transport and auth contract', () => {
   let handle: HttpServerHandle;
   let baseUrl: string;
   let inMemory: ContractHarness;
+  let previousConsumerRegistry: string | undefined;
+  let consumerRegistryWasPresent = false;
   const whmcsCalls: string[] = [];
 
   beforeAll(async () => {
+    consumerRegistryWasPresent = Object.hasOwn(process.env, 'MCP_CONSUMER_REGISTRY');
+    previousConsumerRegistry = process.env.MCP_CONSUMER_REGISTRY;
     process.env.MCP_CONSUMER_REGISTRY = JSON.stringify([
       {
         id: 'mcp-contract-client',
@@ -92,7 +96,11 @@ describe('MCP transport and auth contract', () => {
   afterAll(async () => {
     await inMemory.close();
     await handle.close();
-    delete process.env.MCP_CONSUMER_REGISTRY;
+    if (consumerRegistryWasPresent && previousConsumerRegistry !== undefined) {
+      process.env.MCP_CONSUMER_REGISTRY = previousConsumerRegistry;
+    } else {
+      delete process.env.MCP_CONSUMER_REGISTRY;
+    }
   });
 
   it('rejects missing and invalid bearer authentication without leaking credentials', async () => {

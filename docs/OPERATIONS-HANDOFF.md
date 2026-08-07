@@ -235,6 +235,8 @@ and negative transport/auth tests use a WHMCS tripwire, and CI runs both
 `npm run mcp:test:contracts` and the exact official conformance package through
 `npm run mcp:test:conformance`. The conformance command states unsupported
 scenarios explicitly and does not require live WHMCS or operator credentials.
+Its external runner receives only an explicit minimal environment, and CI also
+checks repository-wide formatting plus import safety when no entry argv exists.
 The detailed protocol matrix, error contract, conformance scope, and retirement
 gates are in [`docs/design/mcp-adoption.md`](design/mcp-adoption.md).
 
