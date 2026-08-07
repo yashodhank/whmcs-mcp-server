@@ -25,6 +25,16 @@ interface CacheEntry<T = unknown> {
   value: T;
   /** Absolute epoch ms after which the entry is stale. */
   expiresAt: number;
+  /** Internal invalidation labels; never returned to callers or telemetry. */
+  tags: readonly string[];
+}
+
+export interface ReadCacheMetrics {
+  hits: number;
+  misses: number;
+  expirations: number;
+  evictions: number;
+  invalidations: number;
 }
 
 /**
@@ -70,6 +80,13 @@ export class ReadCache {
   private readonly maxEntries: number;
   /** Map preserves insertion order — used for oldest-first eviction. */
   private readonly store = new Map<string, CacheEntry>();
+  private readonly counters: ReadCacheMetrics = {
+    hits: 0,
+    misses: 0,
+    expirations: 0,
+    evictions: 0,
+    invalidations: 0,
+  };
 
   constructor(opts: { ttlMs: number; cacheableActions: readonly string[]; maxEntries?: number }) {
     this.ttlMs = Number.isFinite(opts.ttlMs) && opts.ttlMs > 0 ? opts.ttlMs : 0;
@@ -99,12 +116,16 @@ export class ReadCache {
     const key = buildCacheKey(action, params);
     const entry = this.store.get(key);
     if (!entry) {
+      this.counters.misses += 1;
       return undefined;
     }
     if (Date.now() >= entry.expiresAt) {
       this.store.delete(key);
+      this.counters.misses += 1;
+      this.counters.expirations += 1;
       return undefined;
     }
+    this.counters.hits += 1;
     // Hand out an independent copy so a caller that mutates the returned object
     // cannot poison the cached value for the rest of the TTL window.
     return structuredClone(entry.value);
@@ -114,7 +135,12 @@ export class ReadCache {
    * Store a successful read result. No-op when caching is disabled or the action
    * is not allowlisted. Evicts the oldest entry when the size cap is exceeded.
    */
-  set(action: string, params: Record<string, unknown>, value: unknown): void {
+  set(
+    action: string,
+    params: Record<string, unknown>,
+    value: unknown,
+    tags: readonly string[] = []
+  ): void {
     if (!this.isCacheable(action)) {
       return;
     }
@@ -123,7 +149,11 @@ export class ReadCache {
     this.store.delete(key);
     // Snapshot at store time so a caller mutating the original object AFTER
     // caching cannot retroactively change the cached value.
-    this.store.set(key, { value: structuredClone(value), expiresAt: Date.now() + this.ttlMs });
+    this.store.set(key, {
+      value: structuredClone(value),
+      expiresAt: Date.now() + this.ttlMs,
+      tags: [...tags],
+    });
 
     // Bounded growth: evict oldest (insertion-order) entries beyond the cap.
     while (this.store.size > this.maxEntries) {
@@ -132,16 +162,37 @@ export class ReadCache {
         break;
       }
       this.store.delete(oldestKey);
+      this.counters.evictions += 1;
     }
+  }
+
+  /** Remove entries bearing any of the supplied internal entity tags. */
+  invalidateTags(tags: readonly string[]): number {
+    if (tags.length === 0) return 0;
+    const wanted = new Set(tags);
+    let removed = 0;
+    for (const [key, entry] of this.store) {
+      if (entry.tags.some((tag) => wanted.has(tag))) {
+        this.store.delete(key);
+        removed += 1;
+      }
+    }
+    this.counters.invalidations += removed;
+    return removed;
   }
 
   /** Remove all entries. Exposed for tests / explicit bypass. */
   clear(): void {
+    this.counters.invalidations += this.store.size;
     this.store.clear();
   }
 
   /** Current number of live (possibly-expired-but-not-yet-evicted) entries. */
   get size(): number {
     return this.store.size;
+  }
+
+  get metrics(): Readonly<ReadCacheMetrics> {
+    return { ...this.counters };
   }
 }

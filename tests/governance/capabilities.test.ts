@@ -128,6 +128,7 @@ describe('capability registry (B4)', () => {
       const callArgs = read.mock.calls[0];
       expect(callArgs[0]).toBe('GetTransactions');
       expect(callArgs[1]).toMatchObject({ limitnum: 1 });
+      expect(callArgs[2]).toEqual({ bypassCache: true, bypassCoalescing: true });
 
       // second call must use the cache, not re-probe
       const second = await probeCapability('GetTransactions', {

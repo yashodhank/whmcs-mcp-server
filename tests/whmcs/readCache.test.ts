@@ -160,4 +160,16 @@ describe('readCache — enabled', () => {
     a.set('GetProducts', {}, 'A');
     expect(b.get('GetProducts', {})).toBeUndefined();
   });
+
+  it('invalidates matching entity tags and exposes aggregate-only metrics', () => {
+    const cache = new ReadCache({ ttlMs: 1000, cacheableActions: ['GetProducts'] });
+    cache.set('GetProducts', { clientid: 1 }, { id: 1 }, ['clientid:1']);
+    cache.set('GetProducts', { clientid: 2 }, { id: 2 }, ['clientid:2']);
+    expect(cache.get('GetProducts', { clientid: 1 })).toEqual({ id: 1 });
+    expect(cache.get('GetProducts', { clientid: 999 })).toBeUndefined();
+    expect(cache.invalidateTags(['clientid:1'])).toBe(1);
+    expect(cache.get('GetProducts', { clientid: 1 })).toBeUndefined();
+    expect(cache.get('GetProducts', { clientid: 2 })).toEqual({ id: 2 });
+    expect(cache.metrics).toMatchObject({ hits: 2, misses: 2, invalidations: 1 });
+  });
 });

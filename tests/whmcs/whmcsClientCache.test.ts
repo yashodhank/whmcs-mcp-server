@@ -125,4 +125,112 @@ describe('WhmcsClient read cache (enabled)', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(r2.injected).toBeUndefined();
   });
+
+  it('coalesces 100 concurrent identical allowlisted reads when the canary is enabled', async () => {
+    let release: (() => void) | undefined;
+    post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              status: 200,
+              data: { result: 'success', products: { product: [{ id: 1 }] } },
+            });
+        })
+    );
+    const client = new WhmcsClient(
+      makeConfig({ MCP_READ_CACHE_TTL_MS: 0, MCP_READ_COALESCE_ENABLED: true }),
+      makeLogger()
+    );
+    const pending = Array.from({ length: 100 }, () => client.read('GetProducts', { pid: 1 }));
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    release?.();
+    const results = await Promise.all(pending);
+    expect(results).toHaveLength(100);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(client.getDiagnostics().coordinator.inflight).toBe(0);
+  });
+
+  it('logs once at the actual pipeline boundary, not for cache hits or coalesced joiners', async () => {
+    let release: (() => void) | undefined;
+    post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({ status: 200, data: { result: 'success', products: { product: [] } } });
+        })
+    );
+    const log = makeLogger();
+    const client = new WhmcsClient(
+      makeConfig({ MCP_READ_CACHE_TTL_MS: 5000, MCP_READ_COALESCE_ENABLED: true }),
+      log
+    );
+    const pending = Array.from({ length: 10 }, () => client.read('GetProducts', { pid: 1 }));
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    release?.();
+    await Promise.all(pending);
+    await client.read('GetProducts', { pid: 1 });
+    expect(log.logWhmcsCall).toHaveBeenCalledTimes(1);
+    expect(log.logWhmcsCall).toHaveBeenCalledWith('GetProducts', { pid: 1 }, false);
+  });
+
+  it('does not coalesce identical params across different raw-data scopes', async () => {
+    const client = new WhmcsClient(
+      makeConfig({ MCP_READ_CACHE_TTL_MS: 5000, MCP_READ_COALESCE_ENABLED: true }),
+      makeLogger()
+    );
+    await Promise.all([
+      client.read('GetProducts', { pid: 1 }, { rawDataScope: 'consumer-a', bypassCache: true }),
+      client.read('GetProducts', { pid: 1 }, { rawDataScope: 'consumer-b', bypassCache: true }),
+    ]);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates proven client-tagged reads after a successful mutation', async () => {
+    post
+      .mockResolvedValueOnce({ status: 200, data: { result: 'success', id: 1 } })
+      .mockResolvedValueOnce({ status: 200, data: { result: 'success' } })
+      .mockResolvedValueOnce({ status: 200, data: { result: 'success', id: 1 } });
+    const client = new WhmcsClient(
+      makeConfig({
+        MCP_MODE: 'full',
+        MCP_READ_CACHE_TTL_MS: 5000,
+        MCP_READ_CACHE_ACTIONS: ['GetClientsDetails'],
+      }),
+      makeLogger()
+    );
+    await client.read('GetClientsDetails', { clientid: 1 });
+    await client.mutate('UpdateClient', { clientid: 1, notes: 'changed' });
+    await client.read('GetClientsDetails', { clientid: 1 });
+    expect(post).toHaveBeenCalledTimes(3);
+    expect(client.getDiagnostics().cache.invalidations).toBe(1);
+  });
+
+  it('does not repopulate the cache from a read that began before a mutation', async () => {
+    let releaseRead: (() => void) | undefined;
+    post
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseRead = () =>
+              resolve({ status: 200, data: { result: 'success', products: { product: [] } } });
+          })
+      )
+      .mockResolvedValueOnce({ status: 200, data: { result: 'success' } })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: { result: 'success', products: { product: [] } },
+      });
+    const client = new WhmcsClient(
+      makeConfig({ MCP_MODE: 'full', MCP_READ_CACHE_TTL_MS: 5000 }),
+      makeLogger()
+    );
+    const staleRead = client.read('GetProducts', { pid: 1 });
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await client.mutate('UpdateClient', { clientid: 1 });
+    releaseRead?.();
+    await staleRead;
+    await client.read('GetProducts', { pid: 1 });
+    expect(post).toHaveBeenCalledTimes(3);
+  });
 });
