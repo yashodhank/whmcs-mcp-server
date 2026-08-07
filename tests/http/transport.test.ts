@@ -25,6 +25,7 @@ const cfg = vi.hoisted(() => ({
     MCP_HTTP_PORT: 0, // OS-assigned free port
     MCP_HTTP_PATH: '/mcp',
     MCP_HTTP_ALLOWED_ORIGINS: [] as string[],
+    MCP_HTTP_ALLOWED_HOSTS: ['127.0.0.1', 'localhost', '[::1]'],
     MCP_HTTP_MAX_SESSIONS: 256,
     MCP_HTTP_SESSION_IDLE_MS: 300000,
     MCP_OAUTH_ENABLED: false,
@@ -33,7 +34,11 @@ const cfg = vi.hoisted(() => ({
 vi.mock('../../src/config.js', () => cfg);
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { startHttpServer, type HttpServerHandle } from '../../src/http/httpServer.js';
+import {
+  isHostAllowed,
+  startHttpServer,
+  type HttpServerHandle,
+} from '../../src/http/httpServer.js';
 import { hashToken } from '../../src/governance/consumers.js';
 
 const logger: any = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -78,6 +83,15 @@ afterAll(async () => {
 const ACCEPT = 'application/json, text/event-stream';
 
 describe('Streamable HTTP transport — auth bridge over a real socket', () => {
+  it('validates Host values port-insensitively and fails closed', () => {
+    const allowed = ['127.0.0.1', 'localhost', '[::1]'];
+    expect(isHostAllowed('127.0.0.1:3000', allowed)).toBe(true);
+    expect(isHostAllowed('localhost', allowed)).toBe(true);
+    expect(isHostAllowed('[::1]:3000', allowed)).toBe(true);
+    expect(isHostAllowed('attacker.example', allowed)).toBe(false);
+    expect(isHostAllowed(undefined, allowed)).toBe(false);
+  });
+
   it('401 with WWW-Authenticate when no bearer token is sent', async () => {
     const res = await fetch(base, {
       method: 'POST',

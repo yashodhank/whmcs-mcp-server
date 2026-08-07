@@ -7,14 +7,17 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { config, getWhmcsApiEndpoint } from './config.js';
 import { isDirectEntry } from './entryPoint.js';
 import { Logger } from './logging.js';
 import { startHttpServer } from './http/httpServer.js';
+import { createModernHttpAdapter } from './http/httpServerV2.js';
 import { initMcpLogging } from './mcpLogging.js';
 import { RateLimiter } from './rateLimiter.js';
 import { WhmcsClient } from './whmcs/WhmcsClient.js';
 import { checkWhmcsConnectivity } from './whmcs/healthCheck.js';
+import { buildModernServer } from './mcp/serverFactory.js';
 
 // Tool registrations
 import { registerClientTools } from './tools/clients.js';
@@ -129,6 +132,7 @@ async function main(): Promise<void> {
       config.MCP_ALLOWED_CLIENT_IDS.length > 0 ? config.MCP_ALLOWED_CLIENT_IDS : 'not set',
     authEnabled: !!config.MCP_AUTH_TOKEN,
     transport: config.MCP_TRANSPORT,
+    protocolRuntime: config.MCP_PROTOCOL_RUNTIME,
     toolAllowlist:
       config.MCP_TOOL_ALLOWLIST.length > 0 ? config.MCP_TOOL_ALLOWLIST : 'all tools enabled',
   });
@@ -153,10 +157,44 @@ async function main(): Promise<void> {
   // the Streamable HTTP transport with bearer auth bridged to the consumer
   // registry. The HTTP server builds one McpServer per session via buildServer.
   if (config.MCP_TRANSPORT === 'http') {
+    const modernAdapter =
+      config.MCP_PROTOCOL_RUNTIME === 'v2'
+        ? createModernHttpAdapter({
+            logger,
+            buildLegacyServer: () => buildServer({ whmcsClient, logger, rateLimiter }),
+            endpointPath: config.MCP_HTTP_PATH,
+            drainTimeoutMs: config.MCP_HTTP_DRAIN_TIMEOUT_MS,
+          })
+        : undefined;
     httpServerHandle = await startHttpServer({
       logger,
       buildServer: () => buildServer({ whmcsClient, logger, rateLimiter }),
+      modernAdapter,
     });
+    return;
+  }
+
+  if (config.MCP_PROTOCOL_RUNTIME === 'v2') {
+    const handle = serveStdio(
+      async (sdkContext) =>
+        (
+          await buildModernServer(
+            {
+              logger,
+              buildLegacyServer: () => buildServer({ whmcsClient, logger, rateLimiter }),
+            },
+            sdkContext
+          )
+        ).server,
+      {
+        legacy: 'serve',
+        onerror: (error) => {
+          logger.error('MCP stdio protocol error', { error_name: error.name });
+        },
+      }
+    );
+    stdioServerHandle = handle;
+    logger.info('MCP Server ready, connecting via dual-era stdio...');
     return;
   }
 
@@ -215,6 +253,7 @@ async function runStartupHealthCheck(whmcsClient: WhmcsClient, logger: Logger): 
 
 let rateLimiterInstance: RateLimiter | null = null;
 let httpServerHandle: { close: () => Promise<void> } | null = null;
+let stdioServerHandle: { close: () => Promise<void> } | null = null;
 
 function gracefulShutdown(signal: string): void {
   process.stderr.write(`\n🛑 Received ${signal}, shutting down gracefully...\n`);
@@ -224,6 +263,12 @@ function gracefulShutdown(signal: string): void {
   if (httpServerHandle) {
     // Best-effort: close listeners + active transports, then exit.
     void httpServerHandle.close().finally(() => {
+      process.exit(0);
+    });
+    return;
+  }
+  if (stdioServerHandle) {
+    void stdioServerHandle.close().finally(() => {
       process.exit(0);
     });
     return;

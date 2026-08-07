@@ -283,6 +283,9 @@ const configSchema = z
     // bridged to the EXISTING consumer registry (same tokens as stdio). Full
     // OAuth2.1/PRM is a documented follow-up (see docs/design/mcp-adoption.md #9).
     MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
+    // Stable v2 is primary. `legacy` is the bounded rollback switch and keeps
+    // the pre-v2 SDK path intact while operators investigate a migration issue.
+    MCP_PROTOCOL_RUNTIME: z.enum(['v2', 'legacy']).default('v2'),
     // Bind address + port for the HTTP transport. Localhost by default so the
     // server is not exposed off-box unless explicitly reconfigured.
     MCP_HTTP_HOST: z.preprocess(
@@ -308,10 +311,24 @@ const configSchema = z
         .map((s) => s.trim())
         .filter(Boolean);
     }, z.array(z.string()).default([])),
+    // Host-header DNS-rebinding boundary. Values are hostnames without ports;
+    // loopback is the safe default and public deployments must opt in by name.
+    MCP_HTTP_ALLOWED_HOSTS: z.preprocess(
+      (val) => {
+        const raw = preprocessCommaSeparatedString(val);
+        if (raw === '') return ['127.0.0.1', 'localhost', '[::1]'];
+        return raw
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+      },
+      z.array(z.string()).default(['127.0.0.1', 'localhost', '[::1]'])
+    ),
     // HTTP session bounds (memory/DoS guard). Hard cap on concurrent sessions
     // (LRU-evicted) + idle TTL after which an unused session is swept/closed.
     MCP_HTTP_MAX_SESSIONS: z.coerce.number().int().min(1).max(100000).default(256),
     MCP_HTTP_SESSION_IDLE_MS: z.coerce.number().int().min(1000).default(300000),
+    MCP_HTTP_DRAIN_TIMEOUT_MS: z.coerce.number().int().min(1).default(10000),
     // ── OAuth 2.1 resource-server (HTTP only; default OFF ⇒ registry bearer) ──
     // When enabled, HTTP bearer tokens are validated as JWTs (jose) against the
     // configured issuer(s) with audience == MCP_OAUTH_RESOURCE (RFC 8707), and a
