@@ -8,8 +8,9 @@ import { AUTH_SHAPE, ensureToolAuth } from '../../security.js';
 import { READ_ONLY_ANNOTATIONS } from '../../tools/listTools.js';
 import { OperationCatalog } from '../registry.js';
 import type { OperationDefinition } from '../types.js';
+import { planningOperationDescriptors } from './planningOperations.js';
 
-export const CAPABILITY_CATALOG_VERSION = 2;
+export const CAPABILITY_CATALOG_VERSION = 3;
 
 /** Stable, additive output schema retained from the manual registrar. */
 const CAPABILITY_MATRIX_OUTPUT_SHAPE = {
@@ -143,7 +144,7 @@ export function capabilityShellCatalogMachineView(globalMaxPageSize: number) {
     throw new Error('Catalog manifest handler is not executable');
   }) as unknown as ToolCallback<z.ZodRawShape>;
   return new OperationCatalog(
-    [defineCapabilityMatrixOperation(inertHandler)],
+    [defineCapabilityMatrixOperation(inertHandler), ...planningOperationDescriptors()],
     CAPABILITY_CATALOG_VERSION,
     globalMaxPageSize
   ).machineView();

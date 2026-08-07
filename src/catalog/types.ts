@@ -19,8 +19,7 @@ export interface GovernanceDescriptor {
 }
 
 export type CachePolicy =
-  | { readonly mode: 'none' }
-  | { readonly mode: 'ttl'; readonly ttlMs: number };
+  { readonly mode: 'none' } | { readonly mode: 'ttl'; readonly ttlMs: number };
 
 export type CostHint =
   | {
@@ -73,7 +72,12 @@ export interface OperationDefinition {
   readonly prerequisites: readonly string[];
   readonly fallbacks: readonly string[];
   readonly protocolFeatures: readonly string[];
-  readonly handler: ToolCallback<z.ZodRawShape>;
+  /**
+   * Runtime callback when this catalog entry is registered as an MCP tool.
+   * Descriptor-only operations (for example governed write outcomes which may
+   * only be drafted) deliberately omit it and can never be invoked directly.
+   */
+  readonly handler?: ToolCallback<z.ZodRawShape>;
   readonly version: number;
 }
 
