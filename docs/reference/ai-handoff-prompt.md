@@ -59,11 +59,11 @@ an unclear safety classification: STOP and ask.
    the projection boundary when `MCP_GOVERNANCE_ENABLED=true` (OFF ⇒
    byte-identical legacy output, for backward-compat).
 
-**Capability shells + probe/promote:** some reads are declared `unverified` in
-`src/governance/capabilities.ts` (`UNVERIFIED_READS`). They return a structured
+**Capability shells + probe/promote:** reads are declared in
+`src/catalog/declaredCapabilities.ts`. Unverified shells return a structured
 `capability_unavailable` payload instead of fabricating data. Promotion to
-`SUPPORTED_READS` is a deliberate reviewed change after a real probe returns
-`supported` on the target install (see `docs/runbooks/capability-probe.md`).
+`supported` is a deliberate reviewed declaration change after approved,
+target-scoped evidence (see `docs/runbooks/capability-probe.md`).
 
 ## Architecture — the governed write path (tiered friction)
 
@@ -72,7 +72,7 @@ All mutations flow through ONE governed model. There are **no** direct
 `MCP_ENABLE_LEGACY_WRITE_TOOLS`).
 
 - **Flow:** `draft_write_intent` → `validate_write_intent` → `approve_write_intent`
-  → `execute_write_intent` (tools in `src/tools/writeFlow.ts`). A write *intent*
+  → `execute_write_intent` (tools in `src/tools/writeFlow.ts`). A write _intent_
   is a pure, non-executing description; nothing hits WHMCS until execute.
 - **The frozen seam** (`src/write/types.ts`): every scope is one entry in
   `WRITE_SCOPES` + `SCOPE_ACTION` (→ WHMCS action) + `SCOPE_RISK`
@@ -123,6 +123,7 @@ status/merge), orders (read + accept), servers (GetServers/GetHealthStatus),
 system refs (stats/activity/automation/todos/currencies/payment-methods).
 
 Notable still-missing (see `docs/` coverage notes for the full matrix):
+
 - Reads: `DomainGetNameservers/LockingStatus/WhoisInfo`, `GetTicketNotes`,
   `GetTicketPredefinedReplies/Cats`, `GetOrderStatuses`, `GetPromotions`,
   `GetEmailTemplates`, `GetStaffOnline`, `GetAdminUsers`.
@@ -139,14 +140,16 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 ## How to extend
 
 **Add a READ tool** (shell → probe → promote):
+
 1. Allowlist the action in `src/whmcs/actionPolicy.ts` (per-action, narrow).
 2. Add a canonical mapper in `src/canonical/` (assign FieldClasses) + a tool in
    `src/tools/`.
-3. Ship it as a capability shell (`UNVERIFIED_READS`) → run the probe runbook on
-   a dev WHMCS → move to `SUPPORTED_READS` only after a real `supported` probe.
+3. Ship it as an `unverified` declaration and capability shell → run the probe
+   runbook on a dev WHMCS → mark it `supported` only after approved evidence.
 4. Tests: mapper field-class coverage + tool-level with mocked `whmcs.read`.
 
 **Add a WRITE scope** (one entry per file, the seam is TS-enforced):
+
 1. `src/write/types.ts`: add to `WRITE_SCOPES`, `SCOPE_ACTION`, `SCOPE_RISK`.
    Destructive/permanent → also add to `PROD_NEVER_EXECUTABLE(_SCOPES)`.
 2. `src/write/validation.ts`: add `REQUIRED_PARAMS` + a per-scope validator.
@@ -215,11 +218,9 @@ CRUD, live `SetConfigurationValue`/`SendEmail`.
 ## Key files (extension seams)
 
 - Reads: `src/whmcs/actionPolicy.ts`, `src/canonical/*`,
-  `src/governance/capabilities.ts`, `src/tools/{listTools,reportingListTools,
-  capabilityShellTools,aggregators,infraTools,quoteTools,contactsTools,
-  ticketMetaTools,systemRefTools,billingReadTools}.ts`
-- Writes: `src/write/{types,validation,paramMapping,executionGate,idempotency,
-  audit}.ts`, `src/tools/writeFlow.ts`
+  `src/governance/capabilities.ts`, and the matching registrar under
+  `src/tools/`.
+- Writes: the scope modules under `src/write/` and `src/tools/writeFlow.ts`.
 - Governance: `src/governance/{types,contracts,projection,consumers,pipeline}.ts`
 - Auth/transport: `src/auth/*`, `src/http/httpServer.ts`
 - Registration entry: `src/index.ts`

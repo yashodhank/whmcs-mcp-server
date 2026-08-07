@@ -47,12 +47,13 @@ For deeper diagrams — write-flow lifecycle, workflow-tool orchestration, and g
 
 - **9 MCP prompts** — ops-playbook blueprints: `dunning_sweep`, `renewal_risk_triage`, `ticket_triage_to_resolution`, `month_end_close` (with-drafts counterparts to the `workflow_*` tools), plus `month_end_reconciliation`, `phantom_tds_sweep`, `suspend_for_nonpayment`, `new_client_onboarding`, `domain_renewal_review`.
 
-- **7 MCP resources** for passive context:
+- **8 MCP resources** for passive context:
   - Client summary and activity log
   - Invoice history and ticket thread
   - System activity (admin)
   - Ops playbook (`whmcs://docs/ops-playbook`)
   - WHMCS 8.13 / 9.x compatibility (`whmcs://docs/compat-9x`)
+  - Versioned, consumer-safe capability discovery (`whmcs://capabilities/v2`)
 
 - **Opt-in governance (Phase B)** — consumer registry, data contracts, and projection boundary (`MCP_GOVERNANCE_ENABLED`). See [docs/design/governance.md](docs/design/governance.md).
 
@@ -175,24 +176,25 @@ The drafted intents (`wfi_abc123`) are retrievable via `get_write_intent` and re
 
 ## Documentation
 
-| Topic                              | Doc                                                                                  |
-| ---------------------------------- | ------------------------------------------------------------------------------------ |
-| Agent / contributor guide          | [AGENTS.md](AGENTS.md)                                                               |
-| Product / operations handoff      | [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                              |
-| Doc map (all docs indexed)         | [docs/README.md](docs/README.md)                                                     |
-| Local operator runbook             | [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md)                   |
-| Governance & contracts             | [docs/design/governance.md](docs/design/governance.md)                               |
-| Controlled writes (Phase F)        | [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) |
-| Architecture diagrams (D2–D4)      | [docs/design/architecture.md](docs/design/architecture.md)                           |
-| Capability probes                  | [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)               |
-| Read-only testing                  | [docs/runbooks/testing-readonly.md](docs/runbooks/testing-readonly.md)               |
-| Production test program            | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) |
+| Topic                              | Doc                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| Agent / contributor guide          | [AGENTS.md](AGENTS.md)                                                                     |
+| Product / operations handoff       | [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                                   |
+| Doc map (all docs indexed)         | [docs/README.md](docs/README.md)                                                           |
+| Local operator runbook             | [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md)                         |
+| Governance & contracts             | [docs/design/governance.md](docs/design/governance.md)                                     |
+| Capability catalog                 | [docs/design/capability-catalog.md](docs/design/capability-catalog.md)                     |
+| Controlled writes (Phase F)        | [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md)       |
+| Architecture diagrams (D2–D4)      | [docs/design/architecture.md](docs/design/architecture.md)                                 |
+| Capability probes                  | [docs/runbooks/capability-probe.md](docs/runbooks/capability-probe.md)                     |
+| Read-only testing                  | [docs/runbooks/testing-readonly.md](docs/runbooks/testing-readonly.md)                     |
+| Production test program            | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md)       |
 | Governed production writes         | [docs/runbooks/production-governed-writes.md](docs/runbooks/production-governed-writes.md) |
-| Local WHMCS stack                  | [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md)         |
-| Agent context reference            | [docs/reference/agent-context.md](docs/reference/agent-context.md)                   |
-| App examples (`structuredContent`) | [examples/README.md](examples/README.md)                                             |
-| Cursor skills                      | [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   |
-| GetUsers investigation             | [docs/archive/getusers-investigation.md](docs/archive/getusers-investigation.md)     |
+| Local WHMCS stack                  | [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md)               |
+| Agent context reference            | [docs/reference/agent-context.md](docs/reference/agent-context.md)                         |
+| App examples (`structuredContent`) | [examples/README.md](examples/README.md)                                                   |
+| Cursor skills                      | [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                         |
+| GetUsers investigation             | [docs/archive/getusers-investigation.md](docs/archive/getusers-investigation.md)           |
 
 ## Installation
 
@@ -272,7 +274,7 @@ cp .env.example .env
 | `MCP_PROD_WRITE_AUTHORIZED`         | (empty)                  | Comma-separated WHMCS actions allowed for production write execution                                                                                                                                                       |
 | `MCP_PROD_WRITE_AUTHORIZED_FILE`    | (empty)                  | Protected JSON allowlist read at each production execution; edits/revocations apply without an MCP restart. Replaces the env allowlist and fails closed on missing/lax/malformed files                                     |
 | `MCP_WRITE_EXECUTION_AUTHORIZED`    | (empty)                  | Non-prod runtime write allowlist                                                                                                                                                                                           |
-| `MCP_WRITE_KILL_SWITCH`             | `false`                  | Emergency block after a new MCP process loads the environment; restart HTTP services (a client reconnect/new session is insufficient), or respawn the stdio child                                                                                                                        |
+| `MCP_WRITE_KILL_SWITCH`             | `false`                  | Emergency block after a new MCP process loads the environment; restart HTTP services (a client reconnect/new session is insufficient), or respawn the stdio child                                                          |
 | `MCP_WRITE_STRICT_ALLOWLIST`        | `false`                  | Enforce the write allowlist for **all** tiers (legacy posture); default enforces it for high-risk scopes only (low/medium are audit-gated)                                                                                 |
 | `MCP_WRITE_STRICT_SCOPES`           | `billing:invoice:create` | Comma-separated scopes that always require the write allowlist even if low/medium risk                                                                                                                                     |
 | `MCP_WRITE_AUDIT_PATH`              | (empty)                  | Durable audit log path (required when prod writes are allowlisted)                                                                                                                                                         |
