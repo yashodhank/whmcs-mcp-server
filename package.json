@@ -41,7 +41,7 @@
     "whmcs:test:down": "docker compose -f docker-compose.whmcs-test.yml down -v",
     "whmcs:test:replicate-cred": "bash deploy/whmcs-test/replicate-cred.sh",
     "mcp:test:production-program": "node scripts/mcp-production-test-program.mjs",
-    "mcp:test:contracts": "WHMCS_API_URL=https://whmcs.invalid WHMCS_IDENTIFIER=mcp-contract-placeholder WHMCS_SECRET=mcp-contract-placeholder MCP_INTEGRATION_SKIP=1 MCP_STARTUP_HEALTHCHECK=off vitest run tests/mcp/catalogContract.test.ts tests/mcp/transportContract.test.ts tests/http/auth.test.ts tests/http/transport.test.ts",
+    "mcp:test:contracts": "node scripts/mcp-contract-tests.mjs",
     "mcp:test:import-safe": "WHMCS_API_URL=https://whmcs.invalid WHMCS_IDENTIFIER=mcp-import-placeholder WHMCS_SECRET=mcp-import-placeholder MCP_STARTUP_HEALTHCHECK=off node --input-type=module -e \"process.argv.splice(1); await import('./dist/index.js')\"",
     "mcp:test:conformance": "npm run build && npm run mcp:test:import-safe && node scripts/mcp-conformance.mjs",
     "mcp:write-probe": "tsx scripts/mcp-write-capability-probe.mjs",

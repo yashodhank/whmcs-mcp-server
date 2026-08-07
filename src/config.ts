@@ -19,8 +19,13 @@ import { PROD_NEVER_EXECUTABLE } from './write/types.js';
  * keys, so we load the env-specific file FIRST, then the base `.env`.
  */
 const MCP_ENV = process.env.MCP_ENV ?? 'production';
-loadEnv({ path: `.env.${MCP_ENV}`, quiet: true });
-loadEnv({ quiet: true }); // base .env fallback
+// Contract/conformance subprocesses opt out of env-file loading so a local
+// operator .env cannot reintroduce catalog filters or real credentials into a
+// hermetic test child. Normal application and test startup remain unchanged.
+if (process.env.MCP_TEST_DISABLE_ENV_FILES !== '1') {
+  loadEnv({ path: `.env.${MCP_ENV}`, quiet: true });
+  loadEnv({ quiet: true }); // base .env fallback
+}
 
 /**
  * MCP operation modes
