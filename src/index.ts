@@ -7,8 +7,8 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { pathToFileURL } from 'node:url';
 import { config, getWhmcsApiEndpoint } from './config.js';
+import { isDirectEntry } from './entryPoint.js';
 import { Logger } from './logging.js';
 import { startHttpServer } from './http/httpServer.js';
 import { initMcpLogging } from './mcpLogging.js';
@@ -253,8 +253,7 @@ function installProcessHandlers(): void {
 // the in-process MCP contract harness) receive the pure buildServer factory
 // without opening a transport or installing a second server instance.
 const entryPath = process.argv.at(1);
-const isDirectEntry = entryPath !== undefined && import.meta.url === pathToFileURL(entryPath).href;
-if (isDirectEntry) {
+if (isDirectEntry(import.meta.url, entryPath)) {
   installProcessHandlers();
   main().catch((error: unknown) => {
     const detail = error instanceof Error ? error.message : String(error);
