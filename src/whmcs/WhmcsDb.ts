@@ -9,7 +9,12 @@ import mysql from 'mysql2/promise';
 import { config } from '../config.js';
 
 export interface DbConfig {
-  host: string; port: number; user: string; password: string; name: string; ssl: boolean;
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  name: string;
+  ssl: boolean;
 }
 export interface DbTx {
   query(sql: string, params: unknown[]): Promise<{ affectedRows: number; rows: unknown[] }>;
@@ -17,9 +22,12 @@ export interface DbTx {
 
 export function dbConfigFromEnv(): DbConfig {
   return {
-    host: config.MCP_WHMCS_DB_HOST, port: config.MCP_WHMCS_DB_PORT,
-    user: config.MCP_WHMCS_DB_USER, password: config.MCP_WHMCS_DB_PASSWORD,
-    name: config.MCP_WHMCS_DB_NAME, ssl: config.MCP_WHMCS_DB_SSL,
+    host: config.MCP_WHMCS_DB_HOST,
+    port: config.MCP_WHMCS_DB_PORT,
+    user: config.MCP_WHMCS_DB_USER,
+    password: config.MCP_WHMCS_DB_PASSWORD,
+    name: config.MCP_WHMCS_DB_NAME,
+    ssl: config.MCP_WHMCS_DB_SSL,
   };
 }
 export function isDbConfigured(cfg: DbConfig = dbConfigFromEnv()): boolean {
@@ -30,8 +38,13 @@ let pool: mysql.Pool | undefined;
 function getPool(cfg: DbConfig): mysql.Pool {
   if (!pool) {
     pool = mysql.createPool({
-      host: cfg.host, port: cfg.port, user: cfg.user, password: cfg.password,
-      database: cfg.name, connectionLimit: 4, waitForConnections: true,
+      host: cfg.host,
+      port: cfg.port,
+      user: cfg.user,
+      password: cfg.password,
+      database: cfg.name,
+      connectionLimit: 4,
+      waitForConnections: true,
       ...(cfg.ssl ? { ssl: {} } : {}),
     });
   }
@@ -52,14 +65,21 @@ export function getWhmcsDb(cfg: DbConfig = dbConfigFromEnv()): WhmcsDb {
           async query(sql, params) {
             const [res] = await conn.query(sql, params);
             const r = res as { affectedRows?: number };
-            return { affectedRows: r.affectedRows ?? 0, rows: Array.isArray(res) ? (res as unknown[]) : [] };
+            return {
+              affectedRows: r.affectedRows ?? 0,
+              rows: Array.isArray(res) ? (res as unknown[]) : [],
+            };
           },
         };
         const out = await fn(tx);
         await conn.commit();
         return out;
       } catch (e) {
-        try { await conn.rollback(); } catch { /* best effort */ }
+        try {
+          await conn.rollback();
+        } catch {
+          /* best effort */
+        }
         throw e;
       } finally {
         conn.release();
@@ -69,4 +89,6 @@ export function getWhmcsDb(cfg: DbConfig = dbConfigFromEnv()): WhmcsDb {
 }
 
 /** Test-only: drop the cached pool so a new config takes effect. */
-export function __resetPoolForTests(): void { pool = undefined; }
+export function __resetPoolForTests(): void {
+  pool = undefined;
+}

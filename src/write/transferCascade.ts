@@ -8,7 +8,10 @@
  */
 import type { DbTx } from '../whmcs/WhmcsDb.js';
 
-export interface SqlStatement { readonly sql: string; readonly params: readonly unknown[]; }
+export interface SqlStatement {
+  readonly sql: string;
+  readonly params: readonly unknown[];
+}
 
 export class TransferRollback extends Error {
   readonly serviceid: number;
@@ -20,16 +23,34 @@ export class TransferRollback extends Error {
 }
 
 export function buildServiceMoveStatements(
-  serviceid: number, source: number, dest: number, invoiceIds: readonly number[]
+  serviceid: number,
+  source: number,
+  dest: number,
+  invoiceIds: readonly number[]
 ): SqlStatement[] {
   const out: SqlStatement[] = [
-    { sql: 'UPDATE tblhosting SET userid = ? WHERE id = ? AND userid = ?', params: [dest, serviceid, source] },
-    { sql: 'UPDATE tblhostingaddons SET userid = ? WHERE hostingid = ? AND userid = ?', params: [dest, serviceid, source] },
-    { sql: 'UPDATE tblsslorders SET userid = ? WHERE serviceid = ? AND userid = ?', params: [dest, serviceid, source] },
+    {
+      sql: 'UPDATE tblhosting SET userid = ? WHERE id = ? AND userid = ?',
+      params: [dest, serviceid, source],
+    },
+    {
+      sql: 'UPDATE tblhostingaddons SET userid = ? WHERE hostingid = ? AND userid = ?',
+      params: [dest, serviceid, source],
+    },
+    {
+      sql: 'UPDATE tblsslorders SET userid = ? WHERE serviceid = ? AND userid = ?',
+      params: [dest, serviceid, source],
+    },
   ];
   for (const invoiceid of invoiceIds) {
-    out.push({ sql: 'UPDATE tblinvoices SET userid = ? WHERE id = ? AND userid = ?', params: [dest, invoiceid, source] });
-    out.push({ sql: 'UPDATE tblinvoiceitems SET userid = ? WHERE invoiceid = ? AND userid = ?', params: [dest, invoiceid, source] });
+    out.push({
+      sql: 'UPDATE tblinvoices SET userid = ? WHERE id = ? AND userid = ?',
+      params: [dest, invoiceid, source],
+    });
+    out.push({
+      sql: 'UPDATE tblinvoiceitems SET userid = ? WHERE invoiceid = ? AND userid = ?',
+      params: [dest, invoiceid, source],
+    });
   }
   return out;
 }
@@ -43,7 +64,8 @@ export function buildServiceMoveStatements(
 export async function runServiceMoves(
   tx: DbTx,
   plans: readonly { serviceid: number; invoiceIds: number[] }[],
-  source: number, dest: number
+  source: number,
+  dest: number
 ): Promise<void> {
   for (const plan of plans) {
     const stmts = buildServiceMoveStatements(plan.serviceid, source, dest, plan.invoiceIds);

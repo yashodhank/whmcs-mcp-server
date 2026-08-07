@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { WRITE_SCOPES, SCOPE_ACTION, SCOPE_RISK, PROD_NEVER_EXECUTABLE_SCOPES, DB_DIRECT_ACTION } from '../../src/write/types.js';
+import {
+  WRITE_SCOPES,
+  SCOPE_ACTION,
+  SCOPE_RISK,
+  PROD_NEVER_EXECUTABLE_SCOPES,
+  DB_DIRECT_ACTION,
+} from '../../src/write/types.js';
 
 describe('service-owner-transfer scopes', () => {
   it('registers both scopes', () => {
