@@ -76,7 +76,7 @@ export function compileOperationPlan(
 
   const ttlMs = Math.min(input.ttlMs, input.limits.maxTtlMs);
   const compiledAt = new Date(input.nowMs).toISOString();
-  const expiresAt = new Date(input.nowMs + ttlMs).toISOString();
+  const evidenceExpiries: number[] = [];
   let totalCalls = 0;
   const steps = candidate.steps.map((step) => {
     const operation = input.catalog.getById(step.operation_id);
@@ -101,6 +101,7 @@ export function compileOperationPlan(
       actionEvidence.length === 0
         ? null
         : Math.max(...actionEvidence.map((item) => input.nowMs - Date.parse(item.observedAt)));
+    evidenceExpiries.push(...actionEvidence.map((item) => Date.parse(item.expiresAt)));
     return {
       ...step,
       effect: operation.effects,
@@ -112,6 +113,9 @@ export function compileOperationPlan(
       expected_latency_class: latencyClassForCalls(calls),
     };
   });
+  const expiresAt = new Date(
+    Math.min(input.nowMs + ttlMs, ...evidenceExpiries, Number.POSITIVE_INFINITY)
+  ).toISOString();
   const unhashed: Omit<PlanIR, 'plan_hash'> = {
     planir_version: PLAN_IR_VERSION,
     goal: candidate.goal,
@@ -131,6 +135,7 @@ export function compileOperationPlan(
       compiled_at: compiledAt,
       installation_id: input.context.evidenceTarget.installationId,
       configuration_fingerprint: input.context.evidenceTarget.configFingerprint,
+      policy_fingerprint: input.context.policyFingerprint,
     },
   };
   return { accepted: true, plan: { ...unhashed, plan_hash: canonicalPlanHash(unhashed) }, issues };
@@ -139,7 +144,8 @@ export function compileOperationPlan(
 export function verifyCompiledPlan(
   plan: PlanIR,
   catalogVersion: number,
-  nowMs: number
+  nowMs: number,
+  expectedPolicyFingerprint?: string
 ): readonly PlanIssue[] {
   const { plan_hash: suppliedHash, ...unhashed } = plan;
   const issues: PlanIssue[] = [];
@@ -165,6 +171,17 @@ export function verifyCompiledPlan(
       path: 'expires_at',
       reason: 'Plan has expired.',
       safe_repair: 'Refresh evidence and recompile.',
+    });
+  }
+  if (
+    expectedPolicyFingerprint !== undefined &&
+    plan.provenance.policy_fingerprint !== expectedPolicyFingerprint
+  ) {
+    issues.push({
+      severity: 'error',
+      path: 'provenance.policy_fingerprint',
+      reason: 'Plan consumer policy grants do not match this request.',
+      safe_repair: 'Recompile in the current authenticated transport context.',
     });
   }
   const executable = (plan as unknown as Record<string, unknown>).executable;

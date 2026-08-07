@@ -8,7 +8,7 @@ import { AUTH_SHAPE, ensureToolAuth } from '../../security.js';
 import { READ_ONLY_ANNOTATIONS } from '../../tools/listTools.js';
 import { OperationCatalog } from '../registry.js';
 import type { OperationDefinition } from '../types.js';
-import { planningOperationDescriptors } from './planningOperations.js';
+import { PLANNING_CATALOG_VERSION, planningOperationDescriptors } from './planningOperations.js';
 
 export const CAPABILITY_CATALOG_VERSION = 3;
 
@@ -145,7 +145,7 @@ export function capabilityShellCatalogMachineView(globalMaxPageSize: number) {
   }) as unknown as ToolCallback<z.ZodRawShape>;
   return new OperationCatalog(
     [defineCapabilityMatrixOperation(inertHandler), ...planningOperationDescriptors()],
-    CAPABILITY_CATALOG_VERSION,
+    PLANNING_CATALOG_VERSION,
     globalMaxPageSize
   ).machineView();
 }

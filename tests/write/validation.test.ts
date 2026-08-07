@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { createDraftIntent } from '../../src/write/intents.js';
-import { validateIntent } from '../../src/write/validation.js';
+import { validateDraftParams, validateIntent } from '../../src/write/validation.js';
 import type { WriteIntent } from '../../src/write/types.js';
 
 const noteInput = {
@@ -23,6 +23,15 @@ const noteInput = {
 };
 
 describe('validateIntent', () => {
+  it('validates planner draft params without creating or storing an intent', () => {
+    expect(
+      validateDraftParams('service:suspend', { serviceid: 42, reason: 'policy threshold' }).ok
+    ).toBe(true);
+    expect(validateDraftParams('billing:refund:record', { invoiceid: 42, amount: 10 }).ok).toBe(
+      false
+    );
+  });
+
   it('passes a well-formed client_note intent with no errors', () => {
     const res = validateIntent(createDraftIntent(noteInput), {});
     expect(res.ok).toBe(true);

@@ -938,13 +938,18 @@
                   "installation_id": {
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "policy_fingerprint": {
+                    "pattern": "^sha256-[a-f0-9]{64}$",
+                    "type": "string"
                   }
                 },
                 "required": [
                   "compiler",
                   "compiled_at",
                   "installation_id",
-                  "configuration_fingerprint"
+                  "configuration_fingerprint",
+                  "policy_fingerprint"
                 ],
                 "type": "object"
               },
@@ -1220,6 +1225,9 @@
             "const": false,
             "type": "boolean"
           },
+          "partial": {
+            "type": "boolean"
+          },
           "plan_hash": {
             "type": "string"
           }
@@ -1227,6 +1235,7 @@
         "required": [
           "executable",
           "executed",
+          "partial",
           "plan_hash",
           "drafts",
           "blockers"
@@ -7963,13 +7972,18 @@
                   "installation_id": {
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "policy_fingerprint": {
+                    "pattern": "^sha256-[a-f0-9]{64}$",
+                    "type": "string"
                   }
                 },
                 "required": [
                   "compiler",
                   "compiled_at",
                   "installation_id",
-                  "configuration_fingerprint"
+                  "configuration_fingerprint",
+                  "policy_fingerprint"
                 ],
                 "type": "object"
               },

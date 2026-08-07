@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import type { OperationDefinition } from '../types.js';
 
+/** Effective catalog generation after adding descriptor-only planner operations. */
+export const PLANNING_CATALOG_VERSION = 4;
+
 const output = z.record(z.string(), z.unknown());
 const clientIdInput = { clientid: z.number().int().positive() } as const;
 
@@ -54,6 +57,7 @@ function draftDescriptor(input: {
   scope: string;
   risk: 'medium' | 'high';
   description: string;
+  paramsSchema: z.ZodType<Record<string, unknown>>;
 }): OperationDefinition {
   return {
     id: input.id,
@@ -63,7 +67,7 @@ function draftDescriptor(input: {
     inputSchema: {
       natural_key: z.string().min(1),
       projected_effect: z.string().min(1),
-      params: z.record(z.string(), z.unknown()),
+      params: input.paramsSchema,
       preconditions: z.record(z.string(), z.unknown()).optional(),
     },
     outputSchema: output,
@@ -146,6 +150,12 @@ export function planningOperationDescriptors(): readonly OperationDefinition[] {
       scope: 'service:suspend',
       risk: 'medium',
       description: 'Create a governed suspension draft; never approve or execute it.',
+      paramsSchema: z
+        .object({
+          serviceid: z.number().int().positive(),
+          reason: z.string().min(1).optional(),
+        })
+        .strict(),
     }),
     draftDescriptor({
       id: 'domains.renew.draft',
@@ -153,6 +163,12 @@ export function planningOperationDescriptors(): readonly OperationDefinition[] {
       scope: 'domain:renew',
       risk: 'high',
       description: 'Create a governed domain-renewal draft; never approve or execute it.',
+      paramsSchema: z
+        .object({
+          domainid: z.number().int().positive(),
+          regperiod: z.number().int().positive(),
+        })
+        .strict(),
     }),
     draftDescriptor({
       id: 'billing.refund_record.draft',
@@ -160,6 +176,17 @@ export function planningOperationDescriptors(): readonly OperationDefinition[] {
       scope: 'billing:refund:record',
       risk: 'high',
       description: 'Create a governed refund-record draft; never approve or execute it.',
+      paramsSchema: z
+        .object({
+          invoiceid: z.number().int().positive(),
+          amount: z.union([
+            z.number().finite(),
+            z.string().regex(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/),
+          ]),
+          refund_type: z.enum(['Credit', 'GatewayRecord']),
+          paymentmethod: z.string().min(1),
+        })
+        .strict(),
     }),
     draftDescriptor({
       id: 'billing.quote_create.draft',
@@ -167,6 +194,26 @@ export function planningOperationDescriptors(): readonly OperationDefinition[] {
       scope: 'billing:quote:create',
       risk: 'medium',
       description: 'Create a governed quote draft; never approve or execute it.',
+      paramsSchema: z
+        .object({
+          subject: z.string().min(1),
+          stage: z.enum(['Draft', 'Delivered', 'On Hold', 'Accepted', 'Lost', 'Dead']),
+          validuntil: z.string().min(1),
+          items: z
+            .array(
+              z
+                .object({
+                  description: z.string().min(1),
+                  amount: z.union([
+                    z.number().finite(),
+                    z.string().regex(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/),
+                  ]),
+                })
+                .strict()
+            )
+            .min(1),
+        })
+        .strict(),
     }),
   ];
 }

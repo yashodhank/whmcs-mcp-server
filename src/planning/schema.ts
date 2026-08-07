@@ -100,6 +100,7 @@ export const planIRSchema = z
         compiled_at: z.iso.datetime(),
         installation_id: z.string().min(1),
         configuration_fingerprint: z.string().min(1),
+        policy_fingerprint: z.string().regex(/^sha256-[a-f0-9]{64}$/),
       })
       .strict(),
     plan_hash: z.string().regex(/^sha256-[a-f0-9]{64}$/),

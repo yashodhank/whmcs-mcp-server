@@ -18,6 +18,7 @@
 import { intentToWhmcsParams, normalizeDomain } from './paramMapping.js';
 import {
   SCOPE_ACTION,
+  SCOPE_RISK,
   WRITE_RISK,
   type ValidationIssue,
   type ValidationResult,
@@ -1076,4 +1077,33 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
 
   const ok = !issues.some((i) => i.severity === 'error');
   return { ok, issues, compat_warnings };
+}
+
+/**
+ * Pure planner/workflow seam for validating a proposed scope + semantic params
+ * before a draft record is created. It deliberately reuses the complete intent
+ * validator and never stores, approves, executes, or calls WHMCS.
+ */
+export function validateDraftParams(
+  scope: WriteScope,
+  params: Readonly<Record<string, unknown>>,
+  preconditions: Readonly<Record<string, unknown>> = {}
+): ValidationResult {
+  return validateIntent(
+    {
+      intent_id: 'planner-param-validation',
+      consumer_id: 'transport-derived-at-draft-time',
+      scope,
+      action: SCOPE_ACTION[scope],
+      risk: SCOPE_RISK[scope],
+      params,
+      idempotency_key: 'planner-param-validation',
+      preconditions,
+      projected_effect: 'planner parameter validation only',
+      state: 'draft',
+      created_at: '1970-01-01T00:00:00.000Z',
+      expires_at: '1970-01-01T00:00:00.000Z',
+    },
+    {}
+  );
 }

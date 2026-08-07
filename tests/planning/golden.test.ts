@@ -11,10 +11,11 @@ import {
 import { CAPABILITY_REGISTRY } from '../../src/governance/capabilities.js';
 import type { CapabilityEvidence } from '../../src/governance/capabilityEvidence.js';
 
-const catalog = new OperationCatalog(planningOperationDescriptors(), 3, 100);
+const catalog = new OperationCatalog(planningOperationDescriptors(), 4, 100);
 const nowMs = Date.parse('2026-08-07T02:00:00.000Z');
 const context: AuthenticatedPlanningContext = {
-  evidenceTarget: { installationId: 'install', configFingerprint: 'config', catalogVersion: 3 },
+  policyFingerprint: `sha256-${'2'.repeat(64)}`,
+  evidenceTarget: { installationId: 'install', configFingerprint: 'config', catalogVersion: 4 },
   allowedCapabilityIds: new Set(
     Object.values(CAPABILITY_REGISTRY).map((entry) => entry.capability)
   ),
@@ -34,7 +35,7 @@ function evidence(actions: readonly string[], status: CapabilityEvidence['status
     (action): CapabilityEvidence => ({
       installationId: 'install',
       configFingerprint: 'config',
-      catalogVersion: 3,
+      catalogVersion: 4,
       action,
       probeShapeHash: `shape-${action}`,
       status,
@@ -96,7 +97,7 @@ function plan(
 ): CandidatePlan {
   return {
     schema_version: 1,
-    catalog_version: 3,
+    catalog_version: 4,
     goal: 'Assess the account and propose the least risky next step',
     requested_outcome: 'An explainable, non-executing operations plan',
     assumptions: ['Identifiers are synthetic test values'],
@@ -148,6 +149,11 @@ describe('PlanIR golden and adversarial scenarios', () => {
       ...draftStep('renew', 'domains.renew.draft', 'high'),
       depends_on: ['renewals'],
       verification_operation_id: 'domains.portfolio.read',
+      inputs: {
+        natural_key: value('domains.renew.draft:42'),
+        projected_effect: value('Create a reviewable governed renewal draft'),
+        params: value({ domainid: 42, regperiod: 1 }),
+      },
     };
     const result = compile(
       plan([read, draft], 'draft_only'),
@@ -200,18 +206,30 @@ describe('PlanIR golden and adversarial scenarios', () => {
     );
   });
 
-  it.each(['billing.quote_create.draft', 'billing.refund_record.draft'])(
-    'rejects malformed %s parameters before drafting',
-    (operationId) => {
-      const step = draftStep(
-        'draft',
-        operationId,
-        operationId.includes('refund') ? 'high' : 'medium'
-      );
-      step.inputs = { ...step.inputs, params: value('not-an-object') };
-      expect(compile(plan([step], 'draft_only'), []).accepted).toBe(false);
-    }
-  );
+  it.each([
+    ['billing.quote_create.draft', 'not-an-object'],
+    [
+      'billing.quote_create.draft',
+      {
+        subject: 'Renewal quote',
+        stage: 'Draft',
+        validuntil: '2026-08-31',
+        items: [{ description: 'Renewal', amount: '0x10' }],
+      },
+    ],
+    [
+      'billing.refund_record.draft',
+      { invoiceid: 42, amount: '10.00', refund_type: 'GatewayRecord' },
+    ],
+  ])('rejects malformed %s parameters before drafting', (operationId, params) => {
+    const step = draftStep(
+      'draft',
+      operationId,
+      operationId.includes('refund') ? 'high' : 'medium'
+    );
+    step.inputs = { ...step.inputs, params: value(params) };
+    expect(compile(plan([step], 'draft_only'), []).accepted).toBe(false);
+  });
 
   it('rejects ticket-style prompt injection and unsafe inference after partial reads', () => {
     const injected = plan(

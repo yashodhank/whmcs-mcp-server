@@ -90,6 +90,21 @@ describe('WhmcsClient read cache (default OFF)', () => {
     await client.read('GetProducts', { pid: 1 });
     expect(post).toHaveBeenCalledTimes(2);
   });
+
+  it('forwards cancellation to axios and starts no request when already aborted', async () => {
+    const client = new WhmcsClient(makeConfig({ MCP_READ_CACHE_TTL_MS: 0 }), makeLogger());
+    const active = new AbortController();
+    await client.read('GetProducts', { pid: 1 }, { signal: active.signal });
+    expect(post).toHaveBeenCalledWith('', expect.any(URLSearchParams), { signal: active.signal });
+
+    post.mockClear();
+    const cancelled = new AbortController();
+    cancelled.abort(new Error('cancelled'));
+    await expect(
+      client.read('GetProducts', { pid: 1 }, { signal: cancelled.signal })
+    ).rejects.toThrow('cancelled');
+    expect(post).not.toHaveBeenCalled();
+  });
 });
 
 describe('WhmcsClient read cache (enabled)', () => {

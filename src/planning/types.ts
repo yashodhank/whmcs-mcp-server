@@ -69,6 +69,8 @@ export interface PlanningLimits {
 
 export interface AuthenticatedPlanningContext {
   readonly evidenceTarget: CapabilityEvidenceTarget;
+  /** Opaque hash of consumer identity + effective grants; never a bearer token. */
+  readonly policyFingerprint: string;
   readonly allowedCapabilityIds: ReadonlySet<string>;
   readonly allowedWriteScopes: ReadonlySet<string>;
   readonly allowedContracts: ReadonlySet<string>;
@@ -110,6 +112,7 @@ export interface PlanIR {
     readonly compiled_at: string;
     readonly installation_id: string;
     readonly configuration_fingerprint: string;
+    readonly policy_fingerprint: string;
   };
   readonly plan_hash: string;
 }
