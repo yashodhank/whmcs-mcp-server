@@ -57,14 +57,31 @@ function definition(overrides: Partial<OperationDefinition> = {}): OperationDefi
 
 describe('OperationCatalog invariants', () => {
   it('is deterministic, immutable, and rejects duplicate identities', () => {
-    const one = definition();
+    const inputSchema: z.ZodRawShape = {};
+    const outputSchema: z.ZodRawShape = {};
+    const one = definition({ inputSchema, outputSchema });
     const two = definition({ id: 'system.health.other', publicName: 'get_other_health' });
     const catalog = new OperationCatalog([two, one], 2, 100);
+    const machineView = catalog.machineView();
+    const stored = catalog.getById(one.id);
     expect(catalog.machineView().operations.map(({ id }) => id)).toEqual([
       'system.health.other',
       'system.health.read',
     ]);
     expect(Object.isFrozen(catalog.definitions()[0])).toBe(true);
+    expect(Object.isFrozen(stored?.inputSchema)).toBe(true);
+    expect(Object.isFrozen(stored?.outputSchema)).toBe(true);
+    expect(Reflect.set(stored?.inputSchema ?? {}, 'injected', z.string())).toBe(false);
+    expect(Reflect.set(stored?.outputSchema ?? {}, 'injected', z.string())).toBe(false);
+    inputSchema.injected = z.string();
+    outputSchema.injected = z.string();
+    expect(stored?.inputSchema).not.toHaveProperty('injected');
+    expect(stored?.outputSchema).not.toHaveProperty('injected');
+    const registerTool = vi.fn();
+    if (stored === undefined) throw new Error('Expected catalog operation');
+    registerCatalogOperation({ registerTool } as never, stored);
+    expect(registerTool.mock.calls[0]?.[1]).toMatchObject({ inputSchema: {}, outputSchema: {} });
+    expect(catalog.machineView()).toEqual(machineView);
     expect(() => new OperationCatalog([one, { ...one }], 2, 100)).toThrow(/duplicate operation id/);
     expect(
       () => new OperationCatalog([one, { ...two, publicName: one.publicName }], 2, 100)
