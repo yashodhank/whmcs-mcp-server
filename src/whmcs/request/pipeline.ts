@@ -1,6 +1,7 @@
 import type { AppConfig } from '../../config.js';
 import type { Logger } from '../../logging.js';
 import {
+  classifyWhmcsResponseSize,
   classifyWhmcsAction,
   NOOP_WHMCS_TELEMETRY,
   type WhmcsTelemetry,
@@ -210,6 +211,7 @@ export class WhmcsRequestPipeline {
             actionClass,
             attempt: transportAttempt,
             durationMs: this.now() - transportStarted,
+            sizeBucket: classifyWhmcsResponseSize(response.data),
           });
           const decoded = decodeWhmcsResponse(
             response.status,

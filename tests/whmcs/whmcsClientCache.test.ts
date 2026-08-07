@@ -23,7 +23,35 @@ vi.mock('axios', () => {
 });
 
 import { WhmcsClient } from '../../src/whmcs/WhmcsClient.js';
+import { mapToCanonicalClient } from '../../src/canonical/client.js';
 import type { AppConfig } from '../../src/config.js';
+import { hashToken, loadConsumerRegistry } from '../../src/governance/consumers.js';
+import { governProjection } from '../../src/governance/pipeline.js';
+import type { ConsumerProfile } from '../../src/governance/types.js';
+
+const TOKEN_LLM = 'synthetic-llm-consumer-token';
+const TOKEN_OPS = 'synthetic-ops-consumer-token';
+
+function projectionRegistry(): ConsumerProfile[] {
+  return loadConsumerRegistry({
+    MCP_CONSUMER_REGISTRY: JSON.stringify([
+      {
+        id: 'llm_consumer',
+        token_sha256: hashToken(TOKEN_LLM),
+        defaultContract: 'llm_safe_summary',
+        allowedContracts: ['llm_safe_summary'],
+        writeCapability: 'false',
+      },
+      {
+        id: 'ops_consumer',
+        token_sha256: hashToken(TOKEN_OPS),
+        defaultContract: 'ops_operator',
+        allowedContracts: ['ops_operator'],
+        writeCapability: 'false',
+      },
+    ]),
+  } as NodeJS.ProcessEnv);
+}
 
 function makeLogger(): any {
   return {
@@ -184,6 +212,89 @@ describe('WhmcsClient read cache (enabled)', () => {
       client.read('GetProducts', { pid: 1 }, { rawDataScope: 'consumer-b', bypassCache: true }),
     ]);
     expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('projects one coalesced raw response through two real consumer contracts', async () => {
+    let release: (() => void) | undefined;
+    post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              status: 200,
+              data: {
+                result: 'success',
+                client: {
+                  id: 42,
+                  firstname: 'Jane',
+                  lastname: 'Operator',
+                  fullname: 'Jane Operator',
+                  email: 'jane.operator@example.test',
+                  phonenumber: '+1-555-0100',
+                  status: 'Active',
+                  credit: '25.50',
+                  currency_code: 'USD',
+                },
+              },
+            });
+        })
+    );
+    const client = new WhmcsClient(
+      makeConfig({
+        MCP_READ_CACHE_TTL_MS: 0,
+        MCP_READ_CACHE_ACTIONS: ['GetClientsDetails'],
+        MCP_READ_COALESCE_ENABLED: true,
+      }),
+      makeLogger()
+    );
+    const commonOptions = {
+      rawDataScope: 'shared-installation-raw-v1',
+      bypassCache: true,
+    } as const;
+    const llmPending = client.read(
+      'GetClientsDetails',
+      { clientid: 42 },
+      {
+        ...commonOptions,
+        consumerKey: 'llm_consumer',
+      }
+    );
+    const opsPending = client.read(
+      'GetClientsDetails',
+      { clientid: 42 },
+      {
+        ...commonOptions,
+        consumerKey: 'ops_consumer',
+      }
+    );
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    release?.();
+    const [llmRaw, opsRaw] = await Promise.all([llmPending, opsPending]);
+
+    const registry = projectionRegistry();
+    const llm = governProjection({
+      canonical: mapToCanonicalClient(llmRaw),
+      authToken: TOKEN_LLM,
+      env: 'production',
+      registry,
+      allowAnon: false,
+    });
+    const ops = governProjection({
+      canonical: mapToCanonicalClient(opsRaw),
+      authToken: TOKEN_OPS,
+      env: 'production',
+      registry,
+      allowAnon: false,
+    });
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(llmRaw).toEqual(opsRaw);
+    expect(llmRaw).not.toBe(opsRaw);
+    expect(llm).toMatchObject({ ok: true, contract: 'llm_safe_summary' });
+    expect(ops).toMatchObject({ ok: true, contract: 'ops_operator' });
+    expect(llm.data?.email).toBe('j***@e***');
+    expect(ops.data?.email).toBe('jane.operator@example.test');
+    expect(llm.data).not.toEqual(ops.data);
   });
 
   it('invalidates proven client-tagged reads after a successful mutation', async () => {

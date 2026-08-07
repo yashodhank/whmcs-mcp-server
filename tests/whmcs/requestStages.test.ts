@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../src/config.js';
-import { InMemoryWhmcsTelemetry } from '../../src/observability/whmcsTelemetry.js';
+import {
+  bucketWhmcsResponseSizeBytes,
+  classifyWhmcsResponseSize,
+  InMemoryWhmcsTelemetry,
+} from '../../src/observability/whmcsTelemetry.js';
 import { classifyWhmcsError } from '../../src/whmcs/request/classifier.js';
 import { decodeWhmcsResponse } from '../../src/whmcs/request/decoder.js';
 import { encodeWhmcsRequest, normalizeWhmcsParams } from '../../src/whmcs/request/encoder.js';
@@ -43,6 +47,25 @@ class QueueTransport implements WhmcsTransport {
 }
 
 describe('WHMCS request stages', () => {
+  it.each([
+    [0, '0'],
+    [1, '1-10'],
+    [10 * 1024, '1-10'],
+    [10 * 1024 + 1, '11-100'],
+    [100 * 1024, '11-100'],
+    [100 * 1024 + 1, '101+'],
+  ] as const)('buckets %i UTF-8 response bytes as %s', (bytes, expected) => {
+    expect(bucketWhmcsResponseSizeBytes(bytes)).toBe(expected);
+  });
+
+  it('measures UTF-8 bytes and safely classifies unserializable values', () => {
+    expect(classifyWhmcsResponseSize('é'.repeat(5 * 1024))).toBe('1-10');
+    expect(classifyWhmcsResponseSize('é'.repeat(5 * 1024 + 1))).toBe('11-100');
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(classifyWhmcsResponseSize(circular)).toBe('unknown');
+  });
+
   it('normalizes before encoding and keeps credentials inside the body boundary', () => {
     const normalized = normalizeWhmcsParams({ enabled: true, disabled: false, omitted: undefined });
     expect(normalized).toEqual({ enabled: 1, disabled: 0 });
@@ -246,5 +269,9 @@ describe('WhmcsRequestPipeline characterization', () => {
     const serialized = JSON.stringify(telemetry.events);
     expect(serialized).not.toMatch(/42|never-emit|identifier-value|secret-value|GetClientsDetails/);
     expect(telemetry.events.every((event) => event.actionClass === 'account')).toBe(true);
+    expect(
+      telemetry.events.find((event) => event.phase === 'transport' && event.outcome === 'success')
+        ?.sizeBucket
+    ).toBe('1-10');
   });
 });

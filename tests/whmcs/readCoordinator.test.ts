@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { InMemoryWhmcsTelemetry } from '../../src/observability/whmcsTelemetry.js';
 import { ReadCoordinator } from '../../src/whmcs/readCoordinator.js';
 
 const opts = (key: string, over: Record<string, unknown> = {}) => ({
@@ -69,6 +70,22 @@ describe('ReadCoordinator coalescing', () => {
 });
 
 describe('ReadCoordinator scheduler', () => {
+  it('characterizes one uncached read as one queue pass and one operation', async () => {
+    const telemetry = new InMemoryWhmcsTelemetry();
+    const coordinator = new ReadCoordinator({ maxConcurrency: 8, telemetry });
+    const operation = vi.fn(async () => ({ ok: true }));
+
+    await expect(coordinator.run(operation, opts('single', { coalesce: false }))).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(telemetry.events.filter((event) => event.phase === 'queue')).toHaveLength(2);
+    expect(coordinator.activeCount).toBe(0);
+    expect(coordinator.queued).toBe(0);
+    expect(coordinator.inflightCount).toBe(0);
+  });
+
   it('enforces the configured peak bound and drains without leaks', async () => {
     const coordinator = new ReadCoordinator({ maxConcurrency: 2 });
     let active = 0;

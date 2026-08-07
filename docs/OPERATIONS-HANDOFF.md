@@ -284,15 +284,19 @@ resource templates; the only intended additive Plan 003 surface is
 
 Plan 004 is now implemented as a compatible `WhmcsClient` facade over typed
 encoding, transport, decoding, classification, retry/repair, deadline and
-telemetry stages. All reads pass through a fair per-client scheduler capped by
-`MCP_READ_MAX_CONCURRENCY` (default `8`). Completed-result caching remains off
+telemetry stages. Every `read()` call deliberately passes through one fair
+per-`WhmcsClient`/WHMCS-installation scheduler capped by
+`MCP_READ_MAX_CONCURRENCY` (default `8`), so direct reads cannot bypass the
+bound. Completed-result caching remains off
 by default (`MCP_READ_CACHE_TTL_MS=0`), and identical in-flight read coalescing
 is a canary opt-in (`MCP_READ_COALESCE_ENABLED=false`). Coalescing is restricted
 to cache-allowlisted, non-log/non-probe reads and keys on installation, normalized
 request, policy version and raw-data governance scope. Cancellation covers queue,
 transport and backoff; a dispatched mutation whose response is lost is reported
 as outcome-unknown. Low-cardinality telemetry omits parameters, bodies,
-credentials, entity identifiers and error text. See
+credentials, entity identifiers and error text; successful transports expose
+only a documented UTF-8 response-size bucket, never the body or exact byte
+count. See
 [`docs/design/whmcs-request-pipeline.md`](design/whmcs-request-pipeline.md) for
 rollout, rollback and deterministic load characterization.
 

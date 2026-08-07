@@ -25,7 +25,11 @@ Credentials exist only at the encoder/transport boundary. Request parameters,
 response bodies, credentials, consumer identifiers, and free-form error text are
 not telemetry attributes. The default telemetry adapter is a no-op; the typed
 interface can be bridged to OpenTelemetry without adding an SDK/provider to the
-server.
+server. Successful transport events include only a response-size bucket. It is
+derived from the UTF-8 byte length of a raw string or compact-JSON serialization
+of another decoded value: exactly zero bytes, 1–10 KiB, 10 KiB + 1 byte–100 KiB,
+greater than 100 KiB, or `unknown` when serialization is impossible. The body
+and measured byte count are never emitted.
 
 This pipeline uses only the WHMCS External API. It does not add a direct database
 read path. Direct database access remains restricted to the separately guarded,
@@ -48,8 +52,11 @@ controls and mode backstop, and are not expanded by this work.
 
 ## Read acceleration and isolation
 
-- The scheduler bounds active WHMCS reads per client instance and round-robins
-  queued consumer lanes. Queue cancellation prevents a read from starting.
+- Every `WhmcsClient.read()` call enters the scheduler, not only aggregator
+  fan-out. This is a deliberate per-`WhmcsClient`/WHMCS-installation bound: it
+  prevents a direct single-tool read path from bypassing the same active-read
+  ceiling. The scheduler round-robins queued consumer lanes, and queue
+  cancellation prevents a read from starting.
 - In-flight coalescing is limited to explicitly cache-allowlisted actions. Its
   key contains the WHMCS installation endpoint, normalized action/parameters,
   cache-policy version, and caller-supplied raw-data governance scope.
@@ -88,10 +95,14 @@ production credentials. It proves:
 
 - one, ten, and one hundred identical coalescible reads each cause one raw
   operation, with no leaked in-flight entry;
+- one uncached, non-coalesced read makes exactly one queue pass and one raw
+  operation, with no residual queue/in-flight state. This deterministic hop
+  count is the local single-read overhead characterization;
 - peak operations never exceed the configured scheduler bound and queued aborts
   never dispatch;
-- coalesced callers have independent result objects and governance scopes do not
-  join;
+- two consumers sharing a raw-data scope receive distinct projections from the
+  real governance boundary after one coalesced API response; distinct raw-data
+  scopes do not join, and coalesced callers receive independent result objects;
 - success, business errors, 429/5xx/network budgets, non-retryable 4xx, Invalid
   IP repair, edge/WAF connection reset, cancellation, and deadlines preserve
   their classified outcomes;
@@ -99,7 +110,7 @@ production credentials. It proves:
 - serialized telemetry contains no action names, parameters, bodies, credentials,
   or entity values.
 
-The deterministic tests intentionally assert operation counts and bounds rather
-than a noisy workstation p95. The sub-10% uncached p95 target remains a canary
-acceptance criterion; production enablement must record same-host before/after
-evidence rather than treating local wall-clock jitter as proof.
+The deterministic tests intentionally assert queue/operation counts and bounds
+rather than a noisy workstation p95. The sub-10% uncached p95 target remains a
+canary acceptance criterion; production enablement must record same-host
+before/after evidence rather than treating local wall-clock jitter as proof.
