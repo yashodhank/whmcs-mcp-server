@@ -1,99 +1,146 @@
-# MCP Spec & TypeScript SDK Adoption Plan
+# MCP protocol adoption and compatibility
 
-How the official [Model Context Protocol](https://github.com/modelcontextprotocol) (spec + TypeScript SDK) can make **this WHMCS MCP server** sharper, safer, and more interoperable.
+Status: Plan 001 safety baseline, 2026-08-07
 
-## Executive summary
+This document defines the protocol boundary the server supports today and the
+gates for adopting MCP `2026-07-28`. It is a compatibility contract, not a
+claim that roadmap-only behavior is already live.
 
-This server is already a mature MCP citizen: ~60 governed tools (reads, aggregators, capability shells, a tiered governed write-flow), MCP Prompts, a few resources, `outputSchema` / `structuredContent`, and tool annotations — all sitting behind an in-house governance layer (consumer/bearer-token auth, field-class projection, capability registry, rate limiting, audit log). The biggest near-term wins from the upstream project are not new in-house machinery but *adopting standard primitives we currently hand-roll or skip*: **Elicitation** (interactive write confirmation / missing-param capture), **completions** (argument autosuggest for clients/services), the **logging utility** and **progress notifications** (visibility into long aggregators and the write-flow), **resource templates**, and **tool `_meta`** (carry our governance/capability hints in a spec-blessed slot). Medium-term, **Streamable HTTP + OAuth 2.1 resource-server + CIMD** unlocks remote/multi-client deployment without our bespoke bearer scheme, and the experimental **Tasks** primitive is the natural home for the long-running governed write-flow. We **skip Sampling and Roots** — neither fits a server-side billing/ops backend.
+## Support matrix
 
-**Verified facts (checked June 2026):**
-- **Latest stable spec revision: `2025-11-25`** ([spec hub](https://modelcontextprotocol.io/specification/2025-11-25), [changelog](https://modelcontextprotocol.io/specification/2025-11-25/changelog)). A `2026-07-28` release candidate is in draft and not final.
-- **TypeScript SDK: `@modelcontextprotocol/sdk` stable `1.x` (latest `1.29.x`)** on npm; a `2.0.0-alpha` monorepo split is in pre-release and not production-ready. We are on `~1.29`, i.e. current. ([npm](https://www.npmjs.com/package/@modelcontextprotocol/sdk), [SDK repo](https://github.com/modelcontextprotocol/typescript-sdk))
+| Client or protocol era | stdio | Streamable HTTP | Current posture |
+|---|---:|---:|---|
+| MCP `2025-11-25` | Supported | Supported when `MCP_TRANSPORT=http` | Primary implemented protocol; HTTP uses `initialize` plus `Mcp-Session-Id` |
+| Earlier versions negotiated by SDK v1 (`2025-06-18`, `2025-03-26`, `2024-11-05`, `2024-10-07`) | Compatibility path | Compatibility path | Preserve while measured clients still require them; contract tests pin the published catalog rather than promising every older optional feature |
+| MCP `2026-07-28` stateless requests | Not yet supported | Not yet supported | Approved Plan 002 direction; do not route production traffic until its dual-era adapter and rollout gates pass |
+| `io.modelcontextprotocol/tasks` | Not advertised | Not advertised | Tasks is an opt-in extension in `2026-07-28`, not experimental core behavior; adoption belongs after the modern protocol adapter and durable task semantics exist |
 
----
+The current TypeScript SDK dependency is the patched v1 line and negotiates
+`2025-11-25`. The [2026-07-28 release](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+removes the protocol handshake and session header, moves identity/capabilities
+to each request, and exposes optional discovery. Those semantics require the
+Plan 002 adapter; changing a version string or disabling session storage is not
+a migration.
 
-## 1. Ranked adoption table
+## Catalog compatibility policy
 
-Ranked by value-per-effort for this server. All spec citations are against revision **2025-11-25** unless noted.
+`npm run mcp:test:contracts` constructs the exported `buildServer` factory with
+the official in-memory SDK transport and a WHMCS call tripwire. It discovers
+and normalizes the complete public catalog, then compares it with
+`tests/fixtures/mcp/catalog-v1.json`.
 
-| # | Feature | What it is | Spec status | Concrete fit for THIS WHMCS server | Effort | Value | Status |
-|---|---------|-----------|-------------|-------------------------------------|:------:|:-----:|--------|
-| 1 | **Elicitation** | Server-initiated, schema-typed request for more input from the user mid-call | Stable; refined in 2025-11-25 (`ElicitResult`/`EnumSchema` standards-based — SEP-1330; defaults for primitives — SEP-1034; URL-mode — SEP-1036) | Replace ad-hoc "missing param" errors and out-of-band write confirmation. The tiered governed write-flow (draft → validate → approve → execute) can elicit the final human "approve" and any missing fields with a typed schema instead of forcing a second tool call. | M | **High** | In progress |
-| 2 | **Prompts** | Templated, parameterized message workflows the user invokes | Stable | Already shipped — encode common ops playbooks (account 360 triage, reconciliation walkthrough, dunning). Keep adding; wire `completions` into prompt args (#4). | — | High | **Done** |
-| 3 | **Pagination cursors** | Opaque `cursor` / `nextCursor` for `list`-family results | Stable | Already shipped — apply consistently to every large list tool (`list_invoices`, `list_services`, `list_users`, `search_clients`) so clients never truncate. | — | High | **Done** |
-| 4 | **Completions** | `completion/complete` argument autosuggest for prompt and resource-template params | Stable | High-leverage UX: autosuggest client IDs, service IDs, ticket departments, product IDs as the user types prompt/template args — backed by our existing list/search tools. Pairs naturally with #2 and #6. | M | High | Planned |
-| 5 | **Progress notifications** | `notifications/progress` keyed by a `progressToken` from request `_meta` | Stable | The heavy aggregators (`get_account_360`, the `*_snapshot` family) and the multi-step write-flow do real work; stream progress so clients show motion instead of a spinner that may look hung. | S | Med-High | Planned |
-| 6 | **Resource templates** | Parameterized resource URIs (e.g. `whmcs://client/{id}/360`) with `completions` support | Stable | Turn read aggregators into addressable, cacheable resources the host can pin/reference (`whmcs://invoice/{id}`, `whmcs://client/{id}`). Complements, not replaces, the read tools. | M | Med-High | Planned |
-| 7 | **Logging utility** | Standard `logging/setLevel` + `notifications/message` server→client log stream | Stable (stdio servers MAY also use stderr — PR #670) | Surface governance decisions (capability denials, projection redactions, rate-limit hits) as structured, level-filtered client-visible logs — without leaking into tool payloads. Bridges to our audit log. | S | Med-High | Planned |
-| 8 | **Tool `_meta`** | Reserved, namespaced metadata slot on tools/results | Stable | Carry our capability-registry tags, field-class info, write-tier, and audit correlation IDs in the spec-blessed `_meta` channel instead of overloading descriptions or output payloads. Low-risk, additive. | S | Med | Planned |
-| 9 | **Streamable HTTP + OAuth 2.1 resource-server + CIMD** | Recommended remote transport; OAuth 2.0 Protected Resource Metadata per RFC 9728 (SEP-985); incremental scope consent via `WWW-Authenticate` (SEP-835); **Client ID Metadata Documents** as recommended client registration (SEP-991) | Stable | The path off stdio to a remote, multi-client deployment. Lets us retire the bespoke bearer-token scheme in favor of standard OAuth resource-server semantics, mapping scopes → our capability registry. CIMD avoids per-client registration friction. **Origin check must return HTTP 403 (PR #1439).** | L | High (multi-client) | Planned |
-| 10 | **Tasks** | "Call-now, fetch-later": any request can return a task handle for polling / deferred result retrieval (SEP-1686) | **Experimental** (2025-11-25) — "may change without notice" | Natural home for the long-running governed write-flow and slow aggregations: issue a task, let the client poll/resume. Hold until it stabilizes, but design the write-flow so it can adopt Tasks cleanly. | M | Med (future) | Planned (watch) |
-| 11 | **Sampling** | Server asks the *client's* LLM to generate (now with `tools`/`toolChoice` — SEP-1577) | Stable | No fit. A billing/ops backend has no reason to drive recursive client-side LLM calls; adds attack surface and consent burden for zero product value. | — | — | **Skip** |
-| 12 | **Roots** | Client advertises filesystem/URI boundaries to the server | Stable | No fit. We operate against the WHMCS API, not a client workspace/filesystem. | — | — | **Skip** |
+Normalization sorts catalog entries and JSON object keys only. It preserves:
 
----
+- tool input and output JSON Schemas, including required fields and constraints;
+- tool annotations, execution metadata, descriptions, and names;
+- prompt names, descriptions, and arguments;
+- concrete resource URIs and resource-template URI patterns; and
+- advertised server capabilities and server identity.
 
-## 2. Concrete correctness now
+Any intentional catalog change must update the fixture in the same PR and
+explain compatibility impact. Ordering-only changes may be normalized. Never
+normalize away fields that a client can observe or use for validation.
 
-Low-effort, high-confidence alignment work that needs no new feature — just conformance to 2025-11-25:
+## Transport, authentication, and error contract
 
-- **SEP-1303 — validation errors as Tool Execution Errors, not protocol errors.** When a tool's input fails our validation, return a normal `CallToolResult` with `isError: true` and a *descriptive, model-readable* message ("invoice id must be a positive integer; got 'abc'") rather than a JSON-RPC protocol error. The model can see Tool Execution Errors and self-correct; it cannot see protocol errors. Backwards-compatible clarification — audit every validation/guard path in the write-flow and read tools. ([SEP-1303](https://modelcontextprotocol.io/community/seps/1303-input-validation-errors-as-tool-execution-errors))
-- **Audit all four tool annotation hints.** Set `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint` correctly on every tool. Reads/aggregators → `readOnlyHint: true`. Write-flow steps and `suspend_service`/`terminate_service`/`record_refund` → `readOnlyHint: false`, `destructiveHint: true`. Idempotent setters (e.g. `mark_invoice_paid`) → `idempotentHint: true`. Tools hitting external registrars/registries → `openWorldHint: true`. Remember: per the spec these are **untrusted hints**, so they inform UX, not our server-side enforcement (which stays in the capability registry).
-- **JSON Schema 2020-12 as the default dialect (SEP-1613).** Confirm all `inputSchema` / `outputSchema` definitions are valid 2020-12 and that our Zod (`zod/v4`, the SDK's internal target) → JSON Schema emission produces 2020-12-compatible output. Avoid drafts/keywords that don't round-trip.
+- stdio remains the default transport and reserves stdout for JSON-RPC.
+- Streamable HTTP remains opt-in and stateful for the implemented 2025-era
+  protocol. Every session is bound to the consumer that initialized it.
+- HTTP checks the Origin boundary before bearer/OAuth authentication. Missing
+  or invalid credentials return bounded `401` responses; forbidden origins or
+  session-owner mismatches return bounded `403` responses. Tokens and internal
+  credential details must never appear in response bodies or logs.
+- Malformed JSON, unsupported content types/methods, unknown capabilities, and
+  invalid tool arguments produce protocol-shaped, bounded errors. Negative
+  requests must not call WHMCS or mutate server state.
+- A client that proposes an unknown 2025-era protocol version receives the
+  server's supported negotiated version in the initialize response and remains
+  responsible for accepting it or disconnecting, as required by that lifecycle.
+- The future `2026-07-28` path must bind identity and policy on every request;
+  it may not infer authorization from a removed transport session.
 
----
+## Conformance policy
 
-## 3. What we keep in-house (no spec equivalent)
+The local official runner is exactly
+`@modelcontextprotocol/conformance@0.1.16`, including its lockfile integrity.
+Run:
 
-The spec deliberately does not standardize server-side authorization or data governance — these remain ours, and should be *mapped onto* spec primitives rather than replaced:
+```bash
+npm run mcp:test:conformance
+```
 
-- **Field-class projection** — per-consumer redaction/shaping of response fields. No MCP primitive covers output-field-level access control. Keep; optionally annotate redactions via `_meta` (#8) and structured logs (#7).
-- **Capability registry** — the allow/deny matrix per consumer per tool. No spec equivalent. When we move to OAuth (#9), map OAuth **scopes → capability registry entries** so the standard layer feeds, but does not replace, ours.
-- **Per-consumer governance** (consumer/bearer-token identity + policy) — in-house until OAuth resource-server adoption; then OAuth handles *authentication/transport* while our policy engine handles *authorization*.
-- **Rate limiting** — not an MCP concern. Keep; surface limit hits via the logging utility (#7).
-- **Audit log** — keep as the system of record. Correlate with MCP via `_meta` correlation IDs (#8) and mirror governance-relevant events to client logs (#7).
+The command builds the server, starts a loopback-only stateless adapter around
+the real `buildServer` surface with inert credentials and a WHMCS tripwire, and
+runs the official `2025-11-25` scenarios for initialization, logging level,
+ping, tool listing, resource listing, and prompt listing. A missing package,
+version mismatch, scenario removal, runner failure, or WHMCS call exits
+nonzero. Results live only in a temporary directory.
 
----
+The runner prints every official scenario it does not run. Most excluded
+scenarios require conformance-fixture-specific tools, resources, prompts,
+sampling, elicitation, subscriptions, or SSE behavior that this product does
+not advertise. The DNS-rebinding scenario is also excluded from the loopback
+adapter because its unauthenticated localhost policy requires accepting local
+browser Origins, while the production transport's safer default denies every
+present Origin unless the operator explicitly allowlists it. The deterministic
+HTTP contract tests cover the actual project policy.
 
-## 4. Deprecations to avoid
+This baseline does not claim `2026-07-28` conformance. Plan 002 must pin a
+runner version that understands the stateless lifecycle and add the applicable
+modern scenarios before enabling that protocol in production.
 
-- **HTTP+SSE transport (the old two-endpoint transport).** Superseded by **Streamable HTTP**. When we leave stdio, go straight to Streamable HTTP — do not implement the legacy SSE transport. (Note SEP-1699: GET streams now support polling/resumption, all within Streamable HTTP.)
-- **Dynamic Client Registration (DCR / RFC 7591) as the primary path.** The 2025-11-25 spec recommends **Client ID Metadata Documents (CIMD, SEP-991)** for client registration. Prefer CIMD-based flows; treat DCR as legacy fallback only.
+## Retirement gates
 
----
+Do not retire the 2025-era path until all of the following are true:
 
-## 5. Recommended sequencing / roadmap
+1. The dual-era adapter passes deterministic catalog, auth, negative transport,
+   identity-binding, and official conformance gates for both eras.
+2. Production client inventory and telemetry show which protocol each named
+   consumer uses; unknown clients count as legacy.
+3. Every supported host has a tested `2026-07-28` configuration and rollback
+   path, including per-request identity and governance evidence.
+4. A canary period demonstrates no catalog drift, authorization regressions,
+   write-path changes, or material latency/error-rate regression.
+5. Operators publish a dated deprecation window no shorter than the applicable
+   MCP lifecycle policy and confirm that rollback remains available throughout.
+6. The handoff, client configuration examples, runbooks, and saved catalog are
+   updated in the retirement PR.
 
-**Phase 0 — Correctness (now, days).** Section 2 in full: SEP-1303 error semantics across all validation paths, the four annotation hints audited, JSON Schema 2020-12 confirmed. Zero new features, immediate conformance and better model self-correction.
+Tasks-extension support has separate gates: explicit extension negotiation,
+durable task state, tenant isolation, cancellation/idempotency semantics,
+bounded polling, and proof that non-opted-in clients still receive ordinary
+tool results. A Tasks implementation must not be represented as core MCP
+support.
 
-**Phase 1 — Low-effort visibility & metadata (S).** Logging utility (#7), progress notifications on aggregators + write-flow (#5), tool `_meta` carrying governance/capability/audit hints (#8). Wires our in-house governance into spec-standard channels.
+## Product feature boundaries
 
-**Phase 2 — Interactive & discoverable UX (M).** Finish **Elicitation** (#1) for write-flow approval and missing-param capture; add **completions** (#4) for client/service/product/department args; introduce **resource templates** (#6) for the top read aggregators. (Prompts #2 and pagination #3 already done — extend completions into prompt args here.)
+Protocol adoption feeds the existing policy engine; it does not replace it:
 
-**Phase 3 — Remote & multi-client (L).** **Streamable HTTP + OAuth 2.1 resource-server + CIMD** (#9): map OAuth scopes onto the capability registry, keep field-class projection/rate-limit/audit in-house. Origin check returns 403. This is the gating step for a hosted, multi-tenant deployment.
+- Field-class projection remains the per-consumer output boundary. MCP does not
+  provide field-level authorization.
+- The capability registry remains the allow/deny and evidence source. Future
+  OAuth scopes map into it rather than bypassing it.
+- Transport identity performs authentication; governance and the controlled
+  write-flow continue to perform authorization, approval, execution gating,
+  auditing, and idempotency.
+- Rate limiting and the durable audit log remain server responsibilities.
+- Sampling and Roots are not adopted for this API-backed billing/operations
+  server. Any future proposal must establish a concrete product need and a new
+  threat model first.
+- Do not add the legacy HTTP+SSE transport. Dynamic Client Registration remains
+  a compatibility fallback, not the preferred identity-registration path.
 
-**Phase 4 — Watch & adopt when stable.** **Tasks** (#10) for the long-running write-flow once it graduates from experimental. Design the write-flow now so a task handle can slot in without a rewrite. **Skip** Sampling (#11) and Roots (#12) indefinitely.
+The ranked implementation sequence is maintained in
+[`advisor-plans/README.md`](../../advisor-plans/README.md). That roadmap now
+supersedes the historical feature wish-list formerly kept in this document:
+Plan 001 pins safety and compatibility, Plan 002 adds a dual-era protocol
+adapter, Plans 003 and 004 unify catalog policy and the WHMCS execution
+pipeline, and Plan 005 adds a deterministic safe-operations planner.
 
----
+## Authoritative references
 
-## 6. Links
-
-**Spec**
-- Spec hub (current): https://modelcontextprotocol.io/specification/2025-11-25
-- Changelog (2025-11-25): https://modelcontextprotocol.io/specification/2025-11-25/changelog
-- Server features: https://modelcontextprotocol.io/specification/2025-11-25/server
-- Client features (Elicitation): https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation
-- Tasks (experimental): https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks
-- Authorization / OAuth: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
-- SEP-1303 (validation errors as tool errors): https://modelcontextprotocol.io/community/seps/1303-input-validation-errors-as-tool-execution-errors
-- Spec + schema repo: https://github.com/modelcontextprotocol/modelcontextprotocol
-- 2026 roadmap: https://blog.modelcontextprotocol.io/posts/2026-mcp-roadmap/
-
-**SDK**
-- npm package: https://www.npmjs.com/package/@modelcontextprotocol/sdk
-- TypeScript SDK repo: https://github.com/modelcontextprotocol/typescript-sdk
-- SDK server guide (`server.md`): https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/server.md
-- SDK releases: https://github.com/modelcontextprotocol/typescript-sdk/releases
-
-**Org**
-- MCP org: https://github.com/modelcontextprotocol
+- [MCP 2026-07-28 release](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+- [MCP 2025-11-25 specification](https://modelcontextprotocol.io/specification/2025-11-25)
+- [MCP Tasks extension](https://modelcontextprotocol.io/extensions/tasks/overview)
+- [Official MCP conformance framework](https://github.com/modelcontextprotocol/conformance)
+- [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)

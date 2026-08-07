@@ -226,6 +226,18 @@ Plans 003 and 004 may proceed in parallel only after Plan 001. Plan 005 depends
 on the typed catalog from Plan 003 and should use the modern protocol adapter
 from Plan 002 before exposing modern-only interaction features.
 
+Plan 001 establishes the implementation baseline in this change: the current
+runtime remains MCP SDK v1 with `2025-11-25` stateful HTTP compatibility, while
+`2026-07-28` stateless support remains Plan 002 work. The public catalog is
+pinned as a compatibility-significant fixture (57 tools, 9 prompts, 3 concrete
+resources, and 9 resource templates at this baseline). In-process discovery
+and negative transport/auth tests use a WHMCS tripwire, and CI runs both
+`npm run mcp:test:contracts` and the exact official conformance package through
+`npm run mcp:test:conformance`. The conformance command states unsupported
+scenarios explicitly and does not require live WHMCS or operator credentials.
+The detailed protocol matrix, error contract, conformance scope, and retirement
+gates are in [`docs/design/mcp-adoption.md`](design/mcp-adoption.md).
+
 Roadmap invariants remain operational requirements:
 
 - model-proposed plans are data, never authorization;

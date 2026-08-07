@@ -53,6 +53,26 @@ jobs:
           WHMCS_SECRET: ci-dummy-secret
         run: npm test
 
+      - name: MCP catalog and transport contracts
+        run: npm run mcp:test:contracts
+
+  mcp-conformance:
+    name: mcp-conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install pinned dependencies
+        run: npm ci
+
+      - name: Official MCP conformance baseline
+        run: npm run mcp:test:conformance
+
   python-php-check:
     name: python-php-check
     runs-on: ubuntu-latest
