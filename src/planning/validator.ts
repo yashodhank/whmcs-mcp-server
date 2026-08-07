@@ -53,7 +53,9 @@ function scanSensitive(value: unknown, path: string, issues: PlanIssue[]): void 
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => scanSensitive(item, `${path}[${index}]`, issues));
+    value.forEach((item, index) => {
+      scanSensitive(item, `${path}[${index}]`, issues);
+    });
     return;
   }
   if (value === null || typeof value !== 'object') return;
@@ -113,7 +115,10 @@ function validateGraph(candidate: CandidatePlan, issues: PlanIssue[]): void {
   });
 }
 
-function liveEvidenceFor(input: CompilePlanInput, action: string) {
+function liveEvidenceFor(
+  input: CompilePlanInput,
+  action: string
+): CompilePlanInput['evidence'][number] | undefined {
   const conservativeOrder: Readonly<Record<string, number>> = {
     supported: 0,
     fallback_available: 1,
@@ -122,7 +127,7 @@ function liveEvidenceFor(input: CompilePlanInput, action: string) {
     not_authorized: 4,
     unsupported: 5,
   };
-  return input.evidence
+  const matches = input.evidence
     .filter(
       (item) =>
         item.action === action &&
@@ -133,7 +138,8 @@ function liveEvidenceFor(input: CompilePlanInput, action: string) {
     .sort((left, right) => {
       const status = conservativeOrder[right.status] - conservativeOrder[left.status];
       return status !== 0 ? status : Date.parse(right.observedAt) - Date.parse(left.observedAt);
-    })[0];
+    });
+  return matches.length === 0 ? undefined : matches[0];
 }
 
 export function validateCandidatePlan(input: CompilePlanInput): readonly PlanIssue[] {
@@ -248,11 +254,11 @@ export function validateCandidatePlan(input: CompilePlanInput): readonly PlanIss
       );
     }
     if (operation.pagination !== null) {
-      const limitInput = step.inputs.limit;
       if (
-        limitInput?.kind === 'value' &&
-        typeof limitInput.value === 'number' &&
-        limitInput.value > Math.min(limits.maxPageSize, operation.pagination.maxLimit)
+        Object.hasOwn(step.inputs, 'limit') &&
+        step.inputs.limit.kind === 'value' &&
+        typeof step.inputs.limit.value === 'number' &&
+        step.inputs.limit.value > Math.min(limits.maxPageSize, operation.pagination.maxLimit)
       ) {
         issues.push(
           issue(
@@ -266,8 +272,8 @@ export function validateCandidatePlan(input: CompilePlanInput): readonly PlanIss
     }
     if (operation.auth.consumerFiltered) {
       for (const action of operation.whmcsActions) {
-        const capability = CAPABILITY_REGISTRY[action]?.capability;
-        if (capability === undefined || !context.allowedCapabilityIds.has(capability)) {
+        const capability = CAPABILITY_REGISTRY[action].capability;
+        if (!context.allowedCapabilityIds.has(capability)) {
           issues.push(
             issue(
               'error',

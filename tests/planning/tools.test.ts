@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 
 const { draftWorkflowIntent } = vi.hoisted(() => ({
   draftWorkflowIntent: vi.fn(() => ({
@@ -44,7 +43,11 @@ import { __resetCapabilityEvidenceForTests } from '../../src/governance/capabili
 type Handler = (
   params: Record<string, unknown>,
   extra: { signal: AbortSignal }
-) => Promise<any> | any;
+) =>
+  | Promise<{ structuredContent: Record<string, unknown> }>
+  | {
+      structuredContent: Record<string, unknown>;
+    };
 
 const callbacks = new Map<string, Handler>();
 const server = {

@@ -167,7 +167,8 @@ export function verifyCompiledPlan(
       safe_repair: 'Refresh evidence and recompile.',
     });
   }
-  if (plan.executable !== false) {
+  const executable = (plan as unknown as Record<string, unknown>).executable;
+  if (executable !== false) {
     issues.push({
       severity: 'error',
       path: 'executable',

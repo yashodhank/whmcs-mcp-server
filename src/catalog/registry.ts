@@ -49,10 +49,14 @@ function validateDefinition(definition: OperationDefinition, globalMaxPageSize: 
 
   if (definition.effects === 'write' || definition.effects === 'draft') {
     if (definition.governance.scope === null || definition.governance.scope.trim().length === 0) {
-      throw new CatalogValidationError(`${definition.id} draft/write operations require a governed scope`);
+      throw new CatalogValidationError(
+        `${definition.id} draft/write operations require a governed scope`
+      );
     }
     if (definition.riskTier !== 'medium' && definition.riskTier !== 'high') {
-      throw new CatalogValidationError(`${definition.id} draft/write operations require medium or high risk`);
+      throw new CatalogValidationError(
+        `${definition.id} draft/write operations require medium or high risk`
+      );
     }
   }
 
