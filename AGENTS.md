@@ -23,7 +23,9 @@ MCP host → src/index.ts
   ├─ catalog/*  (typed operation metadata, validation, discovery)
   ├─ write/*  (intent store, validation, execution gate, audit)
   ├─ resources/* + playbook + compat-9x
-  └─ whmcs/WhmcsClient
+  └─ whmcs/WhmcsClient (compatibility facade)
+       ├─ request/*  (encode, transport, decode, classify, retry/repair)
+       └─ readCoordinator + cachePolicy  (bounded safe-read acceleration)
 ```
 
 **Governance (Phase B, opt-in):** Set `MCP_GOVERNANCE_ENABLED=true` and configure `MCP_CONSUMER_REGISTRY` (SHA-256 of bearer tokens only — never commit raw tokens). When off (default), legacy tool output paths remain for backward compatibility. See [docs/design/governance.md](docs/design/governance.md).
