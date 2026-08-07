@@ -7,6 +7,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { pathToFileURL } from 'node:url';
 import { config, getWhmcsApiEndpoint } from './config.js';
 import { Logger } from './logging.js';
 import { startHttpServer } from './http/httpServer.js';
@@ -212,19 +213,6 @@ async function runStartupHealthCheck(whmcsClient: WhmcsClient, logger: Logger): 
   });
 }
 
-// Handle uncaught errors
-process.on('uncaughtException', (error) => {
-  process.stderr.write(`\n❌ Uncaught exception: ${error.message}\n${error.stack}\n`);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason: unknown) => {
-  const detail = reason instanceof Error ? reason.message : String(reason);
-  process.stderr.write(`\n❌ Unhandled rejection: ${detail}\n`);
-  process.exit(1);
-});
-
-// Graceful shutdown handlers
 let rateLimiterInstance: RateLimiter | null = null;
 let httpServerHandle: { close: () => Promise<void> } | null = null;
 
@@ -243,16 +231,33 @@ function gracefulShutdown(signal: string): void {
   process.exit(0);
 }
 
-process.on('SIGTERM', () => {
-  gracefulShutdown('SIGTERM');
-});
-process.on('SIGINT', () => {
-  gracefulShutdown('SIGINT');
-});
+function installProcessHandlers(): void {
+  process.on('uncaughtException', (error) => {
+    process.stderr.write(`\n❌ Uncaught exception: ${error.message}\n${error.stack}\n`);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason: unknown) => {
+    const detail = reason instanceof Error ? reason.message : String(reason);
+    process.stderr.write(`\n❌ Unhandled rejection: ${detail}\n`);
+    process.exit(1);
+  });
+  process.on('SIGTERM', () => {
+    gracefulShutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    gracefulShutdown('SIGINT');
+  });
+}
 
-// Start the server
-main().catch((error: unknown) => {
-  const detail = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`\n❌ Failed to start server: ${detail}\n`);
-  process.exit(1);
-});
+// Start only when this module is the process entry point. Importers (including
+// the in-process MCP contract harness) receive the pure buildServer factory
+// without opening a transport or installing a second server instance.
+const isDirectEntry = import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectEntry) {
+  installProcessHandlers();
+  main().catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`\n❌ Failed to start server: ${detail}\n`);
+    process.exit(1);
+  });
+}
