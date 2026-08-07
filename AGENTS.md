@@ -11,7 +11,7 @@ every substantive change.
 
 - **Transport:** MCP over **stdio** (Cursor, Claude Desktop, Kilo, etc.). Logs go to **stderr** only; never write to stdout except JSON-RPC.
 - **Backend:** WHMCS External API via `WhmcsClient` (`src/whmcs/`).
-- **Surface:** ~50 tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow) and **8 read-only resources**.
+- **Surface:** 61 tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow and non-executing planning) plus **9 resource endpoints/templates**.
 
 ## Architecture (current)
 
@@ -22,6 +22,7 @@ MCP host → src/index.ts
   ├─ governance/*  (opt-in: consumer → canonical → project)
   ├─ catalog/*  (typed operation metadata, validation, discovery)
   ├─ write/*  (intent store, validation, execution gate, audit)
+  ├─ planning/*  (deterministic, non-executable PlanIR compiler)
   ├─ resources/* + playbook + compat-9x
   └─ whmcs/WhmcsClient (compatibility facade)
        ├─ request/*  (encode, transport, decode, classify, retry/repair)
