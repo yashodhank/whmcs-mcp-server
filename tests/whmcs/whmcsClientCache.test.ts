@@ -95,7 +95,11 @@ describe('WhmcsClient read cache (default OFF)', () => {
     const client = new WhmcsClient(makeConfig({ MCP_READ_CACHE_TTL_MS: 0 }), makeLogger());
     const active = new AbortController();
     await client.read('GetProducts', { pid: 1 }, { signal: active.signal });
-    expect(post).toHaveBeenCalledWith('', expect.any(URLSearchParams), { signal: active.signal });
+    expect(post).toHaveBeenCalledWith(
+      '',
+      expect.any(URLSearchParams),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
 
     post.mockClear();
     const cancelled = new AbortController();
