@@ -280,9 +280,19 @@ and other domains are still manual and
 must migrate one pack per focused PR; controlled writes have not moved into the
 catalog. See [`docs/design/capability-catalog.md`](design/capability-catalog.md).
 
-The current public catalog is 57 tools, 9 prompts, 4 concrete resources, and 9
-resource templates; the only intended additive Plan 003 surface is
-`whmcs://capabilities/v2`.
+Plan 005 now adds the first deterministic safe-planning slice. The host prompt
+brainstorms alternatives while the server validates a versioned, expiring,
+hashed and permanently non-executable PlanIR. Catalog inspection and compile
+are pure; preflight is restricted to an explicit safe-operation allowlist; and
+drafting calls only the existing governed draft-intent seam. No planner path
+validates, approves, executes, calls a model provider, stores long-term client
+data, or introduces a database path. See
+[`docs/design/safe-operations-planner.md`](design/safe-operations-planner.md).
+
+The current public catalog is 61 tools, 10 prompts, 5 concrete resources, and
+9 resource templates. The additive Plan 003/005 surfaces are
+`whmcs://capabilities/v2`, `whmcs://planning/planir/v1`, four planning tools,
+and the `plan_whmcs_operation` prompt.
 
 Plan 004 is now implemented as a compatible `WhmcsClient` facade over typed
 encoding, transport, decoding, classification, retry/repair, deadline and
