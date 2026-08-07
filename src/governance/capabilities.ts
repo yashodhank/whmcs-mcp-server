@@ -3,93 +3,47 @@
  *
  * Per WHMCS action the server keeps a declared capability status. Tools and
  * aggregators consult `getCapability` BEFORE calling WHMCS; `unverified`
- * entries may be promoted exactly once via a single small read-only `probeCapability`
- * call whose result is cached in-process. Probes respect the existing read
- * allowlist (`assertReadAction` / the injected `isAllowlisted`): an action that
+ * entries may be promoted by a single small read-only `probeCapability` call
+ * whose result is cached as target-scoped, expiring evidence. Probes respect
+ * the existing read allowlist (`assertReadAction` / the injected
+ * `isAllowlisted`): an action that
  * is not allowlisted is reported `unsupported` and NEVER called. We never fake
  * data and never broadly expand the read allowlist here — see
  * docs/design/governance.md §6.
  *
- * This module imports the FROZEN seam `./types.js` only and owns no other state.
+ * The declaration list is server-owned catalog metadata; evidence storage is
+ * isolated in `capabilityEvidence.ts`.
  */
 
 import type { CapabilityStatus, CapabilityStatusValue, CapabilityUnavailable } from './types.js';
+import { DECLARED_WHMCS_CAPABILITIES } from '../catalog/declaredCapabilities.js';
+import {
+  __resetCapabilityEvidenceForTests,
+  DEFAULT_CAPABILITY_EVIDENCE_TARGET,
+  getCapabilityEvidence,
+  recordCapabilityEvidence,
+  type CapabilityEvidenceTarget,
+  type CapabilityFailureClass,
+} from './capabilityEvidence.js';
+
+const DECLARED_CAPABILITY_BY_ACTION = new Map(
+  DECLARED_WHMCS_CAPABILITIES.map((declaration) => [declaration.action, declaration] as const)
+);
 
 /* ───────────────────────────  Static registry  ──────────────────────────── */
 
-/**
- * Capability ids are snake_case identifiers a consumer references in
- * `ConsumerProfile.allowedActions`. The action→capability mapping is stable and
- * committed; consumers depend on these names, not on WHMCS action spellings.
- */
-const SUPPORTED_READS: readonly (readonly [action: string, capability: string])[] = [
-  ['GetClients', 'list_clients'],
-  ['GetClientsDetails', 'get_client_details'],
-  ['GetClientsProducts', 'list_client_products'],
-  ['GetClientsDomains', 'list_client_domains'],
-  ['GetInvoice', 'get_invoice'],
-  ['GetInvoices', 'list_invoices'],
-  ['GetTickets', 'list_tickets'],
-  ['GetTicket', 'get_ticket'],
-  ['GetSupportDepartments', 'list_support_departments'],
-  ['GetOrders', 'list_orders'],
-  ['GetProducts', 'list_products'],
-  ['GetActivityLog', 'list_activity_log'],
-  ['GetAdminDetails', 'get_admin_details'],
-  ['GetAdminLog', 'list_admin_log'],
-  ['DomainWhois', 'domain_whois'],
-  // Phase H — promoted after read-only probes confirmed `supported` on
-  // Dev WHMCS 8, Dev WHMCS 9, AND production read-only.
-  ['GetTransactions', 'list_client_transactions'],
-  ['GetStats', 'get_system_stats'],
-  ['GetToDoItems', 'list_todo_items'],
-  ['GetAutomationLog', 'list_automation_log'],
-];
-
-/**
- * Remaining unverified. GetUsers probes returned `degraded` on Dev W8,
- * Dev W9 AND production (likely an API-role gap — see
- * docs/archive/getusers-investigation.md). NOT promoted, NOT allowlisted; the
- * shell keeps returning a structured capability_unavailable. Never faked.
- */
-const UNVERIFIED_READS: readonly (readonly [action: string, capability: string])[] = [
-  ['GetUsers', 'list_users'],
-  // Track A — infrastructure / reference reads. Allowlisted (actionPolicy.ts)
-  // so the governed tools function, but NOT yet prod-probed, so honestly
-  // declared `unverified`. The read tools still work (capability status is
-  // informational, as with the list_* tools); an operator probe can promote
-  // these to `supported`.
-  ['GetServers', 'get_server_health'],
-  ['GetTLDPricing', 'get_tld_pricing'],
-  // Track A (batch 2)
-  ['GetContacts', 'get_client_contacts'],
-  ['GetPayMethods', 'get_pay_methods'],
-  ['GetCredits', 'get_credits'],
-  ['GetTicketCounts', 'get_ticket_counts'],
-  ['GetSupportStatuses', 'list_support_statuses'],
-  // Track A (batch 3)
-  ['GetQuotes', 'get_quotes'],
-  ['GetCurrencies', 'get_currencies'],
-  ['GetPaymentMethods', 'list_payment_methods'],
-  ['WhmcsDetails', 'get_whmcs_details'],
-];
-
 function buildRegistry(): Record<string, CapabilityStatus> {
   const registry: Record<string, CapabilityStatus> = {};
-  for (const [action, capability] of SUPPORTED_READS) {
-    registry[action] = {
-      action,
-      status: 'supported',
-      capability,
-      note: 'Allowlisted read action, supported by this server build.',
-    };
-  }
-  for (const [action, capability] of UNVERIFIED_READS) {
-    registry[action] = {
-      action,
-      status: 'unverified',
-      capability,
-      note: 'Allowlisted but not yet prod-probed; run a capability probe to promote to supported.',
+  for (const declaration of DECLARED_WHMCS_CAPABILITIES) {
+    if (!declaration.exposeInLegacyMatrix) continue;
+    registry[declaration.action] = {
+      action: declaration.action,
+      status: declaration.status,
+      capability: declaration.capability,
+      note:
+        declaration.status === 'supported'
+          ? 'Allowlisted read action, supported by this server build.'
+          : 'Allowlisted but not yet prod-probed; run a capability probe to promote to supported.',
     };
   }
   return registry;
@@ -98,17 +52,9 @@ function buildRegistry(): Record<string, CapabilityStatus> {
 /** Static, declared capability per WHMCS action the server cares about. */
 export const CAPABILITY_REGISTRY: Record<string, CapabilityStatus> = buildRegistry();
 
-/* ─────────────────────────────  In-process cache  ───────────────────────── */
-
-/**
- * Probe results are memoised for the lifetime of the process. The registry
- * itself is never mutated; resolved statuses live here.
- */
-const probeCache = new Map<string, CapabilityStatus>();
-
-/** Test-only hook to clear the in-process probe cache. Not for production use. */
+/** Test-only hook to clear target-scoped capability evidence. */
 export function __resetCapabilityCacheForTests(): void {
-  probeCache.clear();
+  __resetCapabilityEvidenceForTests();
 }
 
 /* ─────────────────────────────  Lookups  ─────────────────────────────────── */
@@ -127,14 +73,27 @@ function synthesizeCapabilityId(action: string): string {
 }
 
 /**
- * Return the current capability status for an action. A cached probe result
- * wins over the static seed. An unknown action is synthesized as `unsupported`
- * (the most conservative status) — it is never silently treated as supported.
+ * Return the current capability status for an action. Unexpired evidence for
+ * the selected target wins over the static seed. An unknown action is
+ * synthesized as `unsupported` (the most conservative status) — it is never
+ * silently treated as supported.
  */
-export function getCapability(action: string): CapabilityStatus {
-  const cached = probeCache.get(action);
-  if (cached !== undefined) {
-    return cached;
+export function getCapability(
+  action: string,
+  target: CapabilityEvidenceTarget = DEFAULT_CAPABILITY_EVIDENCE_TARGET,
+  nowMs = Date.now()
+): CapabilityStatus {
+  const evidence = getCapabilityEvidence(target, action, nowMs);
+  if (evidence !== undefined) {
+    return {
+      action,
+      status: evidence.status,
+      capability: Object.hasOwn(CAPABILITY_REGISTRY, action)
+        ? CAPABILITY_REGISTRY[action].capability
+        : synthesizeCapabilityId(action),
+      verifiedAt: evidence.observedAt,
+      note: evidence.note,
+    };
   }
   if (Object.hasOwn(CAPABILITY_REGISTRY, action)) {
     return CAPABILITY_REGISTRY[action];
@@ -155,7 +114,15 @@ export interface ProbeDeps {
   read: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
   /** True iff the action is in the existing read allowlist (assertReadAction). */
   isAllowlisted: (action: string) => boolean;
+  /** Opaque installation + configuration fingerprints used to isolate evidence. */
+  target?: CapabilityEvidenceTarget;
+  /** Evidence lifetime. Defaults to five minutes. */
+  evidenceTtlMs?: number;
+  /** Clock injection for deterministic tests. */
+  now?: () => number;
 }
+
+const DEFAULT_EVIDENCE_TTL_MS = 5 * 60_000;
 
 const ACCESS_DENIED_PATTERNS = [
   'access denied',
@@ -208,36 +175,29 @@ function readResultIsError(value: unknown): { isError: boolean; message: string 
   return { isError: false, message: '' };
 }
 
-function classifyFailure(
-  action: string,
-  capability: string,
-  message: string,
-  verifiedAt: string
-): CapabilityStatus {
+function classifyFailure(message: string): {
+  status: CapabilityStatusValue;
+  failureClass: CapabilityFailureClass;
+  note: string;
+} {
   const lower = message.toLowerCase();
   if (ACCESS_DENIED_PATTERNS.some((p) => lower.includes(p))) {
     return {
-      action,
       status: 'not_authorized',
-      capability,
-      verifiedAt,
+      failureClass: 'access_denied',
       note: 'WHMCS denied access for the configured API credentials.',
     };
   }
   if (UNKNOWN_ACTION_PATTERNS.some((p) => lower.includes(p))) {
     return {
-      action,
       status: 'unsupported',
-      capability,
-      verifiedAt,
+      failureClass: 'unsupported_action',
       note: 'WHMCS reports this action does not exist on the install.',
     };
   }
   return {
-    action,
     status: 'degraded',
-    capability,
-    verifiedAt,
+    failureClass: 'transport_or_other',
     note: 'Probe could not be completed (transport/other error).',
   };
 }
@@ -253,57 +213,101 @@ function classifyFailure(
  * - `result:'error'` (or thrown) with unknown-action text ⇒ `unsupported`.
  * - transport / any other error ⇒ `degraded`.
  *
- * The first resolved status is cached; subsequent calls short-circuit and do
- * not re-probe.
+ * The first resolved status is cached for the target + configuration + catalog
+ * version + safe probe shape until expiry; matching calls do not re-probe.
  */
 export async function probeCapability(
   action: string,
   deps: ProbeDeps,
   params?: Record<string, unknown>
 ): Promise<CapabilityStatus> {
-  const cached = probeCache.get(action);
+  const target = deps.target ?? DEFAULT_CAPABILITY_EVIDENCE_TARGET;
+  const nowMs = deps.now?.() ?? Date.now();
+  const ttlMs = deps.evidenceTtlMs ?? DEFAULT_EVIDENCE_TTL_MS;
+  const probeParams: Record<string, unknown> = { ...params, limitnum: 1 };
+  const cached = getCapabilityEvidence(target, action, nowMs, probeParams);
   if (cached !== undefined) {
-    return cached;
+    return {
+      action,
+      status: cached.status,
+      capability: Object.hasOwn(CAPABILITY_REGISTRY, action)
+        ? CAPABILITY_REGISTRY[action].capability
+        : synthesizeCapabilityId(action),
+      verifiedAt: cached.observedAt,
+      note: cached.note,
+    };
   }
 
-  const base = getCapability(action);
+  const base = getCapability(action, target, nowMs);
   const capability = base.capability;
+
+  // A caller-provided allowlist cannot make an unknown or external-only action
+  // probeable. Operator evidence is recorded through recordCapabilityEvidence.
+  const declaration = DECLARED_CAPABILITY_BY_ACTION.get(action);
+  if (declaration?.probe !== 'read_safe') return base;
 
   // Allowlist is the hard gate — never call read() for a non-allowlisted
   // action; report unsupported without expanding the allowlist.
   if (!deps.isAllowlisted(action)) {
-    const unsupported: CapabilityStatus = {
+    const evidence = recordCapabilityEvidence({
+      target,
       action,
+      probeParams,
       status: 'unsupported',
-      capability,
+      source: 'policy',
+      observedAtMs: nowMs,
+      ttlMs,
+      failureClass: 'policy_denied',
       note: 'Action is not in the read allowlist; not probed.',
+    });
+    return {
+      action,
+      status: evidence.status,
+      capability,
+      verifiedAt: evidence.observedAt,
+      note: evidence.note,
     };
-    probeCache.set(action, unsupported);
-    return unsupported;
   }
 
-  const verifiedAt = new Date().toISOString();
-  const probeParams: Record<string, unknown> = { limitnum: 1, ...params };
-
-  let resolved: CapabilityStatus;
+  let status: CapabilityStatusValue;
+  let failureClass: CapabilityFailureClass = 'none';
+  let note = 'Probe succeeded against the live WHMCS install.';
   try {
     const response = await deps.read(action, probeParams);
-    const { isError, message } = readResultIsError(response);
-    resolved = isError
-      ? classifyFailure(action, capability, message, verifiedAt)
-      : {
-          action,
-          status: 'supported',
-          capability,
-          verifiedAt,
-          note: 'Probe succeeded against the live WHMCS install.',
-        };
+    const result = readResultIsError(response);
+    if (result.isError) {
+      const classified = classifyFailure(result.message);
+      status = classified.status;
+      failureClass = classified.failureClass;
+      note = classified.note;
+    } else {
+      status = 'supported';
+    }
   } catch (error) {
-    resolved = classifyFailure(action, capability, extractErrorMessage(error), verifiedAt);
+    const classified = classifyFailure(extractErrorMessage(error));
+    status = classified.status;
+    failureClass = classified.failureClass;
+    note = classified.note;
   }
 
-  probeCache.set(action, resolved);
-  return resolved;
+  const evidence = recordCapabilityEvidence({
+    target,
+    action,
+    probeParams,
+    status,
+    source: 'read_probe',
+    observedAtMs: nowMs,
+    ttlMs,
+    failureClass,
+    note,
+  });
+  return {
+    action,
+    status: evidence.status,
+    capability,
+    verifiedAt: evidence.observedAt,
+    note: evidence.note,
+  };
 }
 
 /* ─────────────────────────────  Unavailable payload  ────────────────────── */

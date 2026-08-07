@@ -57,6 +57,9 @@ jobs:
       - name: MCP catalog and transport contracts
         run: npm run mcp:test:contracts
 
+      - name: Capability catalog semantic contract
+        run: npm run catalog:check
+
   mcp-conformance:
     name: mcp-conformance
     runs-on: ubuntu-latest
