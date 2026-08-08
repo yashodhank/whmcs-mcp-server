@@ -209,7 +209,24 @@ function amountContextFor(
   params: Record<string, unknown>
 ): AmountContext | undefined {
   const raw = params.amount;
-  const amount = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  const domainRows = Array.isArray(params.domains) ? (params.domains as unknown[]) : undefined;
+  const orderTotal =
+    action === 'AddOrder' && domainRows !== undefined
+      ? domainRows.reduce<number>((sum, row: unknown) => {
+          if (!row || typeof row !== 'object') return sum;
+          const value = row as Record<string, unknown>;
+          const price = typeof value.price === 'number' ? value.price : Number(value.price);
+          return Number.isFinite(price) && price > 0 ? sum + price : sum;
+        }, 0)
+      : NaN;
+  const amount =
+    Number.isFinite(orderTotal) && orderTotal > 0
+      ? orderTotal
+      : typeof raw === 'number'
+        ? raw
+        : typeof raw === 'string'
+          ? Number(raw)
+          : NaN;
   if (!Number.isFinite(amount) || amount <= 0) return undefined;
   return { amount: Math.abs(amount), dayTotal: dayAmountsStore.getTotal(action) };
 }

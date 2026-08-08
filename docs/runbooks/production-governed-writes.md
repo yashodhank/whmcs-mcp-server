@@ -55,6 +55,13 @@ Create at least two identities for high-risk work:
 Each profile must explicitly declare its allowed write scopes and production
 environment restriction. Never use an anonymous consumer for writes.
 
+For payment-pending domain sales, use the governed `order:create` scope. It
+maps to WHMCS `AddOrder`, forces `noinvoice=false` and `noemail=true`, and
+never accepts or provisions the order. Treat it as high-risk: configure the
+production allowlist/caps, obtain a distinct approver, execute with the
+original executor identity, then read back both the Pending order and Unpaid
+invoice. Do not substitute a quote or `order:accept`.
+
 Introducing or changing the `MCP_CONSUMER_REGISTRY_FILE` environment variable
 requires an MCP service/process restart because environment variables are read
 at startup. For stdio transport only, reconnecting is equivalent when the host

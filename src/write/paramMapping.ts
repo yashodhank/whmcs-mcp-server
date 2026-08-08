@@ -452,6 +452,51 @@ export function mapOrderAcceptParams(params: Record<string, unknown>): Record<st
 }
 
 /**
+ * Map a pending order request to WHMCS AddOrder. The intent contract uses a
+ * structured `domains` array; WHMCS expects parallel arrays. The mapper always
+ * disables acceptance/provisioning and email so this scope can only create an
+ * unpaid, operator-reviewed order.
+ */
+export function mapOrderCreateParams(params: Record<string, unknown>): Record<string, unknown> {
+  const domains = params.domains;
+  if (!Array.isArray(domains) || domains.length === 0) {
+    throw new Error('order:create requires a non-empty domains array');
+  }
+  const rows = domains.map((row) => {
+    if (!row || typeof row !== 'object')
+      throw new Error('order:create domain rows must be objects');
+    const value = row as Record<string, unknown>;
+    const domain = normalizeDomain(value.domain);
+    const regperiod = Number(value.regperiod);
+    const price = Number(value.price);
+    if (
+      !domain ||
+      !Number.isInteger(regperiod) ||
+      regperiod < 1 ||
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
+      throw new Error(
+        'order:create domain rows require domain, positive integer regperiod, and non-negative price'
+      );
+    }
+    return { domain, regperiod, price };
+  });
+  const paymentmethod = typeof params.paymentmethod === 'string' ? params.paymentmethod.trim() : '';
+  if (!paymentmethod) throw new Error('order:create requires paymentmethod');
+  return {
+    clientid: params.clientid,
+    domain: rows.map((row) => row.domain),
+    domaintype: rows.map(() => 'register'),
+    regperiod: rows.map((row) => row.regperiod),
+    domainpriceoverride: rows.map((row) => row.price),
+    paymentmethod,
+    noinvoice: false,
+    noemail: true,
+  };
+}
+
+/**
  * Shared allowlist of WHMCS AddClient / UpdateClient fields the governed client
  * scopes are permitted to forward. ANYTHING not in this set is dropped (defense
  * in depth, mirrors the other strict mappers). NOTE: `password2` is forwarded
@@ -844,6 +889,8 @@ export function intentToWhmcsParams(
       return mapDomainRenewParams(params);
     case 'order:accept':
       return mapOrderAcceptParams(params);
+    case 'order:create':
+      return mapOrderCreateParams(params);
     case 'client:create':
       return mapClientCreateParams(params);
     case 'client:update':
