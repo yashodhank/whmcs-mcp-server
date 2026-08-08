@@ -30,18 +30,15 @@ describe('order:create governed contract', () => {
       intentToWhmcsParams('order:create', {
         clientid: 279,
         paymentmethod: 'mailin',
-        domains: [
-          { domain: 'geodscvr.app', regperiod: 1, price: 2549 },
-          { domain: 'geodscvr.io', regperiod: 1, price: 6900 },
-        ],
+        domains: [{ domain: 'geodscvr.app', regperiod: 1, price: 2549 }],
         evil: 'dropped',
       })
     ).toEqual({
       clientid: 279,
-      domain: ['geodscvr.app', 'geodscvr.io'],
-      domaintype: ['register', 'register'],
-      regperiod: [1, 1],
-      domainpriceoverride: [2549, 6900],
+      domain: ['geodscvr.app'],
+      domaintype: ['register'],
+      regperiod: [1],
+      domainpriceoverride: [2549],
       paymentmethod: 'mailin',
       noinvoice: false,
       noemail: true,
@@ -60,6 +57,24 @@ describe('order:create governed contract', () => {
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toEqual(
       expect.arrayContaining(['order_create_regperiod_invalid', 'order_create_price_invalid'])
+    );
+  });
+
+  it('rejects multi-domain intents to prevent partial AddOrder side effects', () => {
+    const result = validateIntent(
+      intent({
+        clientid: 279,
+        paymentmethod: 'mailin',
+        domains: [
+          { domain: 'geodscvr.app', regperiod: 1, price: 2549 },
+          { domain: 'geodscvr.io', regperiod: 1, price: 6900 },
+        ],
+      }),
+      {}
+    );
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain(
+      'order_create_single_domain_required'
     );
   });
 });

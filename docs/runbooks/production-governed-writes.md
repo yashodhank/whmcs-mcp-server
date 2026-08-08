@@ -56,11 +56,20 @@ Each profile must explicitly declare its allowed write scopes and production
 environment restriction. Never use an anonymous consumer for writes.
 
 For payment-pending domain sales, use the governed `order:create` scope. It
-maps to WHMCS `AddOrder`, forces `noinvoice=false` and `noemail=true`, and
-never accepts or provisions the order. Treat it as high-risk: configure the
-production allowlist/caps, obtain a distinct approver, execute with the
+maps one domain per intent to WHMCS `AddOrder`, forces `noinvoice=false` and
+`noemail=true`, and never accepts or provisions the order. One-domain intents
+are intentional: WHMCS can partially create a zero-value order before
+rejecting a later domain in a multi-domain request. Fan out multiple domains
+and verify each order/invoice independently. Treat it as high-risk: configure
+the production allowlist/caps, obtain a distinct approver, execute with the
 original executor identity, then read back both the Pending order and Unpaid
 invoice. Do not substitute a quote or `order:accept`.
+
+Before any production write, run `npm run mcp:preflight`. It checks only
+presence, mode, file permissions, writable durable paths, governance posture,
+kill-switch state, and configured allowlists; it never prints credential
+values. A failing preflight is a stop condition, not a prompt to bypass
+governance.
 
 Introducing or changing the `MCP_CONSUMER_REGISTRY_FILE` environment variable
 requires an MCP service/process restart because environment variables are read
