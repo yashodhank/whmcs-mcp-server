@@ -56,8 +56,11 @@ Each profile must explicitly declare its allowed write scopes and production
 environment restriction. Never use an anonymous consumer for writes.
 
 For payment-pending domain sales, use the governed `order:create` scope. It
-maps one domain per intent to WHMCS `AddOrder`, forces `noinvoice=false` and
-`noemail=true`, and never accepts or provisions the order. One-domain intents
+maps one domain per intent to WHMCS `AddOrder`, forces `noinvoice=false`,
+`noinvoiceemail=true`, and `noemail=true`, and never calls `AcceptOrder`.
+WHMCS still creates a domain row; registrar hooks/automation can independently
+register it, so production use requires a verified no-auto-registration posture
+and a post-write domain-status readback. One-domain intents
 are intentional: WHMCS can partially create a zero-value order before
 rejecting a later domain in a multi-domain request. Fan out multiple domains
 and verify each order/invoice independently. Treat it as high-risk: configure

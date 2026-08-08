@@ -41,6 +41,7 @@ describe('order:create governed contract', () => {
       domainpriceoverride: [2549],
       paymentmethod: 'mailin',
       noinvoice: false,
+      noinvoiceemail: true,
       noemail: true,
     });
   });
