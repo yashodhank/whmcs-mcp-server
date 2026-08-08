@@ -454,8 +454,10 @@ export function mapOrderAcceptParams(params: Record<string, unknown>): Record<st
 /**
  * Map a pending order request to WHMCS AddOrder. The intent contract uses a
  * structured `domains` array; WHMCS expects parallel arrays. The mapper always
- * disables acceptance/provisioning and email so this scope can only create an
- * unpaid, operator-reviewed order.
+ * disables invoice suppression and both documented AddOrder email channels so
+ * this scope can only create an unpaid, operator-reviewed order. WHMCS still
+ * creates domain rows; production operators must verify that registrar hooks
+ * and automation cannot register those rows before enabling this scope.
  */
 export function mapOrderCreateParams(params: Record<string, unknown>): Record<string, unknown> {
   const domains = params.domains;
@@ -494,6 +496,7 @@ export function mapOrderCreateParams(params: Record<string, unknown>): Record<st
     domainpriceoverride: rows.map((row) => row.price),
     paymentmethod,
     noinvoice: false,
+    noinvoiceemail: true,
     noemail: true,
   };
 }

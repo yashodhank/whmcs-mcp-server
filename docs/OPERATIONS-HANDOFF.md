@@ -353,10 +353,13 @@ Roadmap invariants remain operational requirements:
   capability and its guarded write transaction. The roadmap does not authorize
   general WHMCS database reads or another direct-database execution path.
 - payment-pending domain sales use the governed `order:create` AddOrder scope;
-  the mapper accepts one domain per intent, forces invoice creation and
-  suppresses email, while acceptance, provisioning, and registration remain
-  separate actions requiring a later explicit ceremony. Fan out multiple
-  domains to avoid partial AddOrder side effects.
+  the mapper accepts one domain per intent, forces invoice creation and both
+  documented AddOrder email suppressors, and never calls `AcceptOrder`.
+  AddOrder still creates domain rows, and registrar hooks/automation may
+  register them independently; verify the target's no-auto-registration
+  posture and read back domain status before treating an order as safely
+  unregistered. Fan out multiple domains to avoid partial AddOrder side
+  effects.
 - `npm run mcp:preflight` is the required local readiness check before a
   production write; it validates governance, consumer-registry permissions,
   durable audit/idempotency/day-cap paths, allowlist presence, and kill-switch
@@ -368,10 +371,12 @@ write behavior, operational ownership or deployment requirements.
 
 A production payment-pending domain order run was completed through the
 governed flow on 2026-08-08. Customer/order identifiers and commercial terms
-remain in the private audit/report workspace; no client email, acceptance,
-provisioning, or registration was performed. An initial rejected multi-domain
-probe left a zero-value Pending order without an invoice and is an explicit
-administrator cleanup item.
+remain in the private audit/report workspace. Read-back later showed registrar
+automation registered `.app` and `.com` and left `.io` Pending despite the
+orders and invoices remaining Pending/Unpaid; this is an operator-visible
+production discrepancy, not evidence that `AddOrder` alone is safe from
+registrar hooks. An initial rejected multi-domain probe was subsequently
+cancelled and deleted (Order 994).
 The repository owner approved and completed a coordinated branch-history
 rewrite on 2026-08-06. Remote branch heads and known fork heads were verified
 to contain no matches for the removed customer/commercial text. GitHub-hosted

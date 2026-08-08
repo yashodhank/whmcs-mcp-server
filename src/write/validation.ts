@@ -71,7 +71,8 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   // order:accept — orderid only; fraud/provisioning flags are never auto-sent.
   'order:accept': ['orderid'],
   // order:create — client + structured domain rows + payment method. The
-  // mapper pins noinvoice=false and noemail=true for a payment-pending order.
+  // mapper pins invoice creation plus both documented email suppressors for a
+  // payment-pending order; registrar automation remains an environment gate.
   'order:create': ['clientid', 'domains', 'paymentmethod'],
   // client:create — firstname/lastname/email required (basic identity). password2
   // is NOT required here (caller may supply it; otherwise WHMCS requires it).
