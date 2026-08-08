@@ -70,6 +70,9 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'domain:renew': ['domainid', 'regperiod'],
   // order:accept — orderid only; fraud/provisioning flags are never auto-sent.
   'order:accept': ['orderid'],
+  // order:create — client + structured domain rows + payment method. The
+  // mapper pins noinvoice=false and noemail=true for a payment-pending order.
+  'order:create': ['clientid', 'domains', 'paymentmethod'],
   // client:create — firstname/lastname/email required (basic identity). password2
   // is NOT required here (caller may supply it; otherwise WHMCS requires it).
   'client:create': ['firstname', 'lastname', 'email'],
@@ -792,6 +795,57 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
         code: 'invalid_orderid',
         severity: 'error',
         message: 'order:accept `orderid` must be a positive integer',
+      });
+    }
+  }
+
+  if (intent.scope === 'order:create') {
+    const domains = intent.params.domains;
+    if (!Array.isArray(domains) || domains.length === 0) {
+      issues.push({
+        code: 'order_create_domains_required',
+        severity: 'error',
+        message: 'order:create `domains` must be a non-empty array',
+      });
+    } else {
+      for (const [index, row] of domains.entries()) {
+        if (!row || typeof row !== 'object') {
+          issues.push({
+            code: 'order_create_domain_row_invalid',
+            severity: 'error',
+            message: `order:create domains[${index}] must be an object`,
+          });
+          continue;
+        }
+        const value = row as Record<string, unknown>;
+        if (typeof value.domain !== 'string' || value.domain.trim() === '') {
+          issues.push({
+            code: 'order_create_domain_required',
+            severity: 'error',
+            message: `order:create domains[${index}].domain is required`,
+          });
+        }
+        if (!Number.isInteger(value.regperiod) || Number(value.regperiod) < 1) {
+          issues.push({
+            code: 'order_create_regperiod_invalid',
+            severity: 'error',
+            message: `order:create domains[${index}].regperiod must be a positive integer`,
+          });
+        }
+        if (typeof value.price !== 'number' || !Number.isFinite(value.price) || value.price < 0) {
+          issues.push({
+            code: 'order_create_price_invalid',
+            severity: 'error',
+            message: `order:create domains[${index}].price must be a non-negative number`,
+          });
+        }
+      }
+    }
+    if (intent.params.noemail !== undefined && intent.params.noemail !== true) {
+      issues.push({
+        code: 'order_create_email_must_be_suppressed',
+        severity: 'error',
+        message: 'order:create cannot enable email delivery',
       });
     }
   }

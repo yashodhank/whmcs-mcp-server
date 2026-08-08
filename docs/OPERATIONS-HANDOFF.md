@@ -352,14 +352,21 @@ Roadmap invariants remain operational requirements:
 - direct database access remains limited to the documented owner-transfer
   capability and its guarded write transaction. The roadmap does not authorize
   general WHMCS database reads or another direct-database execution path.
+- payment-pending domain sales use the governed `order:create` AddOrder scope;
+  the mapper forces invoice creation and suppresses email, while acceptance,
+  provisioning, and registration remain separate actions requiring a later
+  explicit ceremony.
 
 Every roadmap implementation PR must update this handoff when it changes
 runtime/transport posture, compatibility retirement criteria, data access,
 write behavior, operational ownership or deployment requirements.
 
-A production discovery quote was prepared as an unsent draft through the
-governed flow. The current tree omits customer identity and commercial terms;
-private evidence remains in the audit ledger and client/proposal workspace.
+A production payment-pending domain order run was completed through the
+governed flow on 2026-08-08. Customer/order identifiers and commercial terms
+remain in the private audit/report workspace; no client email, acceptance,
+provisioning, or registration was performed. An initial rejected multi-domain
+probe left a zero-value Pending order without an invoice and is an explicit
+administrator cleanup item.
 The repository owner approved and completed a coordinated branch-history
 rewrite on 2026-08-06. Remote branch heads and known fork heads were verified
 to contain no matches for the removed customer/commercial text. GitHub-hosted
