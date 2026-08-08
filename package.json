@@ -42,6 +42,7 @@
     "whmcs:test:replicate-cred": "bash deploy/whmcs-test/replicate-cred.sh",
     "mcp:test:production-program": "node scripts/mcp-production-test-program.mjs",
     "mcp:test:contracts": "node scripts/mcp-contract-tests.mjs",
+    "mcp:preflight": "node scripts/local/mcp-production-preflight.mjs",
     "mcp:test:import-safe": "WHMCS_API_URL=https://whmcs.invalid WHMCS_IDENTIFIER=mcp-import-placeholder WHMCS_SECRET=mcp-import-placeholder MCP_STARTUP_HEALTHCHECK=off node --input-type=module -e \"process.argv.splice(1); await import('./dist/index.js')\"",
     "mcp:test:conformance": "npm run build && npm run mcp:test:import-safe && node scripts/mcp-conformance.mjs",
     "catalog:check": "node scripts/catalog-contract-runner.mjs --check",

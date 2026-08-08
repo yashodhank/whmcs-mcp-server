@@ -805,9 +805,17 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
       issues.push({
         code: 'order_create_domains_required',
         severity: 'error',
-        message: 'order:create `domains` must be a non-empty array',
+        message: 'order:create `domains` must contain exactly one row',
       });
     } else {
+      if (domains.length !== 1) {
+        issues.push({
+          code: 'order_create_single_domain_required',
+          severity: 'error',
+          message:
+            'order:create accepts exactly one domain per intent; fan out separate intents to avoid partial AddOrder side effects',
+        });
+      }
       for (const [index, row] of domains.entries()) {
         if (!row || typeof row !== 'object') {
           issues.push({

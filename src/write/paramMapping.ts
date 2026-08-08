@@ -459,8 +459,10 @@ export function mapOrderAcceptParams(params: Record<string, unknown>): Record<st
  */
 export function mapOrderCreateParams(params: Record<string, unknown>): Record<string, unknown> {
   const domains = params.domains;
-  if (!Array.isArray(domains) || domains.length === 0) {
-    throw new Error('order:create requires a non-empty domains array');
+  if (!Array.isArray(domains) || domains.length !== 1) {
+    throw new Error(
+      'order:create requires exactly one domain per intent; fan out separate intents'
+    );
   }
   const rows = domains.map((row) => {
     if (!row || typeof row !== 'object')

@@ -353,9 +353,14 @@ Roadmap invariants remain operational requirements:
   capability and its guarded write transaction. The roadmap does not authorize
   general WHMCS database reads or another direct-database execution path.
 - payment-pending domain sales use the governed `order:create` AddOrder scope;
-  the mapper forces invoice creation and suppresses email, while acceptance,
-  provisioning, and registration remain separate actions requiring a later
-  explicit ceremony.
+  the mapper accepts one domain per intent, forces invoice creation and
+  suppresses email, while acceptance, provisioning, and registration remain
+  separate actions requiring a later explicit ceremony. Fan out multiple
+  domains to avoid partial AddOrder side effects.
+- `npm run mcp:preflight` is the required local readiness check before a
+  production write; it validates governance, consumer-registry permissions,
+  durable audit/idempotency/day-cap paths, allowlist presence, and kill-switch
+  posture without exposing secrets.
 
 Every roadmap implementation PR must update this handoff when it changes
 runtime/transport posture, compatibility retirement criteria, data access,
