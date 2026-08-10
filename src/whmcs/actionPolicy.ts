@@ -47,6 +47,9 @@ export const READ_ALLOWLIST = new Set<string>([
   'GetContacts',
   'GetPayMethods',
   'GetCredits',
+  // Read-only policy input for the governed client-credit transfer. The
+  // workflow reads TaxEnabled but never calls restricted SetConfigurationValue.
+  'GetConfigurationValue',
   'GetTicketCounts',
   'GetSupportStatuses',
   // Track A (batch 3) — quotes + system reference reads.

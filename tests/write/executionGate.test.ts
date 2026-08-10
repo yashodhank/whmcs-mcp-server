@@ -296,6 +296,48 @@ describe('defaultExecutionAuthorizer — gate priority & new reasons', () => {
 });
 
 describe('defaultExecutionAuthorizer — high-risk (money) tier', () => {
+  it('allows the narrow self-approved transfer policy without relaxing allowlist or caps', () => {
+    const intent = approvedScopeIntent('billing:credit:transfer', {
+      source_clientid: 1,
+      destination_clientid: 2,
+      amount: '10.00',
+      reason: 'test',
+      request_id: 'REQ-SELF',
+      confirm: true,
+    });
+    const allowed = defaultExecutionAuthorizer(
+      fullyOpenReq({
+        intent,
+        runtimeAuthorizedActions: [intent.scope],
+        allowHighRiskSelfApproval: true,
+        amountContext: { amount: 10, dayTotal: 0 },
+        caps: { perAction: 100, daily: 1000 },
+      })
+    );
+    expect(allowed).toEqual({ allowed: true });
+    expect(
+      defaultExecutionAuthorizer(
+        fullyOpenReq({
+          intent,
+          runtimeAuthorizedActions: [],
+          allowHighRiskSelfApproval: true,
+          amountContext: { amount: 10, dayTotal: 0 },
+          caps: { perAction: 100, daily: 1000 },
+        })
+      )
+    ).toEqual({ allowed: false, reason: 'action_not_runtime_authorized' });
+    expect(
+      defaultExecutionAuthorizer(
+        fullyOpenReq({
+          intent,
+          runtimeAuthorizedActions: [intent.scope],
+          allowHighRiskSelfApproval: true,
+          amountContext: { amount: 10, dayTotal: 0 },
+          caps: { perAction: 0, daily: 0 },
+        })
+      )
+    ).toEqual({ allowed: false, reason: 'amount_cap_exceeded' });
+  });
   it('human_approval_required for a high-risk action with no approval record', () => {
     const intent = approvedHighRiskIntent(); // AddCredit, high
     const d = defaultExecutionAuthorizer(

@@ -85,6 +85,15 @@ const DECLARATIONS: readonly DeclaredWhmcsCapability[] = [
     ...supported('GetRegistrars', 'list_registrars', 'domains', 'internal_probe'),
     exposeInLegacyMatrix: false,
   },
+  {
+    ...supported(
+      'GetConfigurationValue',
+      'read_configuration_value_for_policy',
+      'system',
+      'internal_probe'
+    ),
+    exposeInLegacyMatrix: false,
+  },
 ];
 
 export const DECLARED_WHMCS_CAPABILITIES: readonly DeclaredWhmcsCapability[] = Object.freeze(
