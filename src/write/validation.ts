@@ -47,6 +47,14 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'billing:payment:add': ['invoiceid', 'amount'],
   // billing:credit:add — description is required (no silent placeholders).
   'billing:credit:add': ['clientid', 'amount', 'description'],
+  'billing:credit:transfer': [
+    'source_clientid',
+    'destination_clientid',
+    'amount',
+    'reason',
+    'request_id',
+    'confirm',
+  ],
   // billing:refund:record — refund_type + paymentmethod required so the mapper
   // can produce the correct WHMCS `AddTransaction` payload (no `amountin`).
   'billing:refund:record': ['invoiceid', 'amount', 'refund_type', 'paymentmethod'],
@@ -439,6 +447,64 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
           message: 'Large credit amount detected (>10000); verify this is intentional',
         });
       }
+    }
+  }
+
+  // Composite cross-client transfer — exact decimal inputs prevent float
+  // ambiguity, explicit confirmation prevents accidental execution, and a
+  // stable request id provides operator-facing idempotency/reconciliation.
+  if (intent.scope === 'billing:credit:transfer') {
+    const source = Number(intent.params.source_clientid);
+    const destination = Number(intent.params.destination_clientid);
+    if (
+      !Number.isInteger(source) ||
+      source <= 0 ||
+      !Number.isInteger(destination) ||
+      destination <= 0
+    ) {
+      issues.push({
+        code: 'invalid_client_id',
+        severity: 'error',
+        message: 'source_clientid and destination_clientid must be positive integers',
+      });
+    } else if (source === destination) {
+      issues.push({
+        code: 'same_client_transfer',
+        severity: 'error',
+        message: 'source and destination clients must be different',
+      });
+    }
+    const amount = intent.params.amount;
+    if (typeof amount !== 'string' || !/^\d+(?:\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
+      issues.push({
+        code: 'invalid_transfer_amount',
+        severity: 'error',
+        message: 'amount must be a positive decimal string with at most two fractional digits',
+      });
+    }
+    if (intent.params.confirm !== true) {
+      issues.push({
+        code: 'confirmation_required',
+        severity: 'error',
+        message: 'confirm must be true for a client credit transfer',
+      });
+    }
+    if (typeof intent.params.reason !== 'string' || intent.params.reason.trim().length < 3) {
+      issues.push({
+        code: 'reason_required',
+        severity: 'error',
+        message: 'reason must contain at least three characters',
+      });
+    }
+    if (
+      typeof intent.params.request_id !== 'string' ||
+      !/^[A-Za-z0-9._:-]{3,100}$/.test(intent.params.request_id)
+    ) {
+      issues.push({
+        code: 'invalid_request_id',
+        severity: 'error',
+        message: 'request_id must be 3-100 safe identifier characters',
+      });
     }
   }
 

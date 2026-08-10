@@ -11,6 +11,7 @@ describe('actionPolicy', () => {
       'GetTickets',
       'GetTicket',
       'GetOrders',
+      'GetConfigurationValue',
     ])
       expect(() => {
         assertReadAction(a);

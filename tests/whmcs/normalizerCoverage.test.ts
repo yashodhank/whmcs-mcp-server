@@ -37,6 +37,8 @@ const EXPECTED_ALLOWLIST = new Set<string>([
   'GetContacts',
   'GetPayMethods',
   'GetCredits',
+  // Scalar response (`value`); no normalizer entry required.
+  'GetConfigurationValue',
   'GetTicketCounts',
   'GetSupportStatuses',
   'GetQuotes',
@@ -59,7 +61,7 @@ const EXPECTED_NORMALIZER_KEYS = new Set<string>([
 ]);
 
 describe('normalizerCoverage tripwire', () => {
-  it('READ_ALLOWLIST matches snapshot (32 actions)', () => {
+  it('READ_ALLOWLIST matches snapshot (33 actions)', () => {
     expect(READ_ALLOWLIST).toEqual(EXPECTED_ALLOWLIST);
   });
 

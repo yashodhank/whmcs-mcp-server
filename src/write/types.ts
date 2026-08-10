@@ -28,6 +28,8 @@ import type { ContractName } from '../governance/types.js';
  * routes these scopes to the DB executor, never whmcs.mutate.
  */
 export const DB_DIRECT_ACTION = '__db_direct__';
+/** Composite WHMCS API workflow; never passed to `whmcs.mutate()` directly. */
+export const CREDIT_TRANSFER_ACTION = '__client_credit_transfer__';
 
 export const WRITE_SCOPES = [
   'client_note:write',
@@ -37,6 +39,7 @@ export const WRITE_SCOPES = [
   'billing:invoice:create',
   'billing:payment:add',
   'billing:credit:add',
+  'billing:credit:transfer',
   'billing:refund:record',
   'service:price_restore',
   'service:domain_rename',
@@ -112,6 +115,7 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'billing:invoice:create': 'CreateInvoice',
   'billing:payment:add': 'AddInvoicePayment',
   'billing:credit:add': 'AddCredit',
+  'billing:credit:transfer': CREDIT_TRANSFER_ACTION,
   'billing:refund:record': 'AddTransaction',
   'service:price_restore': 'UpdateClientProduct',
   'service:domain_rename': 'UpdateClientProduct',
@@ -157,6 +161,10 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   'billing:invoice:create': 'medium',
   'billing:payment:add': 'high',
   'billing:credit:add': 'high',
+  // Cross-client account-credit movement is monetary but, unlike generic
+  // high-risk writes, supports an explicit self-approved policy by default.
+  // The composite executor still enforces allowlists, caps and conservation.
+  'billing:credit:transfer': 'high',
   'billing:refund:record': 'high',
   'service:price_restore': 'high',
   // Non-monetary, reversible metadata edit (hostname/domain field). Not low:
@@ -450,6 +458,11 @@ export interface ExecutionRequest {
    * MCP_WRITE_REQUIRE_DISTINCT_APPROVER. This can only TIGHTEN; it never loosens.
    */
   readonly requireDistinctApprover?: boolean;
+  /**
+   * Narrow exception used only by billing:credit:transfer when its configured
+   * policy permits self-approval. Allowlisting and monetary caps still apply.
+   */
+  readonly allowHighRiskSelfApproval?: boolean;
 }
 
 export type ExecutionDeniedReason =
@@ -521,4 +534,6 @@ export interface WriteToolResult {
     /** Phase G: post-action read-back verification result, when executed. */
     readonly verified?: boolean;
   };
+  /** Composite transfer reconciliation record, when this is a credit transfer. */
+  readonly transfer?: Readonly<Record<string, unknown>>;
 }

@@ -378,6 +378,13 @@
           "stage": {
             "type": "string"
           },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "validation": {
             "additionalProperties": {},
             "properties": {
@@ -1301,6 +1308,7 @@
               "billing:invoice:create",
               "billing:payment:add",
               "billing:credit:add",
+              "billing:credit:transfer",
               "billing:refund:record",
               "service:price_restore",
               "service:domain_rename",
@@ -1471,6 +1479,13 @@
           },
           "stage": {
             "type": "string"
+          },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "validation": {
             "additionalProperties": {},
@@ -1719,6 +1734,13 @@
           },
           "stage": {
             "type": "string"
+          },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "validation": {
             "additionalProperties": {},
@@ -3212,6 +3234,261 @@
           "offset",
           "limit"
         ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read a durable client-credit transfer/reversal record by transfer_id or request_id for reconciliation and reporting.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "transfer_or_request_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "transfer_or_request_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_client_credit_transfer",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "executed": {
+            "type": "boolean"
+          },
+          "execution": {
+            "additionalProperties": false,
+            "properties": {
+              "attempted": {
+                "type": "boolean"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "dry_run": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              },
+              "phase_1": {},
+              "phase_2": {},
+              "verified": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "attempted"
+            ],
+            "type": "object"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "intent": {
+            "additionalProperties": {},
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "consumer_id": {
+                "type": "string"
+              },
+              "contract": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string"
+              },
+              "idempotency_key": {
+                "type": "string"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "preconditions": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "projected_effect": {
+                "type": "string"
+              },
+              "risk": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent_id",
+              "consumer_id",
+              "scope",
+              "action",
+              "risk",
+              "params",
+              "idempotency_key",
+              "preconditions",
+              "projected_effect",
+              "state",
+              "created_at",
+              "expires_at"
+            ],
+            "type": "object"
+          },
+          "intent_id": {
+            "type": "string"
+          },
+          "isError": {
+            "const": true,
+            "type": "boolean"
+          },
+          "required_approvals": {
+            "type": "number"
+          },
+          "risk_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "validation": {
+            "additionalProperties": {},
+            "properties": {
+              "compat_warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "issues": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "severity",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ok",
+              "issues",
+              "compat_warnings"
+            ],
+            "type": "object"
+          },
+          "would_call": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "whmcs_params": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "items": {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "params"
+            ],
+            "type": "object"
+          },
+          "writeCapability": {
+            "type": "string"
+          }
+        },
         "type": "object"
       }
     },
@@ -8371,6 +8648,293 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
+      "description": "Transfer account credit between two active same-currency WHMCS clients. Self-approved by default; finance/CA approval can be required by configuration, including when WHMCS tax is enabled. Uses native credit rows, paired activity logs, paired profile notes, compensation and reconciliation. Creates no invoice.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "amount": {
+            "pattern": "^\\d+(?:\\.\\d{1,2})?$",
+            "type": "string"
+          },
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "confirm": {
+            "const": true,
+            "type": "boolean"
+          },
+          "destination_clientid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "type": "string"
+          },
+          "request_id": {
+            "pattern": "^[A-Za-z0-9._:-]{3,100}$",
+            "type": "string"
+          },
+          "reverses_transfer_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_clientid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_clientid",
+          "destination_clientid",
+          "amount",
+          "reason",
+          "request_id",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "name": "transfer_client_credit",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "executed": {
+            "type": "boolean"
+          },
+          "execution": {
+            "additionalProperties": false,
+            "properties": {
+              "attempted": {
+                "type": "boolean"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "dry_run": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              },
+              "phase_1": {},
+              "phase_2": {},
+              "verified": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "attempted"
+            ],
+            "type": "object"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "intent": {
+            "additionalProperties": {},
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "consumer_id": {
+                "type": "string"
+              },
+              "contract": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string"
+              },
+              "idempotency_key": {
+                "type": "string"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "preconditions": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "projected_effect": {
+                "type": "string"
+              },
+              "risk": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent_id",
+              "consumer_id",
+              "scope",
+              "action",
+              "risk",
+              "params",
+              "idempotency_key",
+              "preconditions",
+              "projected_effect",
+              "state",
+              "created_at",
+              "expires_at"
+            ],
+            "type": "object"
+          },
+          "intent_id": {
+            "type": "string"
+          },
+          "isError": {
+            "const": true,
+            "type": "boolean"
+          },
+          "required_approvals": {
+            "type": "number"
+          },
+          "risk_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "validation": {
+            "additionalProperties": {},
+            "properties": {
+              "compat_warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "issues": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "severity",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ok",
+              "issues",
+              "compat_warnings"
+            ],
+            "type": "object"
+          },
+          "would_call": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "whmcs_params": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "items": {
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "params"
+            ],
+            "type": "object"
+          },
+          "writeCapability": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
       "description": "Phase F: validate a draft intent (schema/scope/precondition/WHMCS-9 compat). NO mutation.",
       "execution": {
         "taskSupport": "forbidden"
@@ -8520,6 +9084,13 @@
           },
           "stage": {
             "type": "string"
+          },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "validation": {
             "additionalProperties": {},
@@ -9109,6 +9680,7 @@
               "billing:invoice:create",
               "billing:payment:add",
               "billing:credit:add",
+              "billing:credit:transfer",
               "billing:refund:record",
               "service:price_restore",
               "service:domain_rename",
@@ -9279,6 +9851,13 @@
           },
           "stage": {
             "type": "string"
+          },
+          "transfer": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "validation": {
             "additionalProperties": {},

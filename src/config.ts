@@ -283,6 +283,30 @@ const configSchema = z
     // explicitly configured.
     MCP_PROD_HIGH_RISK_PER_ACTION_CAP: z.coerce.number().min(0).default(0),
     MCP_PROD_HIGH_RISK_DAILY_CAP: z.coerce.number().min(0).default(0),
+    // Client-to-client account-credit transfer policy. Self-approval is the
+    // default. Operators can require a distinct finance/CA approver always, or
+    // only when WHMCS TaxEnabled is on. Tax detection never creates an invoice.
+    MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_APPROVAL: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
+    MCP_CREDIT_TRANSFER_FINANCE_APPROVER_IDS: z.preprocess((val) => {
+      const raw = preprocessCommaSeparatedString(val);
+      return raw === ''
+        ? []
+        : raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+    }, z.array(z.string()).default([])),
+    MCP_CREDIT_TRANSFER_STATE_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
 
     // ── MCP Adoption #10 — Streamable HTTP transport (OPT-IN) ───────────────
     // Transport selection. Default `stdio` stays process-local. `http` starts
@@ -368,6 +392,32 @@ const configSchema = z
     ),
   })
   .superRefine((val, ctx) => {
+    if (
+      (val.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_APPROVAL ||
+        val.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED) &&
+      val.MCP_CREDIT_TRANSFER_FINANCE_APPROVER_IDS.length === 0
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MCP_CREDIT_TRANSFER_FINANCE_APPROVER_IDS'],
+        message:
+          'at least one finance/CA consumer id is required when transfer approval is enabled',
+      });
+    }
+    const transferAuthorized = [
+      ...val.MCP_PROD_WRITE_AUTHORIZED,
+      ...val.MCP_WRITE_EXECUTION_AUTHORIZED,
+    ].some(
+      (entry) => entry === 'billing:credit:transfer' || entry === '__client_credit_transfer__'
+    );
+    if (transferAuthorized && val.MCP_CREDIT_TRANSFER_STATE_PATH.trim() === '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MCP_CREDIT_TRANSFER_STATE_PATH'],
+        message:
+          'MCP_CREDIT_TRANSFER_STATE_PATH is required when client credit transfer execution is authorized',
+      });
+    }
     // Phase G+ fail-fast misconfiguration guards.
     if (
       val.MCP_PROD_WRITE_AUTHORIZED.length > 0 ||

@@ -65,6 +65,13 @@ import {
 } from '../whmcs/WhmcsDb.js';
 import { runServiceMoves, TransferRollback } from '../write/transferCascade.js';
 import { loadLiveProductionAuthorization } from '../write/liveAuthorization.js';
+import {
+  CreditTransferStore,
+  executeClientCreditTransfer,
+  getCreditTransferTaxPolicy,
+  resolveCreditTransferApprovalPolicy,
+  type CreditTransferInput,
+} from '../write/creditTransfer.js';
 
 /** Defense-in-depth: ensures the per-target mapper never leaks extra keys. */
 export class PriceRestoreOutputAssertionError extends Error {
@@ -202,6 +209,9 @@ const approvals = new Map<string, HumanApprovalRecord>();
  * in-memory (byte-identical to the legacy Map singleton when unset).
  */
 const dayAmountsStore = new DayAmountsStore(config.MCP_WRITE_DAY_AMOUNTS_PATH || undefined);
+const creditTransferStore = new CreditTransferStore(
+  config.MCP_CREDIT_TRANSFER_STATE_PATH || undefined
+);
 
 /** Build the high-risk monetary context from intent params, if numeric. */
 function amountContextFor(
@@ -235,12 +245,20 @@ function amountContextFor(
 export function __resetWriteFlowForTests(): void {
   store.prune();
   dayAmountsStore.reset();
+  creditTransferStore.clear();
 }
 
 const WRITE_FLOW_ANNOTATIONS = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+const CREDIT_TRANSFER_READ_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 } as const;
 
@@ -327,6 +345,7 @@ const RESULT_OUTPUT_SHAPE = {
       dry_run: z.boolean().optional(),
     })
     .optional(),
+  transfer: z.record(z.string(), z.unknown()).optional(),
   // Diagnostic keys carried only by an `err()` result (success never sets these).
   isError: z.literal(true).optional(),
   error: z.string().optional(),
@@ -563,7 +582,13 @@ function register(
     | Record<string, unknown>
     | ReturnType<typeof err>
     | Promise<Record<string, unknown> | ReturnType<typeof err>>,
-  outputShape: z.ZodRawShape = RESULT_OUTPUT_SHAPE
+  outputShape: z.ZodRawShape = RESULT_OUTPUT_SHAPE,
+  annotations: {
+    readonly readOnlyHint: boolean;
+    readonly destructiveHint: boolean;
+    readonly idempotentHint: boolean;
+    readonly openWorldHint: boolean;
+  } = WRITE_FLOW_ANNOTATIONS
 ): void {
   if (!isToolAllowed(name)) return;
   const handler: Handler = (async (params: Record<string, unknown>) => {
@@ -600,7 +625,7 @@ function register(
       description,
       inputSchema: { ...inputShape, ...AUTH_SHAPE },
       outputSchema: outputShape,
-      annotations: WRITE_FLOW_ANNOTATIONS,
+      annotations,
     },
     handler
   );
@@ -1334,7 +1359,10 @@ export function registerWriteFlowTools(
         approvals.set(intent.intent_id, {
           approver: String(p.approver),
           approver_consumer_id: res.profile.id, // server-derived, identity-bound
-          at: new Date().toISOString(),
+          at:
+            intent.scope === 'billing:credit:transfer'
+              ? 'pending-whmcs-native'
+              : new Date().toISOString(),
         });
       } else {
         approvals.delete(intent.intent_id);
@@ -1343,7 +1371,10 @@ export function registerWriteFlowTools(
         auditEvent(
           approved ? 'intent.approved' : 'intent.rejected',
           next,
-          `by ${String(p.approver)}`
+          `by ${String(p.approver)}`,
+          intent.scope === 'billing:credit:transfer'
+            ? 'pending-whmcs-native'
+            : new Date().toISOString()
         )
       );
       return out(toToolResult(next, 'approve', { execution: { attempted: false } }));
@@ -1390,6 +1421,172 @@ export function registerWriteFlowTools(
       return out(
         toToolResult(next, 'execute', {
           execution: { attempted: false, blocked_reason: 'scope_not_allowed' },
+        })
+      );
+    }
+    if (intent.scope === 'billing:credit:transfer') {
+      const taxPolicy = await getCreditTransferTaxPolicy(whmcs);
+      const financeRequired = resolveCreditTransferApprovalPolicy({
+        tax_enabled: taxPolicy.tax_enabled,
+        require_finance_approval: config.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_APPROVAL,
+        require_finance_when_tax_enabled:
+          config.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED,
+      }).finance_required;
+      const approval = approvals.get(intent.intent_id);
+      const amountContext = amountContextFor(
+        intent.action,
+        intent.params as Record<string, unknown>
+      );
+      const decision = defaultExecutionAuthorizer(
+        {
+          intent,
+          env: getProjectionEnv(),
+          mcpMode: config.MCP_MODE,
+          consumerWriteCapability: consumerWriteCapability(res.profile),
+          runtimeAuthorizedActions: runtimeAuthorizedActions(),
+          killSwitch: config.MCP_WRITE_KILL_SWITCH,
+          prodAuthorizedActions: productionAuthorizedActions(),
+          strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
+          strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+          humanApproval: approval,
+          amountContext,
+          caps: {
+            perAction: config.MCP_PROD_HIGH_RISK_PER_ACTION_CAP,
+            daily: config.MCP_PROD_HIGH_RISK_DAILY_CAP,
+          },
+          allowHighRiskSelfApproval: !financeRequired,
+        },
+        (key) => ledger.seen(key)
+      );
+      if (!decision.allowed) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(
+          auditEvent('intent.execution_blocked', blocked, decision.reason, 'pending-whmcs-native')
+        );
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: { attempted: false, blocked_reason: decision.reason },
+          })
+        );
+      }
+      if (
+        financeRequired &&
+        (!approval ||
+          !config.MCP_CREDIT_TRANSFER_FINANCE_APPROVER_IDS.includes(approval.approver_consumer_id))
+      ) {
+        const blocked = store.transition(intent.intent_id, 'execution_blocked');
+        audit.append(
+          auditEvent(
+            'intent.execution_blocked',
+            blocked,
+            'human_approval_required',
+            'pending-whmcs-native'
+          )
+        );
+        return out(
+          toToolResult(blocked, 'execute', {
+            execution: {
+              attempted: false,
+              blocked_reason: 'human_approval_required',
+              note: 'approval must be recorded by a configured finance/CA consumer',
+            },
+          })
+        );
+      }
+      try {
+        audit.appendDurable(
+          auditEvent(
+            'intent.executed',
+            intent,
+            'attempting composite WHMCS client credit transfer; business time pending WHMCS read-back',
+            'pending-whmcs-native'
+          )
+        );
+      } catch (e) {
+        if (e instanceof AuditPersistError) {
+          const blocked = store.transition(intent.intent_id, 'execution_blocked');
+          return out(
+            toToolResult(blocked, 'execute', {
+              execution: { attempted: false, blocked_reason: 'audit_write_failed' },
+            })
+          );
+        }
+        throw e;
+      }
+      const executing = store.transition(intent.intent_id, 'executed');
+      const transferInput: CreditTransferInput = {
+        source_clientid: Number(intent.params.source_clientid),
+        destination_clientid: Number(intent.params.destination_clientid),
+        amount: String(intent.params.amount),
+        reason: String(intent.params.reason),
+        request_id: String(intent.params.request_id),
+        ...(typeof intent.params.reverses_transfer_id === 'string'
+          ? { reverses_transfer_id: intent.params.reverses_transfer_id }
+          : {}),
+        approval: financeRequired
+          ? {
+              mode: 'finance-approved',
+              actor_consumer_id: intent.consumer_id,
+              approver_consumer_id: approval?.approver_consumer_id,
+            }
+          : { mode: 'self-approved', actor_consumer_id: intent.consumer_id },
+      };
+      let transfer;
+      try {
+        transfer = await executeClientCreditTransfer({
+          whmcs,
+          store: creditTransferStore,
+          input: transferInput,
+        });
+      } catch (e) {
+        const failed = store.transition(intent.intent_id, 'failed');
+        audit.append(
+          auditEvent(
+            'intent.failed',
+            failed,
+            e instanceof Error ? e.message : String(e),
+            'pending-whmcs-native'
+          )
+        );
+        return out(
+          toToolResult(failed, 'execute', {
+            executed: false,
+            execution: { attempted: true, note: e instanceof Error ? e.message : String(e) },
+          })
+        );
+      }
+      ledger.record(intent.idempotency_key, {
+        transfer_id: transfer.transfer_id,
+        state: transfer.state,
+      });
+      if (transfer.state === 'completed' && amountContext) {
+        dayAmountsStore.add(intent.action, amountContext.amount);
+      }
+      const successful = transfer.state === 'completed';
+      const finalIntent = successful
+        ? store.transition(intent.intent_id, 'verified')
+        : transfer.state === 'compensated'
+          ? store.transition(intent.intent_id, 'failed')
+          : executing;
+      audit.append(
+        auditEvent(
+          successful ? 'intent.verified' : 'intent.failed',
+          finalIntent,
+          `credit transfer ${transfer.transfer_id} state=${transfer.state}`,
+          transfer.whmcs_native_occurred_at ??
+            transfer.whmcs_native_credit_date ??
+            'pending-whmcs-native'
+        )
+      );
+      return out(
+        toToolResult(finalIntent, 'execute', {
+          executed: successful,
+          execution: {
+            attempted: true,
+            verified: successful,
+            note: successful ? undefined : transfer.failure,
+          },
+          transfer: transfer as unknown as Readonly<Record<string, unknown>>,
         })
       );
     }
@@ -1857,6 +2054,124 @@ export function registerWriteFlowTools(
       audit.append(auditEvent('intent.approved', approved, 'auto (low/medium one-call write)'));
       return executeRun({ intent_id: intent.intent_id, auth_token: p.auth_token });
     }
+  );
+
+  register(
+    server,
+    'transfer_client_credit',
+    'Transfer account credit between two active same-currency WHMCS clients. Self-approved by default; finance/CA approval can be required by configuration, including when WHMCS tax is enabled. Uses native credit rows, paired activity logs, paired profile notes, compensation and reconciliation. Creates no invoice.',
+    {
+      source_clientid: z.number().int().positive(),
+      destination_clientid: z.number().int().positive(),
+      amount: z.string().regex(/^\d+(?:\.\d{1,2})?$/),
+      reason: z.string().min(3).max(500),
+      request_id: z.string().regex(/^[A-Za-z0-9._:-]{3,100}$/),
+      confirm: z.literal(true),
+      reverses_transfer_id: z.string().min(1).optional(),
+    },
+    logger,
+    rl,
+    async (p) => {
+      const res = resolveWriteConsumer(p);
+      if (!res.ok) return err(`consumer denied: ${res.reason}`, { stage: 'draft' });
+      const scope: WriteScope = 'billing:credit:transfer';
+      const scopeGate = assertWriteScopeAllowed(res.profile, scope);
+      if (!scopeGate.ok) return err(`write scope denied: ${scopeGate.reason}`, { scope });
+      const params: Record<string, unknown> = {
+        source_clientid: p.source_clientid,
+        destination_clientid: p.destination_clientid,
+        amount: p.amount,
+        reason: p.reason,
+        request_id: p.request_id,
+        confirm: p.confirm,
+        ...(p.reverses_transfer_id ? { reverses_transfer_id: p.reverses_transfer_id } : {}),
+      };
+      const intent = createDraftIntent({
+        consumer_id: res.profile.id,
+        scope,
+        params,
+        naturalKey: String(p.request_id),
+        preconditions: {},
+        projected_effect: `Move ${String(p.amount)} account credit from Client #${String(p.source_clientid)} to Client #${String(p.destination_clientid)}`,
+      });
+      store.put(intent);
+      audit.append(auditEvent('intent.drafted', intent, undefined, 'pending-whmcs-native'));
+      const validation = validateIntent(intent, {});
+      if (!validation.ok) {
+        const rejected = store.transition(intent.intent_id, 'rejected');
+        audit.append(auditEvent('intent.rejected', rejected, undefined, 'pending-whmcs-native'));
+        return out(
+          toToolResult(rejected, 'validate', {
+            validation,
+            execution: { attempted: false },
+          })
+        );
+      }
+      const validated = store.transition(intent.intent_id, 'validated');
+      audit.append(auditEvent('intent.validated', validated, undefined, 'pending-whmcs-native'));
+      const cap = consumerWriteCapability(res.profile);
+      if (cap !== 'execution_allowed') {
+        return out(
+          toToolResult(validated, 'validate', {
+            validation,
+            execution: {
+              attempted: false,
+              note: `writeCapability='${cap}' cannot execute this transfer`,
+            },
+          })
+        );
+      }
+      const taxPolicy = await getCreditTransferTaxPolicy(whmcs);
+      const financeRequired = resolveCreditTransferApprovalPolicy({
+        tax_enabled: taxPolicy.tax_enabled,
+        require_finance_approval: config.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_APPROVAL,
+        require_finance_when_tax_enabled:
+          config.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED,
+      }).finance_required;
+      if (financeRequired) {
+        return out(
+          toToolResult(validated, 'validate', {
+            validation,
+            execution: {
+              attempted: false,
+              note: 'finance/CA approval required: call approve_write_intent with a configured approver consumer, then execute_write_intent',
+            },
+          })
+        );
+      }
+      const approved = store.transition(intent.intent_id, 'approved');
+      audit.append(
+        auditEvent(
+          'intent.approved',
+          approved,
+          taxPolicy.tax_enabled
+            ? 'self-approved; finance/CA review recommended because WHMCS tax is enabled'
+            : 'self-approved by configured default policy',
+          'pending-whmcs-native'
+        )
+      );
+      return executeRun({ intent_id: intent.intent_id, auth_token: p.auth_token });
+    }
+  );
+
+  register(
+    server,
+    'get_client_credit_transfer',
+    'Read a durable client-credit transfer/reversal record by transfer_id or request_id for reconciliation and reporting.',
+    { transfer_or_request_id: z.string().min(1) },
+    logger,
+    rl,
+    (p) => {
+      const res = resolveWriteConsumer(p);
+      if (!res.ok) return err(`consumer denied: ${res.reason}`);
+      const scopeGate = assertWriteScopeAllowed(res.profile, 'billing:credit:transfer');
+      if (!scopeGate.ok) return err(`write scope denied: ${scopeGate.reason}`);
+      const transfer = creditTransferStore.get(String(p.transfer_or_request_id));
+      if (!transfer) return err('credit transfer not found');
+      return out({ transfer });
+    },
+    RESULT_OUTPUT_SHAPE,
+    CREDIT_TRANSFER_READ_ANNOTATIONS
   );
 
   register(

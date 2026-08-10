@@ -872,6 +872,16 @@ export function intentToWhmcsParams(
       return mapInvoicePaymentParams(params, ctx);
     case 'billing:credit:add':
       return mapCreditAddParams(params);
+    case 'billing:credit:transfer':
+      // Composite preview only. The executor maps each supported WHMCS action
+      // separately and this object is never sent to a WHMCS endpoint.
+      return {
+        source_clientid: params.source_clientid,
+        destination_clientid: params.destination_clientid,
+        amount: params.amount,
+        request_id: params.request_id,
+        reverses_transfer_id: params.reverses_transfer_id,
+      };
     case 'billing:refund:record':
       return mapRefundRecordParams(params, ctx);
     case 'service:domain_rename':

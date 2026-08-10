@@ -67,14 +67,16 @@ const J = (r: Res) => JSON.parse(r.content[0].text) as Record<string, unknown>;
 const rec = (v: unknown) => v as Record<string, unknown>;
 
 describe('write-flow tools (read-only + production posture)', () => {
-  it('registers the 6 flow tools', () => {
+  it('registers the 8 flow tools', () => {
     const { handlers } = harness();
     expect(Object.keys(handlers).sort()).toEqual(
       [
         'approve_write_intent',
         'draft_write_intent',
         'execute_write_intent',
+        'get_client_credit_transfer',
         'get_write_intent',
+        'transfer_client_credit',
         'validate_write_intent',
         'write',
       ].sort()
@@ -99,6 +101,8 @@ describe('write-flow tools (read-only + production posture)', () => {
       'validate_write_intent',
       'approve_write_intent',
       'execute_write_intent',
+      'transfer_client_credit',
+      'get_client_credit_transfer',
       'get_write_intent',
     ]) {
       expect(Object.keys(configs[n]?.outputSchema ?? {}).length).toBeGreaterThan(0);
