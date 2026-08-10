@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-08-07
+Status: current as of 2026-08-10
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -93,6 +93,32 @@ records or intent IDs durable. A restart removes pending in-memory intents and
 approvals; operators must draft and validate a new intent, then obtain a new
 approval. Durable audit, idempotency, and daily-cap paths must be configured
 separately.
+
+### Client-to-client account-credit transfer
+
+`transfer_client_credit` uses only supported WHMCS API actions and is compatible
+with the tested 8.x and 9.x branches. It is self-approved by default, but it is
+still a high-risk write: authorize the narrow `billing:credit:transfer` scope,
+set per-action/daily caps, provide a durable
+`MCP_CREDIT_TRANSFER_STATE_PATH`, and grant the consumer that scope plus
+`execution_allowed` capability. Required WHMCS API-role actions are
+`GetClientsDetails`, `GetCredits`, `AddCredit`, `AddClientNote`, `LogActivity`,
+`GetActivityLog`, `GetConfigurationValue`, and `GetInvoices`.
+
+For optional finance/CA separation of duties, set
+`MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_APPROVAL=true`, or set
+`MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED=true` for the tax-aware
+policy, and list authorized consumer IDs in
+`MCP_CREDIT_TRANSFER_FINANCE_APPROVER_IDS`. Both options are disabled by
+default. WHMCS `TaxEnabled` is read-only policy input: the workflow never
+changes tax settings and never creates a GST invoice for a pure account-credit
+transfer.
+
+Reconcile any non-`completed` record with `get_client_credit_transfer` and the
+paired WHMCS client notes, activity entries and credit IDs before retrying.
+`compensated` means no net movement; `audit_repair_required` means the financial
+legs may be complete and must not be repeated. Full procedure:
+[`docs/runbooks/client-credit-transfer.md`](runbooks/client-credit-transfer.md).
 
 ## Repository and project boundary
 

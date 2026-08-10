@@ -140,8 +140,12 @@ Writes are sealed by default (`MCP_MODE=read_only`, empty `MCP_PROD_WRITE_AUTHOR
 ```
 
 Low/medium-risk scopes (`client_note:write`, `ticket:create`) auto-approve after validation.
-High-risk scopes (`service:suspend`, `billing:credit:add`) always require the explicit
-`approve_write_intent` → `execute_write_intent` ceremony and a non-empty `MCP_PROD_WRITE_AUTHORIZED`.
+High-risk scopes such as `billing:credit:add` require the explicit
+`approve_write_intent` → `execute_write_intent` ceremony and a non-empty
+`MCP_PROD_WRITE_AUTHORIZED`. The narrow `billing:credit:transfer` workflow is
+self-approved by default but remains high-risk, allowlisted, capped, audited,
+and explicitly confirmed; finance/CA approval can be enabled globally or only
+when WHMCS tax is enabled.
 
 See [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) for the full gate specification.
 
@@ -287,6 +291,10 @@ cp .env.example .env
 | `MCP_WRITE_DAY_AMOUNTS_PATH`        | (empty)                  | Durable daily-cap tally path; set alongside `MCP_PROD_HIGH_RISK_DAILY_CAP` so a restart cannot reset the daily cap                                                                                                         |
 | `MCP_PROD_HIGH_RISK_PER_ACTION_CAP` | `0`                      | Per-action cap for high-risk write scopes                                                                                                                                                                                  |
 | `MCP_PROD_HIGH_RISK_DAILY_CAP`      | `0`                      | Daily aggregate cap for high-risk writes                                                                                                                                                                                   |
+| `MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_APPROVAL` | `false` | Require a distinct configured finance/CA consumer to approve every client-credit transfer |
+| `MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED` | `false` | Require finance/CA approval only when WHMCS `TaxEnabled` is on; tax-enabled transfers always recommend review |
+| `MCP_CREDIT_TRANSFER_FINANCE_APPROVER_IDS` | (empty) | Authenticated consumer IDs allowed to give transfer finance/CA approval |
+| `MCP_CREDIT_TRANSFER_STATE_PATH` | (empty) | Durable JSONL transfer/reversal state; required when `billing:credit:transfer` execution is authorized |
 | `WHMCS_ACCESS_KEY`                  | (empty)                  | Optional WHMCS API access key (for IP restricted setups)                                                                                                                                                                   |
 | `WHMCS_ALLOW_HTTP`                  | `false`                  | Allow an `http://` `WHMCS_API_URL` (not recommended; credentials sent in clear). Otherwise `https` is required.                                                                                                            |
 
@@ -397,8 +405,14 @@ These tools perform **no WHMCS mutation** until execution passes the full tiered
 - `execute_write_intent` — Execute an approved intent against WHMCS (runs the underlying action)
 - `get_write_intent` — Retrieve intent status and audit trail by id
 - `write` — One-call tiered shortcut: draft → validate → (auto-approve for low/medium scopes) → execute. High-risk scopes are validated then returned for the explicit `approve_write_intent` → `execute_write_intent` ceremony — never auto-executed.
+- `transfer_client_credit` — Explicitly confirmed, same-currency client account-credit transfer. Self-approved by default; supports optional finance/CA policy, compensation, reconciliation, paired WHMCS logs/notes, and linked reversal.
+- `get_client_credit_transfer` — Read a durable transfer or reversal by transfer ID or caller request ID for reconciliation/reporting.
 
-**Tiered friction**: low/medium scopes (e.g. `client_note:write`, `ticket:create`) are audit-gated and auto-approved; high-risk scopes (e.g. `service:suspend`, `billing:credit:add`) keep the full gate (per-environment allowlist + human approval + monetary caps).
+**Tiered friction**: low/medium scopes (e.g. `client_note:write`, `ticket:create`) are audit-gated and auto-approved; ordinary high-risk scopes keep the full gate. Client-credit transfer is the only high-risk self-approval exception, and it still requires the per-environment scope allowlist, monetary caps, durable state, explicit `confirm: true`, and an execution-authorized consumer.
+
+See [the client-credit transfer runbook](docs/runbooks/client-credit-transfer.md)
+for permissions, reversal/reconciliation, WHMCS-native timestamps, and the
+India GST/accounting boundary.
 
 See [docs/design/controlled-writes-phase-f.md](docs/design/controlled-writes-phase-f.md) for scope definitions and the gate specification.
 

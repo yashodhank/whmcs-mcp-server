@@ -20,16 +20,62 @@ It never writes WHMCS database tables directly.
 
 ### Credential and environment posture
 
-- Existing devbox API credential files were searched before provisioning:
-  `find projects -maxdepth 2 -name api-credentials.json -print` returned no
-  paths. Disposable credentials were created only after that result; secrets
-  stayed in ignored local files and were never printed or copied here.
+- The initial bounded credential search used `projects -maxdepth 2`; that was
+  insufficient and missed the active project's deeper credential file. The
+  corrected full-tree discovery found
+  `whmcs-devbox/projects/contabo-pricing/api-credentials.json`. Final testing
+  reused the already-existing v8/v9 local credential files; no replacement
+  credential was created. All three credential files are now owner-only
+  (`0600`), and secret values are excluded from this plan and audit output.
 - Verified WHMCS versions: `8.13.4-release.1` and `9.0.5-release.1`.
 - The exact required API role actions are: `GetClients`, `GetClientsDetails`,
   `GetCredits`, `AddCredit`, `AddClientNote`, `LogActivity`, `GetActivityLog`,
   `GetConfigurationValue`, and `GetInvoices` for the audit invariant.
 - `SetConfigurationValue` is restricted to the WHMCS Internal API. Production
   code only reads `TaxEnabled`; it must never try to change WHMCS tax settings.
+
+### Restarted-devbox verification rerun (2026-08-10)
+
+- Before the rerun, local discovery found the existing project credential at
+  `whmcs-devbox/projects/contabo-pricing/api-credentials.json` and the two
+  existing mode-`0600` v8/v9 E2E credential files. They were reused; no new
+  credential was created.
+- Healthy restarted containers reported WHMCS `8.13.4-release.1` and
+  `9.0.5-release.1`.
+- Both versions passed all 26 reversible assertions again: exact source and
+  destination deltas, net-credit conservation, native credit/activity dates,
+  paired activity entries and notes, unchanged invoice counts, linked reversal,
+  destination-failure compensation, and insufficient-balance rejection.
+- The 9.x run enabled tax only inside the guarded fixture. A final read-only
+  probe confirmed `TaxEnabled` was restored to its original disabled value and
+  all four test-client balances were exactly `0.00`.
+- After implementation, the production executor itself was run against both
+  devboxes with new reversible fixtures. Both returned `completed`, conserved
+  balances, unchanged invoice counts, paired note/activity references, native
+  credit/activity timestamps, safe same-request replay and a linked completed
+  reversal. The 9.x executor read `tax.enabled=true`, recommended approval and
+  still created no invoice. A second final probe again confirmed tax disabled
+  and all affected balances at `0.00`.
+
+### Final restarted-devbox closure rerun (2026-08-11)
+
+- Credential provenance was verified without exposing identifiers or secrets:
+  the reused `/private/tmp/whmcs-credit-e2e-v8.json` identifier matched exactly
+  one admin credential at `whmcs-devbox-mariadb8-1/whmcs8.tbldeviceauth`, and
+  the reused `/private/tmp/whmcs-credit-e2e-v9.json` identifier matched exactly
+  one admin credential at `whmcs-devbox-mariadb9-1/whmcs9.tbldeviceauth`.
+- Secret-redacted `GetCurrencies` probes using the existing local v8 and v9
+  credential files both returned `success` with four currencies. No credential
+  provisioning command was run.
+- The real `WhmcsClient` request pipeline completed a new reversible transfer,
+  idempotent replay, and linked reversal on both healthy containers.
+- WHMCS 8.13.4 reported USD, tax disabled, no invoice, exact balance
+  conservation, unchanged invoice counts, paired notes/activity, and native
+  occurrence `2026-08-10 18:30:22` / credit date `2026-08-10`.
+- WHMCS 9.0.5 reported INR under the guarded tax-enabled fixture, recommended
+  finance review, created no invoice, and proved the same invariants with native
+  occurrence `2026-08-10 18:30:26` / credit date `2026-08-10`. The fixture trap
+  restored the original tax setting after the run.
 
 ### Financial and audit behavior
 
@@ -67,7 +113,7 @@ Required input:
 - `destination_clientid`: different positive WHMCS client ID.
 - `amount`: canonical decimal string with at most two fractional digits in v1.
 - `reason`: 3-500 characters; stored in both profile notes.
-- `request_id`: caller-stable idempotency key, 8-128 safe characters.
+- `request_id`: caller-stable idempotency key, 3-100 safe characters.
 - `confirm`: must be `true` for the default self-approved execution path.
 
 Optional input:
@@ -230,7 +276,8 @@ Both non-sticky notes include:
 - Exact source/destination deltas and net-credit conservation are proven on
   WHMCS 8.x and 9.x.
 - Idempotent replay and concurrent source requests cannot duplicate/overspend.
-- Crash after source debit resumes or compensates exactly once.
+- A persisted interrupted state never repeats a financial leg automatically;
+  replay fails closed and exposes the state for manual reconciliation.
 - Default explicit self-approval works; configured finance/CA approval blocks
   until a distinct allowlisted approver approves.
 - Tax disabled never requires tax invoicing. Tax enabled recommends finance
