@@ -12,6 +12,7 @@ import {
   resolveConsumer,
 } from '../governance/consumers.js';
 import { getConsumerRegistry, getProjectionEnv } from '../governance/pipeline.js';
+import { resolveDefaultConsumerAuthToken } from '../auth/defaultConsumerToken.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
 import { AUTH_SHAPE, ensureToolAuth } from '../security.js';
@@ -58,7 +59,8 @@ function planningContext(
   authToken: string | undefined,
   catalog: OperationCatalog
 ): { ok: true; context: AuthenticatedPlanningContext } | { ok: false; reason: string } {
-  const resolution = resolveConsumer(authToken, getProjectionEnv(), getConsumerRegistry(), {
+  const effectiveAuthToken = authToken ?? resolveDefaultConsumerAuthToken();
+  const resolution = resolveConsumer(effectiveAuthToken, getProjectionEnv(), getConsumerRegistry(), {
     allowAnon: false,
   });
   if (!resolution.ok) return { ok: false, reason: `consumer denied: ${resolution.reason}` };

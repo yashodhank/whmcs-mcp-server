@@ -262,6 +262,10 @@ cp .env.example .env
 | `MCP_ACCESS_MODE`                   | `admin`                  | Access mode: `admin` (full) or `client` (scoped)                                                                                                                                                                           |
 | `MCP_ALLOWED_CLIENT_IDS`            | (empty)                  | Comma-separated client IDs allowed in `client` mode                                                                                                                                                                        |
 | `MCP_AUTH_TOKEN`                    | (empty)                  | Optional shared secret required on tool calls (`auth_token` param). Not used for resource reads.                                                                                                                           |
+| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN`   | (empty)                  | Optional raw consumer `auth_token` used when tool calls omit `auth_token` (fallback).                                                                                                                                    |
+| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE` | (empty)               | Optional owner-only file path containing the raw default consumer token used when tool calls omit `auth_token`; file value has precedence over inline token.                                                                |
+| `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN` | (empty)             | Optional raw approver consumer token used when approve/validate flows omit `auth_token`.                                                                                                                                |
+| `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE` | (empty)         | Optional owner-only file path for approver fallback token; file value has precedence over inline token.                                                                                                                  |
 | `MCP_RATE_LIMIT`                    | `10`                     | Max WHMCS API calls per second                                                                                                                                                                                             |
 | `MCP_DEBUG`                         | `false`                  | Enable verbose logging                                                                                                                                                                                                     |
 | `MCP_MAX_PAGE_SIZE`                 | `100`                    | Maximum pagination size                                                                                                                                                                                                    |
@@ -487,6 +491,67 @@ Example tool call payload:
 ```
 
 **Resources are not authenticated via a URI-query token.** This server speaks MCP over **stdio**, so the process that launches it is the trust boundary. MCP resources are protected by process/transport isolation plus the access-mode and client-scope guardrails. Keep `MCP_AUTH_TOKEN`, `WHMCS_*` secrets, and local config files out of version control.
+
+### Persisted live consumer token bootstrap (production baseline)
+
+For production write governance, keep executor/approver consumer tokens in owner-only files and have MCP consume them automatically whenever a call omits `auth_token`.
+
+- Set inline token values plus file targets in your env (`MCP_DEFAULT_CONSUMER_AUTH_TOKEN`, `MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE`, etc.) and run:
+
+```bash
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN=... \\
+MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN=... \\
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE=/Users/you/.config/whmcs-mcp/live-consumer-executor.token \\
+MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE=/Users/you/.config/whmcs-mcp/live-consumer-approver.token \\
+npm run mcp:bootstrap-live-tokens
+```
+
+`npm run mcp:bootstrap-live-tokens` writes token files as `0600` and validates owner-only permissions.
+The stdio launcher script (`scripts/local/whmcs-mcp-stdio.sh`) runs this bootstrap automatically when started with an env file.
+
+### Persisted token lifecycle (canonical bootstrap flow)
+
+Use this sequence for all hosts and environments:
+
+1. Store long-lived raw tokens in your secret manager, and set only file targets plus inline fallback values in env:
+
+```bash
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE=/Users/you/.config/whmcs-mcp/live-consumer-executor.token
+MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE=/Users/you/.config/whmcs-mcp/live-consumer-approver.token
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN=...
+MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN=...
+```
+
+2. Run bootstrap once after env update:
+
+```bash
+npm run mcp:bootstrap-live-tokens
+```
+
+3. Start the server (or restart host transport) once bootstrap has completed. The process reads files at runtime; in stdio mode token-file changes apply when the host respawns the MCP child with updated env, and in HTTP mode they apply after restart.
+
+4. During operations, rotate tokens by updating only the secret manager values, rerunning bootstrap, and rerunning preflight before the next high-risk execution.
+
+Rotation guardrails:
+
+- File owner-only mode is required: owner can read/write, no group/other access.
+- The bootstrap script refuses weak or non-owner-only files.
+- If both inline token and token-file env vars are set for the same lane, file value wins.
+
+Troubleshooting:
+
+- `MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE not found` / permission errors in preflight:
+  - ensure the `.env` file points to the correct path and the file exists;
+  - ensure file owner is the MCP service user;
+  - ensure file mode is exactly `0600`.
+- `auth_token` still required for tool calls that should use defaults:
+  - confirm the calling tool path is not using transport-auth-only mode;
+  - confirm `MCP_DEFAULT_*` vars are set in the effective process env for the launch host;
+  - check bootstrap logs for `wrote` vs `already-present`.
+
+Security note:
+
+- Do not check in token values, even in private branches. Keep raw values in your secret manager and keep only file paths and safe fallback strings in repo-tracked env templates.
 
 ### Access Modes
 

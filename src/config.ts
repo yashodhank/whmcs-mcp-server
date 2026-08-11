@@ -85,6 +85,22 @@ const configSchema = z
       z.boolean().default(false)
     ),
     MCP_AUTH_TOKEN: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    MCP_DEFAULT_CONSUMER_AUTH_TOKEN: z.preprocess(
+      preprocessOptionalEnvString,
+      z.string().optional()
+    ),
+    MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE: z.preprocess(
+      preprocessOptionalEnvString,
+      z.string().optional()
+    ),
+    MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN: z.preprocess(
+      preprocessOptionalEnvString,
+      z.string().optional()
+    ),
+    MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE: z.preprocess(
+      preprocessOptionalEnvString,
+      z.string().optional()
+    ),
     MCP_ACCESS_MODE: z.enum(['admin', 'client']).default('admin'),
     MCP_ALLOWED_CLIENT_IDS: z.preprocess((val) => {
       const raw = preprocessCommaSeparatedString(val);

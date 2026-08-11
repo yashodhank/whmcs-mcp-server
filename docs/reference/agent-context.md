@@ -9,6 +9,12 @@ the mandatory handoff-update rule, read
 focused on technical seams; do not duplicate customer PII or production
 credentials here.
 
+The MCP supports persistent default consumer token fallback for write gates:
+set `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` and `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN`
+with matching `_FILE` paths, bootstrap via
+`npm run mcp:bootstrap-live-tokens`, and enforce owner-only (`0600`) token
+files to keep fallback binding stable across launches.
+
 ## What this is
 
 MCP server fronting the WHMCS API. Read-heavy, governed. Default posture is

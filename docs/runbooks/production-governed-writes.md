@@ -39,8 +39,68 @@ repository and make it writable only by the MCP service account:
   restart does not permit a duplicate execution; and
 - `MCP_WRITE_DAY_AMOUNTS_PATH` — required when a daily high-risk monetary cap
   is used so the tally survives restart.
+- `MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE` (optional but recommended) and
+  `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE` (optional): owner-only
+  plain-text files holding the raw execute/approve consumer tokens used when
+  clients omit `auth_token`.
+
+Run `npm run mcp:bootstrap-live-tokens` from the MCP repo to materialize those
+files from their inline-token env counterparts (`MCP_DEFAULT_*_AUTH_TOKEN`) as
+owner-only `0600` paths, then configure your process to consume them in
+`.env.production`.
 
 Never place these files under the Git checkout or publish their contents.
+
+### Live default consumer token bootstrap (recommended)
+
+Use this sequence for reproducible production token posture:
+
+1. Keep raw `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` and
+   `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN` in your secret manager.
+2. Keep only file targets in operational env files:
+   - `MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE`
+   - `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE`
+3. Run bootstrap before service start or during approved maintenance window:
+
+```bash
+npm run mcp:bootstrap-live-tokens
+```
+
+4. Verify each target path resolves to:
+   - existing file
+   - owner-only (`0600`) file mode
+   - ownership by MCP runtime user
+
+5. Restart launch boundary as required:
+   - **stdio**: restart/respawn the MCP child with the updated environment
+   - **HTTP**: restart the MCP service process
+
+### Token rotation and token-loss recovery
+
+For rotation that does not change token identities:
+
+- update secret values
+- rerun `npm run mcp:bootstrap-live-tokens`
+- run `npm run mcp:preflight`
+- run one governed dry-run intent (`draft_write_intent` + `validate_write_intent`)
+  before executing any high-risk production scope
+
+For token recovery after accidental overwrite:
+
+- recreate the intended target files from a verified secret source,
+- re-run bootstrap and preflight,
+- keep production authorization list narrow until your read-back of a successful
+  non-destructive dry-run confirms token binding is correct.
+
+If bootstrap still fails:
+
+- `npm run mcp:preflight` should block production writes as evidence of bad
+  bootstrap.
+- Validate raw env values and file env values are present in the same process
+  environment.
+- Confirm bootstrap did not skip because paths are missing write permission.
+- Prefer full emergency stop via kill switch + emergency evidence capture if the
+  service is in a mixed token state.
 
 ## Configure consumer identities
 

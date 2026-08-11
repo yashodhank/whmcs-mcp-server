@@ -43,6 +43,10 @@ fi
 export MCP_TRANSPORT=stdio
 
 if [ -n "$ENV_FILE" ]; then
+  if ! node --env-file="$ENV_FILE" "$HERE/scripts/local/mcp-bootstrap-live-consumer-tokens.mjs" >&2; then
+    echo "whmcs-mcp-stdio: live token bootstrap failed" >&2
+    exit 1
+  fi
   exec node --env-file="$ENV_FILE" "$HERE/dist/index.js"
 fi
 

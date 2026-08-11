@@ -8,6 +8,9 @@ Operator-focused runbook for agents using the WHMCS MCP server from local hosts 
 2. Confirm MCP points to `dist/index.js`
 3. Verify environment has the same WHMCS endpoint/identifier/secret/access key across hosts
 4. Validate read probe first: `search_clients` and `list_products`
+5. If using persistent default consumer token fallback, run:
+   - `npm run mcp:bootstrap-live-tokens`
+   - confirm token files are owner-only (`0600`) and match `MCP_DEFAULT_*_AUTH_TOKEN_FILE` targets
 
 If these fail, do not start billing or reporting workflows.
 
@@ -29,7 +32,7 @@ Treat 403 as a layered issue, not a generic failure.
 ### A. Transport / Host Layer
 
 - Symptom: no tools or malformed responses
-- Check: server boot logs, tool list visibility
+- Check: server boot logs, tool list visibility, stdio launcher bootstrap output/errno
 - Action: fix MCP host config, rebuild, restart host process
 
 ### B. MCP Governance Layer
@@ -67,6 +70,7 @@ Do not proceed to reporting workflows until all 4 checks pass.
 - Use `simulate` or `full` only in approved windows or local disposable stacks.
 - Prefer client-scoped mode for customer-facing assistants.
 - Keep write-intent flows audited; avoid direct mutating calls for high-risk operations.
+- If running without client-supplied `auth_token`, ensure `MCP_DEFAULT_*_AUTH_TOKEN` and `_FILE` values are aligned and bootstrap has been run in the host launch path.
 - Production approval changes do not require an MCP restart when
   MCP_PROD_WRITE_AUTHORIZED_FILE is configured. Edit the owner-only (0600)
   JSON file atomically; the next governed execution rereads it. Use a JSON

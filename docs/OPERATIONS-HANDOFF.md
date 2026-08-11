@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-08-10
+Status: current as of 2026-08-11
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -131,6 +131,7 @@ legs may be complete and must not be repeated. Full procedure:
 | Local WHMCS test stack | `deploy/whmcs-test/` in this repository; intentionally separate from `securiace-vps-platform` |
 | Client proposals | `securiace-clients-proposals` is a separate business/proposal workspace; never copy secrets or customer PII into this public repository |
 | Production deployment | No production host, image registry, service name, or immutable image digest is declared in this repository; record those in the private deployment inventory before claiming a deployment |
+| Operator workstation Cursor MCP | Local stdio primary: `~/.cursor/mcp.json` → `scripts/local/whmcs-mcp-stdio.sh` loading gitignored `.env.production` (prod WHMCS). Secrets and consumer registry live under `~/.config/whmcs-mcp/` + private audit paths — never in the public repo |
 | Separate GitHub repository | None currently; do not create one for ordinary addon changes |
 
 The Dockerfile and `docker-compose.yml` provide a buildable container and a
@@ -138,6 +139,12 @@ local/dev-oriented compose setup. They are not proof of a production
 deployment. Production deployment ownership, host, proxy, image registry,
 secret injection, backups, and rollback identity must be recorded in the
 private operations inventory when a deployment is made.
+
+Workstation Cursor enablement (2026-08-11): the operator Mac runs the MCP
+server over stdio against production WHMCS as the primary Cursor MCP entry
+(`whmcs`). This is a local host launch, not a remote container/service
+deploy. Keep durable consumer tokens owner-only (`0600`) and re-run
+`npm run mcp:bootstrap-live-tokens` after any token rotation.
 
 ## Ownership and maintenance
 
@@ -191,6 +198,10 @@ identity.
   customer PII, production database dumps, or quote/invoice payloads.
 - Keep production credentials in the deployment secret manager/environment;
   keep only non-secret configuration and path posture in repository docs.
+- Persist executor/approver default consumer fallback tokens in owner-only files (`0600`),
+  not inline in process env or tracked files. Use
+  `npm run mcp:bootstrap-live-tokens` and verify owner-only mode + ownership
+  on every production rollout or rotation.
 - Default new deployments to `MCP_MODE=read_only` and verify the actual tool
   surface and downstream WHMCS connectivity before enabling writes.
 - Use `MCP_PROD_WRITE_AUTHORIZED_FILE` for live action/scope rotation where
@@ -228,7 +239,9 @@ decimal/scientific syntax. This handoff update also records the tiered allowlist
 post-restart replacement ceremony, and composed-only invoice-reassignment
 semantics identified in the post-merge PR #77 review. Quarantined local
 workspace artifacts are excluded from both Git tracking and Docker build
-contexts.
+contexts. Live default consumer token bootstrap and token-file validation are now
+also part of the production runbook posture, with ownership-preserving defaults
+that feed `auth_token` fallback in write gates.
 
 Historical plans 001–021 have been reconciled against their merged outcomes.
 Their local source files are preserved by hash but are not active backlog;

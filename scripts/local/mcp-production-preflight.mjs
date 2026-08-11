@@ -23,6 +23,20 @@ if (present('MCP_CONSUMER_REGISTRY_FILE')) {
   try { mode = statSync(path).mode & 0o777; } catch {}
   check('consumer_registry_file', mode === 0o600, mode === null ? 'missing/unreadable' : `mode=${mode.toString(8)}`);
 }
+for (const [label, key] of [
+  ['default_consumer_auth_token_file', 'MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE'],
+  ['default_approver_auth_token_file', 'MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE'],
+]) {
+  if (!present(key)) continue;
+  const path = env[key].trim();
+  let mode = null;
+  try { mode = statSync(path).mode & 0o777; } catch {}
+  check(
+    label,
+    mode === 0o600,
+    mode === null ? 'missing/unreadable' : `mode=${mode.toString(8)}`
+  );
+}
 check('write_allowlist', present('MCP_PROD_WRITE_AUTHORIZED_FILE') || present('MCP_PROD_WRITE_AUTHORIZED'), 'presence-only');
 for (const key of ['MCP_WRITE_AUDIT_PATH', 'MCP_WRITE_IDEMPOTENCY_PATH', 'MCP_WRITE_DAY_AMOUNTS_PATH']) {
   if (!present(key)) { check(key, false, 'unset'); continue; }

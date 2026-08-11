@@ -11,6 +11,7 @@
  */
 
 import { config } from '../config.js';
+import { resolveDefaultConsumerAuthToken } from '../auth/defaultConsumerToken.js';
 import {
   type Canonical,
   type ConsumerProfile,
@@ -339,7 +340,7 @@ export function governedToolResult<T>(args: {
   const withTrace = auditTraceEnabled();
   const r = governProjection({
     canonical: args.canonical,
-    authToken: args.authToken,
+    authToken: args.authToken ?? resolveDefaultConsumerAuthToken(),
     env: getProjectionEnv(),
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,
@@ -389,7 +390,7 @@ export function governedListResult(args: {
   const r = governListProjection({
     rows: args.rows,
     mapItem: args.mapItem,
-    authToken: args.authToken,
+    authToken: args.authToken ?? resolveDefaultConsumerAuthToken(),
     env: getProjectionEnv(),
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,

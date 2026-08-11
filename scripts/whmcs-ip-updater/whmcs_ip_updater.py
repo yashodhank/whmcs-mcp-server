@@ -930,8 +930,14 @@ def load_args(argv: Iterable[str]) -> AppConfig:
     parser.add_argument("--circuit-breaker-cooldown-seconds", type=int, default=int(os.getenv("WHMCS_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "900")))
 
     parser.add_argument("--whmcs-api-url", default=os.getenv("WHMCS_API_URL"))
-    parser.add_argument("--whmcs-api-identifier", default=os.getenv("WHMCS_API_IDENTIFIER"))
-    parser.add_argument("--whmcs-api-secret", default=os.getenv("WHMCS_API_SECRET"))
+    parser.add_argument(
+        "--whmcs-api-identifier",
+        default=os.getenv("WHMCS_API_IDENTIFIER", os.getenv("WHMCS_IDENTIFIER", "")),
+    )
+    parser.add_argument(
+        "--whmcs-api-secret",
+        default=os.getenv("WHMCS_API_SECRET", os.getenv("WHMCS_SECRET", "")),
+    )
     parser.add_argument("--test-api-timeout", type=int, default=int(os.getenv("WHMCS_TEST_API_TIMEOUT", "15")))
     parser.add_argument(
         "--test-api-action",

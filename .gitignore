@@ -92,3 +92,6 @@ graphify-out/
 /plans/019-executable-workflow-tools.md
 /plans/020-docs-revamp.md
 /plans/021-code-comment-deep-pass.md
+
+# Local Cursor MCP wiring (absolute host paths; do not commit)
+.cursor/mcp.json
