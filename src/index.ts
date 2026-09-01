@@ -33,6 +33,7 @@ import { registerBillingReadTools } from './tools/billingReadTools.js';
 import { registerTicketMetaTools } from './tools/ticketMetaTools.js';
 import { registerQuoteTools } from './tools/quoteTools.js';
 import { registerSystemRefTools } from './tools/systemRefTools.js';
+import { registerExtendedReadTools } from './tools/extendedReadTools.js';
 import { registerWhmcsPrompts } from './prompts/whmcsPrompts.js';
 import { registerTicketThreadTool } from './tools/ticketThreadTool.js';
 import { registerAggregatorTools } from './tools/aggregators.js';
@@ -99,6 +100,7 @@ export function buildServer(deps: {
   registerTicketMetaTools(server, whmcsClient, logger, rateLimiter);
   registerQuoteTools(server, whmcsClient, logger, rateLimiter);
   registerSystemRefTools(server, whmcsClient, logger, rateLimiter);
+  registerExtendedReadTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
   const capabilityCatalog = registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);

@@ -96,6 +96,6 @@ describe('Phase G+ — HIGH-RISK production sealed by default (empty prod allowl
     expect(rec(ep.execution).blocked_reason).toBe('action_not_prod_authorized');
     // KEYSTONE: with no prod allowlist configured, no WHMCS mutation occurs.
     expect(mutate).not.toHaveBeenCalled();
-    expect(read).not.toHaveBeenCalled();
+    expect(read.mock.calls.every(([action]) => action === 'WhmcsDetails')).toBe(true);
   });
 });

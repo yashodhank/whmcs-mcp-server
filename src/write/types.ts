@@ -102,6 +102,16 @@ export const WRITE_SCOPES = [
   // ── Service / invoice owner transfer (direct-DB, opt-in DSN) ─────────────
   'service:transfer_owner',
   'billing:invoice:reassign',
+  // ── NEXUS broad-tier writes ───────────────────────────────────────────────
+  'order:cancel',
+  'order:pending',
+  'billing:invoice:update',
+  'billing:billable_item:update',
+  'domain:epp:request',
+  'domain:record:update',
+  'support:cancel_request:add',
+  'client:close',
+  'client:contact:delete',
 ] as const;
 
 export type WriteScope = (typeof WRITE_SCOPES)[number];
@@ -147,6 +157,16 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'ticket:merge': 'MergeTicket',
   'service:transfer_owner': DB_DIRECT_ACTION,
   'billing:invoice:reassign': DB_DIRECT_ACTION,
+  // NEXUS broad-tier.
+  'order:cancel': 'CancelOrder',
+  'order:pending': 'PendingOrder',
+  'billing:invoice:update': 'UpdateInvoice',
+  'billing:billable_item:update': 'UpdateBillableItem',
+  'domain:epp:request': 'DomainRequestEPP',
+  'domain:record:update': 'UpdateClientDomain',
+  'support:cancel_request:add': 'AddCancelRequest',
+  'client:close': 'CloseClient',
+  'client:contact:delete': 'DeleteContact',
 } as const;
 
 export const WRITE_RISK = ['low', 'medium', 'high'] as const;
@@ -242,6 +262,17 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // human approval + separation of duties). Sealed by default; opt-in DSN.
   'service:transfer_owner': 'high',
   'billing:invoice:reassign': 'high',
+  // NEXUS broad-tier.
+  'order:cancel': 'medium',
+  'order:pending': 'medium',
+  'billing:invoice:update': 'medium',
+  'billing:billable_item:update': 'medium',
+  'domain:epp:request': 'low',
+  'domain:record:update': 'medium',
+  'support:cancel_request:add': 'medium',
+  'client:close': 'medium',
+  // Destructive delete — high tier but phrase-only when unblocked.
+  'client:contact:delete': 'high',
 } as const;
 
 /* ───────────────────────────  Write intent  ─────────────────────────────── */
@@ -274,6 +305,12 @@ export interface WriteIntent {
   readonly preconditions: Readonly<Record<string, unknown>>;
   /** Human + structured summary of the intended effect. */
   readonly projected_effect: string;
+  /**
+   * Typed confirmation the operator supplied for a destructive scope. Must
+   * EXACTLY equal the configured `MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE` when
+   * the scope is destructive (else denied `destructive_confirmation_required`).
+   */
+  readonly confirmation?: string;
   readonly state: WriteIntentState;
   readonly created_at: string;
   readonly expires_at: string;
@@ -352,6 +389,7 @@ export const PROD_NEVER_EXECUTABLE: ReadonlySet<string> = new Set<string>([
   'DeleteInvoice',
   'DeleteTransaction',
   'DeletePayMethod',
+  'DeleteContact',
   // Service / module termination
   'TerminateService',
   'ModuleTerminate',
@@ -385,6 +423,23 @@ export const PROD_NEVER_EXECUTABLE_SCOPES: ReadonlySet<string> = new Set<string>
   'service:terminate',
   'domain:transfer',
   'domain:release',
+]);
+
+/**
+ * Destructive / delete / remove scopes. Irreversible or record-destroying.
+ * When unblocked via `MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES` they require ONLY a
+ * typed confirmation phrase matching `MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE`
+ * (no distinct approver, caps, or allowlist). Default posture: sealed.
+ *
+ * NOTE: `service:transfer_owner` / `billing:invoice:reassign` are deliberately
+ * NOT here — they are "transfer/reassign" (not delete/remove) and are already
+ * gated by their own high-risk + direct-DB + `unsupported_capability` path.
+ */
+export const DESTRUCTIVE_WRITE_SCOPES: ReadonlySet<string> = new Set<string>([
+  'service:terminate',
+  'domain:transfer',
+  'domain:release',
+  'client:contact:delete',
 ]);
 
 /** Recorded human approval for a high-risk (money) production action. */
@@ -463,6 +518,21 @@ export interface ExecutionRequest {
    * policy permits self-approval. Allowlisting and monetary caps still apply.
    */
   readonly allowHighRiskSelfApproval?: boolean;
+  /**
+   * Destructive-scope typed confirmation phrase. When set, a scope in
+   * `DESTRUCTIVE_WRITE_SCOPES` must carry `confirmation === this phrase`.
+   * Sourced from `MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE`. Default-empty ⇒ the
+   * typed-confirmation check is skipped (but destructive scopes stay sealed by
+   * the never-executable block unless separately allowlisted).
+   */
+  readonly destructiveConfirmPhrase?: string;
+  /**
+   * Destructive scopes an operator has explicitly unblocked from the
+   * never-executable block (in addition to configuring the confirmation
+   * phrase). Sourced from `MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES`. Default [] ⇒
+   * every destructive scope stays sealed (unchanged posture).
+   */
+  readonly allowedDestructiveScopes?: readonly string[];
 }
 
 export type ExecutionDeniedReason =
@@ -479,6 +549,7 @@ export type ExecutionDeniedReason =
   | 'human_approval_required'
   | 'amount_cap_exceeded'
   | 'self_approval_forbidden'
+  | 'destructive_confirmation_required'
   // Execution-stage (emitted by the write-flow, not the pure gate).
   | 'audit_write_failed'
   | 'verification_failed'

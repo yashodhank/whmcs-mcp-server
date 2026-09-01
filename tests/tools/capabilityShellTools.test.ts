@@ -108,16 +108,21 @@ describe('registerCapabilityShellTools', () => {
     });
   }
 
-  it('get_capability_matrix reports the structured capability registry + unverified WHMCS version, no WHMCS call', async () => {
+  it('get_capability_matrix probes WhmcsDetails for version + reports capabilities', async () => {
     const { handlers, read } = harness();
+    read.mockResolvedValueOnce({
+      result: 'success',
+      whmcs: { version: '9.0.0', canonicalversion: '9.0.0-release.1' },
+    });
     const res = await handlers.get_capability_matrix({});
-    expect(read).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith('WhmcsDetails', {});
     const p = JSON.parse(res.content[0].text) as {
-      whmcs_version: { status: string };
+      whmcs_version: { status: string; family?: string };
       capabilities: { action: string; status: string }[];
       compat_9x: Record<string, unknown>;
     };
-    expect(p.whmcs_version.status).toBe('unverified');
+    expect(p.whmcs_version.status).toBe('supported');
+    expect(p.whmcs_version.family).toBe('9.x');
     const byAction = Object.fromEntries(p.capabilities.map((c) => [c.action, c.status]));
     expect(byAction.GetActivityLog).toBe('supported');
     // Phase H: GetTransactions promoted to supported; GetUsers stays unverified.

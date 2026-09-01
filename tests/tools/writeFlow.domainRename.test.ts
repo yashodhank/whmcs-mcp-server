@@ -58,6 +58,12 @@ type Handlers = Record<
 >;
 
 function setup(read: ReturnType<typeof vi.fn>, mutate: ReturnType<typeof vi.fn>): Handlers {
+  const wrappedRead = vi.fn(async (action: string, params?: unknown) => {
+    if (action === 'WhmcsDetails') {
+      return { result: 'success', whmcs: { version: '8.13.1' } };
+    }
+    return read(action, params);
+  });
   const handlers: Handlers = {};
   const server = {
     registerTool: (n: string, _c: unknown, cb: unknown) => {
@@ -73,7 +79,7 @@ function setup(read: ReturnType<typeof vi.fn>, mutate: ReturnType<typeof vi.fn>)
   };
   registerWriteFlowTools(
     server as never,
-    { mutate, read } as never,
+    { mutate, read: wrappedRead } as never,
     logger as never,
     {
       tryConsume: () => true,

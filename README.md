@@ -9,6 +9,8 @@
 
 A production-ready **Model Context Protocol (MCP)** server that enables AI agents (via Cursor, Claude, or any MCP host) to administrate WHMCS installations through the External API.
 
+**Defaults:** governance off (`MCP_GOVERNANCE_ENABLED=false`) · reads out of the box · writes require `MCP_MODE=full` + `MCP_PROD_WRITE_AUTHORIZED_FILE` · destructive scopes = typed confirmation phrase only. See [docs/runbooks/simple-writes.md](docs/runbooks/simple-writes.md).
+
 For agent and contributor orientation (architecture, governance, write-flow, doc map), see **[AGENTS.md](AGENTS.md)**.
 
 ## Architecture

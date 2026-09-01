@@ -626,3 +626,84 @@ describe('preAuthorizeIntent — independent gating of UpdateClientProduct scope
     expect(d).toEqual({ allowed: true });
   });
 });
+
+/* ─────────────  Destructive (delete/remove) typed-confirmation gate  ───────── */
+
+function approvedDestructiveIntent(confirmation = 'CONFIRM-TERMINATE'): WriteIntent {
+  const store = new IntentStore();
+  const intent = createDraftIntent({
+    consumer_id: 'c1',
+    scope: 'service:terminate', // destructive + high + never-executable (action AND scope)
+    params: { serviceid: 1 },
+    naturalKey: 'k-terminate',
+    preconditions: {},
+    projected_effect: 'terminate',
+    confirmation,
+  });
+  store.put(intent);
+  store.transition(intent.intent_id, 'validated');
+  return store.transition(intent.intent_id, 'approved');
+}
+
+describe('destructive (delete/remove) typed-confirmation gate', () => {
+  it('seals a destructive scope by default (action_permanently_blocked)', () => {
+    const intent = approvedDestructiveIntent();
+    const d = defaultExecutionAuthorizer({
+      intent,
+      env: 'staging',
+      mcpMode: 'full',
+      consumerWriteCapability: 'execution_allowed',
+      runtimeAuthorizedActions: [intent.action],
+      destructiveConfirmPhrase: 'CONFIRM-TERMINATE',
+      allowedDestructiveScopes: [],
+    });
+    expect(d).toEqual({ allowed: false, reason: 'action_permanently_blocked' });
+  });
+
+  it('denies destructive_confirmation_required when unblocked but no phrase configured', () => {
+    const intent = approvedDestructiveIntent();
+    const d = defaultExecutionAuthorizer({
+      intent,
+      env: 'staging',
+      mcpMode: 'full',
+      consumerWriteCapability: 'execution_allowed',
+      runtimeAuthorizedActions: [intent.action],
+      destructiveConfirmPhrase: '',
+      allowedDestructiveScopes: ['service:terminate'],
+    });
+    expect(d).toEqual({ allowed: false, reason: 'destructive_confirmation_required' });
+  });
+
+  it('denies destructive_confirmation_required on confirmation mismatch', () => {
+    const intent = approvedDestructiveIntent('WRONG-PHRASE');
+    const d = defaultExecutionAuthorizer({
+      intent,
+      env: 'staging',
+      mcpMode: 'full',
+      consumerWriteCapability: 'execution_allowed',
+      runtimeAuthorizedActions: [intent.action],
+      destructiveConfirmPhrase: 'CONFIRM-TERMINATE',
+      allowedDestructiveScopes: ['service:terminate'],
+    });
+    expect(d).toEqual({ allowed: false, reason: 'destructive_confirmation_required' });
+  });
+
+  it('passes destructive gates with phrase alone (no allowlist, approval, or caps)', () => {
+    const intent = approvedDestructiveIntent();
+    const d = defaultExecutionAuthorizer({
+      intent,
+      env: 'staging',
+      mcpMode: 'full',
+      consumerWriteCapability: 'execution_allowed',
+      runtimeAuthorizedActions: [],
+      destructiveConfirmPhrase: 'CONFIRM-TERMINATE',
+      allowedDestructiveScopes: ['service:terminate'],
+    });
+    expect(d).toEqual({ allowed: true });
+  });
+
+  it('non-destructive scopes are unaffected by an unset confirmation phrase', () => {
+    const d = defaultExecutionAuthorizer(fullyOpenReq(), () => false);
+    expect(d).toEqual({ allowed: true });
+  });
+});

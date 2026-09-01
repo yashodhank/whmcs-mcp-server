@@ -49,6 +49,15 @@ export const CONSUMER_REGISTRY_ENV = 'MCP_CONSUMER_REGISTRY';
  */
 export const CONSUMER_REGISTRY_FILE_ENV = 'MCP_CONSUMER_REGISTRY_FILE';
 
+/**
+ * Additive per-deployment write-scope grant (see config.ts). Comma-separated
+ * write scopes are UNION-ed into every non-anonymous consumer's
+ * `allowedWriteScopes` at load time. Default empty ⇒ no change. Unknown scope
+ * names fail closed (never silently ignored) so a typo cannot look like a
+ * successful grant.
+ */
+export const EXTRA_WRITE_SCOPES_ENV = 'MCP_WRITE_EXTRA_ALLOWED_SCOPES';
+
 /** Contract the deliberate anonymous fallback profile must be pinned to. */
 const ANON_PINNED_CONTRACT = 'llm_safe_summary' as const;
 
@@ -267,7 +276,10 @@ export function loadConsumerRegistry(env: NodeJS.ProcessEnv): ConsumerProfile[] 
   if (raw === undefined || raw.trim() === '') {
     return [];
   }
-  return parseConsumerRegistryJson(raw, CONSUMER_REGISTRY_ENV);
+  return applyExtraWriteScopes(
+    parseConsumerRegistryJson(raw, CONSUMER_REGISTRY_ENV),
+    extraWriteScopes(env)
+  );
 }
 
 /**
@@ -293,6 +305,51 @@ function parseConsumerRegistryJson(raw: string, source: string): ConsumerProfile
   }
 
   return result.data.map(toProfile);
+}
+
+/**
+ * Parse `MCP_WRITE_EXTRA_ALLOWED_SCOPES` from env into a validated scope list.
+ * Absent/empty ⇒ []. Unknown scope names throw (fail closed) — never silently
+ * dropped, so a typo cannot masquerade as a successful grant.
+ */
+function extraWriteScopes(env: NodeJS.ProcessEnv): readonly string[] {
+  const raw = env[EXTRA_WRITE_SCOPES_ENV];
+  if (raw === undefined || raw.trim() === '') {
+    return [];
+  }
+  const scopes = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const known: readonly string[] = WRITE_SCOPES;
+  const unknown = scopes.filter((s) => !known.includes(s));
+  if (unknown.length > 0) {
+    throw new ConsumerRegistryError(
+      `${EXTRA_WRITE_SCOPES_ENV} contains unknown write scope(s): ${unknown.join(', ')}`
+    );
+  }
+  return scopes;
+}
+
+/**
+ * Union the extra scopes into every non-anonymous profile's allowed write
+ * scopes. Anonymous profiles are never augmented (the deliberate fallback stays
+ * read-only). Pure: returns new profile objects, never mutates the registry.
+ */
+function applyExtraWriteScopes(
+  profiles: ConsumerProfile[],
+  extra: readonly string[]
+): ConsumerProfile[] {
+  if (extra.length === 0) {
+    return profiles;
+  }
+  return profiles.map((p) => {
+    if (p.anonymous) {
+      return p;
+    }
+    const merged = Array.from(new Set([...consumerWriteScopes(p), ...extra]));
+    return { ...p, allowedWriteScopes: merged };
+  });
 }
 
 /**
@@ -335,7 +392,10 @@ export function loadConsumerRegistryFromFile(filePath: string): ConsumerProfile[
         `or unset it to fall back to ${CONSUMER_REGISTRY_ENV}.`
     );
   }
-  return parseConsumerRegistryJson(raw, `${CONSUMER_REGISTRY_FILE_ENV} (${filePath})`);
+  return applyExtraWriteScopes(
+    parseConsumerRegistryJson(raw, `${CONSUMER_REGISTRY_FILE_ENV} (${filePath})`),
+    extraWriteScopes(process.env)
+  );
 }
 
 /**

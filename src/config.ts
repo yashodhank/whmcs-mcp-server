@@ -79,6 +79,10 @@ const configSchema = z
     WHMCS_IP_UPDATER_PYTHON: z.string().min(1).default('python3'),
     WHMCS_AUTO_IP_HEAL_COOLDOWN_MS: z.coerce.number().int().min(0).default(120000),
     WHMCS_AUTO_IP_HEAL_TIMEOUT_MS: z.coerce.number().int().min(1000).default(60000),
+    // IP heal backend: `python` (legacy SSH updater) or `dokploy` (Mac-side shell
+    // healer that SSHes to the WHMCS host). Default python preserves legacy.
+    WHMCS_HEAL_MODE: z.enum(['python', 'dokploy']).default('python'),
+    WHMCS_HEAL_DOKPLOY_SCRIPT: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     // SEC-005: allow http for WHMCS_API_URL only when explicitly opted in
     WHMCS_ALLOW_HTTP: z.preprocess(
       (val) => val === 'true' || val === '1',
@@ -219,6 +223,47 @@ const configSchema = z
     // action authorized at runtime — sealed posture preserved. Mirrors the
     // MCP_PROD_WRITE_AUTHORIZED parser; consumed by writeFlow.runtimeAuthorizedActions().
     MCP_WRITE_EXECUTION_AUTHORIZED: z.preprocess(
+      (val) =>
+        (typeof val === 'string' ? val : '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      z.array(z.string()).default([])
+    ),
+    // Additive per-deployment write-scope grant. Comma-separated scopes are
+    // UNION-ed into every non-anonymous consumer's `allowedWriteScopes` at
+    // registry load time, so an operator can enable a scope (e.g.
+    // `client:create,client:update`) via env WITHOUT hand-editing the consumer
+    // registry JSON. Default empty ⇒ no change to the registry's posture. This
+    // only grants the SCOPE (draft authorization) — execution is still gated by
+    // the tiered execution authorizer (high-risk money/destructive stays
+    // allowlist + approval + caps sealed). Unknown scope names fail closed.
+    MCP_WRITE_EXTRA_ALLOWED_SCOPES: z.preprocess(
+      (val) =>
+        (typeof val === 'string' ? val : '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      z.array(z.string()).default([])
+    ),
+    // Destructive-scope typed confirmation phrase. When non-empty, a write
+    // scope in DESTRUCTIVE_WRITE_SCOPES (delete/remove/terminate/transfer)
+    // must carry a `confirmation` param EXACTLY equal to this phrase or
+    // execution is denied `destructive_confirmation_required`. Combined with
+    // the normal (distinct-approver for high-risk) approval ceremony this is
+    // the "double / typed approval" required for delete/remove. Default '' ⇒
+    // the typed-confirmation check is skipped (destructive scopes stay sealed
+    // by the never-executable block unless MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES
+    // is also set).
+    MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // Comma-separated destructive scopes an operator has explicitly unblocked
+    // from the never-executable block. A scope listed here can only EXECUTE
+    // when BOTH (a) it is a destructive scope AND (b) the typed confirmation
+    // phrase is configured and matched. Default [] ⇒ destructive stays sealed.
+    MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES: z.preprocess(
       (val) =>
         (typeof val === 'string' ? val : '')
           .split(',')

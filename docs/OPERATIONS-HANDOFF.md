@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-08-10
+Status: current as of 2026-09-02 (NEXUS-Sprint: fast path, version probe, broad reads/writes)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -93,6 +93,14 @@ records or intent IDs durable. A restart removes pending in-memory intents and
 approvals; operators must draft and validate a new intent, then obtain a new
 approval. Durable audit, idempotency, and daily-cap paths must be configured
 separately.
+
+### NEXUS-Sprint operator model (2026-09)
+
+- **Governance optional:** default `MCP_GOVERNANCE_ENABLED=false`; consumer registry not required for writes.
+- **Version auto-detect:** lazy `WhmcsDetails` probe (`src/whmcs/versionProfile.ts`, 15 min cache) feeds validation advisories and `get_capability_matrix`.
+- **Destructive writes:** typed `confirmation` phrase only — no distinct approver, caps, or allowlist when scope is in `MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES`.
+- **Dokploy IP heal:** `WHMCS_HEAL_MODE=dokploy` runs `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` (see [api-connectivity-troubleshooting.md](runbooks/api-connectivity-troubleshooting.md)).
+- **Simple writes runbook:** [docs/runbooks/simple-writes.md](runbooks/simple-writes.md).
 
 ### Client-to-client account-credit transfer
 

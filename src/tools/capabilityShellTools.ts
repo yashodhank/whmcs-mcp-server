@@ -297,7 +297,7 @@ export function registerCapabilityShellTools(
   for (const spec of SHELLS) {
     registerShell(server, whmcs, logger, rl, spec);
   }
-  const catalog = createCapabilityShellCatalog(logger, rl);
+  const catalog = createCapabilityShellCatalog(whmcs, logger, rl);
   for (const definition of catalog.definitions()) {
     registerCatalogOperation(server, definition);
   }

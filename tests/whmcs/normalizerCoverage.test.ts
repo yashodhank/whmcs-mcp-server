@@ -45,6 +45,18 @@ const EXPECTED_ALLOWLIST = new Set<string>([
   'GetCurrencies',
   'GetPaymentMethods',
   'WhmcsDetails',
+  'DomainGetNameservers',
+  'DomainGetLockingStatus',
+  'GetTicketNotes',
+  'GetOrderStatuses',
+  'GetPromotions',
+  'GetClientsAddons',
+  'GetCancelledPackages',
+  'GetAffiliates',
+  'GetUserPermissions',
+  'GetEmailTemplates',
+  'GetAdminUsers',
+  'DomainGetWhoisInfo',
 ]);
 
 const EXPECTED_NORMALIZER_KEYS = new Set<string>([
@@ -61,7 +73,7 @@ const EXPECTED_NORMALIZER_KEYS = new Set<string>([
 ]);
 
 describe('normalizerCoverage tripwire', () => {
-  it('READ_ALLOWLIST matches snapshot (33 actions)', () => {
+  it('READ_ALLOWLIST matches snapshot (45 actions)', () => {
     expect(READ_ALLOWLIST).toEqual(EXPECTED_ALLOWLIST);
   });
 

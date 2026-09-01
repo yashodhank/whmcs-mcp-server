@@ -58,7 +58,12 @@ function harness() {
   const logger = { child: () => childLogger };
   const rl = { tryConsume: () => true };
   const mutate = vi.fn();
-  const read = vi.fn();
+  const read = vi.fn(async (action: string) => {
+    if (action === 'WhmcsDetails') {
+      return { result: 'success', whmcs: { version: '8.13.1' } };
+    }
+    return { result: 'success' };
+  });
   registerWriteFlowTools(server as never, { mutate, read } as never, logger as never, rl as never);
   return { handlers, configs, mutate, read };
 }
@@ -167,7 +172,7 @@ describe('write-flow tools (read-only + production posture)', () => {
     expect(rec(ep.execution).blocked_reason).toBe('read_only_mode');
     expect(rec(ep.intent).state).toBe('execution_blocked');
     expect(mutate).not.toHaveBeenCalled();
-    expect(read).not.toHaveBeenCalled();
+    expect(read.mock.calls.every(([action]) => action === 'WhmcsDetails')).toBe(true);
   });
 
   it('execute without prior approval is blocked (intent_not_approved) — no mutate', async () => {

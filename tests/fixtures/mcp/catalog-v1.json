@@ -1277,6 +1277,9 @@
             "description": "MCP auth token",
             "type": "string"
           },
+          "confirmation": {
+            "type": "string"
+          },
           "naturalKey": {
             "minLength": 1,
             "type": "string"
@@ -1338,7 +1341,16 @@
               "ticket:note",
               "ticket:merge",
               "service:transfer_owner",
-              "billing:invoice:reassign"
+              "billing:invoice:reassign",
+              "order:cancel",
+              "order:pending",
+              "billing:invoice:update",
+              "billing:billable_item:update",
+              "domain:epp:request",
+              "domain:record:update",
+              "support:cancel_request:add",
+              "client:close",
+              "client:contact:delete"
             ],
             "type": "string"
           }
@@ -3134,11 +3146,37 @@
           "whmcs_version": {
             "additionalProperties": false,
             "properties": {
+              "family": {
+                "type": "string"
+              },
               "note": {
                 "type": "string"
               },
+              "probed_at": {
+                "type": "string"
+              },
+              "release": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -3620,6 +3658,76 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "Read registrar transfer-lock status for a domain.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          },
+          "domainid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "domainid"
+        ],
+        "type": "object"
+      },
+      "name": "get_domain_locking_status"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Read nameserver hosts for a domain (DomainGetNameservers).",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          },
+          "domainid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "domainid"
+        ],
+        "type": "object"
+      },
+      "name": "get_domain_nameservers"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "Read-only domain portfolio for a client: each domain with status, registrar, expiry, days-to-expiry, lock/id-protection, and an estimated 1-year renewal cost matched from GetTLDPricing. Sub-reads fault-isolated; pricing is best-effort (omitted on failure).",
       "execution": {
         "taskSupport": "forbidden"
@@ -3860,6 +3968,41 @@
         },
         "type": "object"
       }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Read stored WHOIS/contact info for a domain record.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          },
+          "domainid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "domainid"
+        ],
+        "type": "object"
+      },
+      "name": "get_domain_whois_info"
     },
     {
       "description": "Get full invoice details for one or more invoices, including line items and transactions. Use invoiceid for one invoice, invoiceid as an array, or invoiceids for multiple invoices. Version: v1",
@@ -6355,6 +6498,41 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "Read internal notes for a support ticket.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          },
+          "ticketid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticketid"
+        ],
+        "type": "object"
+      },
+      "name": "get_ticket_notes"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "Read a full WHMCS support ticket thread by numeric ticket id (read-only). initial_message = opening post; replies = subsequent.",
       "execution": {
         "taskSupport": "forbidden"
@@ -6529,6 +6707,41 @@
         },
         "type": "object"
       }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Read permission map for a WHMCS user account.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          },
+          "userid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "userid"
+        ],
+        "type": "object"
+      },
+      "name": "get_user_permissions"
     },
     {
       "annotations": {
@@ -6776,6 +6989,122 @@
         ],
         "type": "object"
       }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List WHMCS admin users (non-secret fields only).",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_admin_users"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List affiliate accounts.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_affiliates"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List cancelled product/package definitions.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_cancelled_packages"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List addon services for a client.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "clientid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clientid"
+        ],
+        "type": "object"
+      },
+      "name": "list_client_addons"
     },
     {
       "annotations": {
@@ -7409,6 +7738,33 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "List configured email templates.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_email_templates"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "List WHMCS invoices for billing/revenue reports (read-only). Use status and datepaid_* for revenue rankings; increase scan_limit when complete_scan is false. Version: v1",
       "execution": {
         "taskSupport": "forbidden"
@@ -7567,6 +7923,33 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "List configured order statuses.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_order_statuses"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "List active WHMCS payment gateway methods (read-only, reference data): gateway module name and display label. Version: v1",
       "execution": {
         "taskSupport": "forbidden"
@@ -7636,6 +8019,33 @@
         "type": "object"
       },
       "name": "list_products"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "List active promotion codes.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "contract": {
+            "description": "Requested data contract (honoured only if the resolved consumer permits it)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_promotions"
     },
     {
       "annotations": {
@@ -9417,6 +9827,126 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
+      "description": "DRAFT-ONLY: verify email uniqueness via GetClients search, then draft client:create when no match. Never executes.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "companyname": {
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+          },
+          "firstname": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "lastname": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "firstname",
+          "lastname"
+        ],
+        "type": "object"
+      },
+      "name": "workflow_new_client_onboarding",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "close_summary": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "drafted_intent_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "error": {
+            "type": "string"
+          },
+          "executed": {
+            "const": false,
+            "type": "boolean"
+          },
+          "generated_at_note": {
+            "type": "string"
+          },
+          "isError": {
+            "const": true,
+            "type": "boolean"
+          },
+          "partial_errors": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "generated_at_note",
+          "candidates",
+          "drafted_intent_ids",
+          "skipped",
+          "partial_errors",
+          "executed"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
       "description": "Composite DRAFT-ONLY renewal-risk triage: reads upcoming service + domain renewals in the horizon, ranks by churn risk (auto-renew off / soonest first), and DRAFTS a ticket:create reminder (LOW) for at-risk renewals. NEVER drafts domain:renew or any charge. Never mutates, approves, or executes. Consumer + write-scope gated.",
       "execution": {
         "taskSupport": "forbidden"
@@ -9444,6 +9974,117 @@
         "type": "object"
       },
       "name": "workflow_renewal_risk_triage",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "close_summary": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "drafted_intent_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "error": {
+            "type": "string"
+          },
+          "executed": {
+            "const": false,
+            "type": "boolean"
+          },
+          "generated_at_note": {
+            "type": "string"
+          },
+          "isError": {
+            "const": true,
+            "type": "boolean"
+          },
+          "partial_errors": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "generated_at_note",
+          "candidates",
+          "drafted_intent_ids",
+          "skipped",
+          "partial_errors",
+          "executed"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "DRAFT-ONLY: find active services for clients with overdue unpaid invoices and draft service:suspend intents. Never executes.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "overdue_min_days": {
+            "default": 30,
+            "maximum": 3650,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "workflow_suspend_for_nonpayment",
       "outputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
@@ -9649,6 +10290,9 @@
             "description": "MCP auth token",
             "type": "string"
           },
+          "confirmation": {
+            "type": "string"
+          },
           "naturalKey": {
             "minLength": 1,
             "type": "string"
@@ -9710,7 +10354,16 @@
               "ticket:note",
               "ticket:merge",
               "service:transfer_owner",
-              "billing:invoice:reassign"
+              "billing:invoice:reassign",
+              "order:cancel",
+              "order:pending",
+              "billing:invoice:update",
+              "billing:billable_item:update",
+              "domain:epp:request",
+              "domain:record:update",
+              "support:cancel_request:add",
+              "client:close",
+              "client:contact:delete"
             ],
             "type": "string"
           }

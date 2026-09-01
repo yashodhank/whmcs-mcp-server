@@ -407,6 +407,7 @@ describe('service:price_restore end-to-end via registered handlers', () => {
     };
     const read = vi.fn();
     const mutate = vi.fn().mockResolvedValue({ result: 'success' });
+    read.mockResolvedValueOnce({ result: 'success', whmcs: { version: '8.13.1' } });
     for (const sid of [555, 569, 586]) {
       read.mockResolvedValueOnce({
         products: { product: [{ id: sid, recurringamount: '45000', domainstatus: 'Active' }] },

@@ -81,7 +81,7 @@ describe('validateIntent', () => {
       preconditions: {},
       projected_effect: 'create invoice',
     });
-    const res = validateIntent(intent, {});
+    const res = validateIntent(intent, { whmcsVersionFamily: '9.x' });
     expect(res.compat_warnings.some((w) => w.includes('WHMCS 9'))).toBe(true);
     expect(res.compat_warnings.some((w) => w.includes('credit/debit notes'))).toBe(true);
   });
