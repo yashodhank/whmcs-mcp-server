@@ -79,8 +79,7 @@ function registerExtendedRead(
           governedToolResult({
             canonical,
             authToken: typeof params.auth_token === 'string' ? params.auth_token : undefined,
-            requestedContract:
-              typeof params.contract === 'string' ? params.contract : undefined,
+            requestedContract: typeof params.contract === 'string' ? params.contract : undefined,
           }),
       });
     } catch (e) {

@@ -69,7 +69,8 @@ function createCapabilityMatrixHandler(
       }));
       const payload = {
         whmcs_version: {
-          status: versionProfile.family === 'unknown' ? ('unverified' as const) : ('supported' as const),
+          status:
+            versionProfile.family === 'unknown' ? ('unverified' as const) : ('supported' as const),
           family: versionProfile.family,
           version: versionProfile.version,
           release: versionProfile.release,

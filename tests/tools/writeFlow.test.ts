@@ -172,7 +172,11 @@ describe('write-flow tools (read-only + production posture)', () => {
     expect(rec(ep.execution).blocked_reason).toBe('read_only_mode');
     expect(rec(ep.intent).state).toBe('execution_blocked');
     expect(mutate).not.toHaveBeenCalled();
-    expect(read.mock.calls.every(([action]) => action === 'WhmcsDetails' || action === 'GetConfigurationValue')).toBe(true);
+    expect(
+      read.mock.calls.every(
+        ([action]) => action === 'WhmcsDetails' || action === 'GetConfigurationValue'
+      )
+    ).toBe(true);
   });
 
   it('execute without prior approval is blocked (intent_not_approved) — no mutate', async () => {

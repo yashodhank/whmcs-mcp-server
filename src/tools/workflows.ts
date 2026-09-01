@@ -857,10 +857,12 @@ export function registerWorkflowTools(
         [],
         async () => {
           const rows = norm<WhmcsRow>(
-            (await whmcs.read<Record<string, unknown>>('GetInvoices', {
-              status: 'Unpaid',
-              limitnum: FETCH_LIMIT,
-            })).invoices,
+            (
+              await whmcs.read<Record<string, unknown>>('GetInvoices', {
+                status: 'Unpaid',
+                limitnum: FETCH_LIMIT,
+              })
+            ).invoices,
             'invoice'
           );
           return rows.filter((inv) => {

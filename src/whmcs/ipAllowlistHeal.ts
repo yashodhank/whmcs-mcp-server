@@ -173,7 +173,11 @@ function runDokployHealOnce(config: AppConfig, logger: Logger): Promise<boolean>
   });
 }
 
-function runPythonUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string): Promise<boolean> {
+function runPythonUpdaterOnce(
+  config: AppConfig,
+  logger: Logger,
+  reportedIp?: string
+): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const script = resolveUpdaterScript(config);
     if (!script) {

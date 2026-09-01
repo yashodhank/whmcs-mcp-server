@@ -119,7 +119,11 @@ describe('write — elicitation inline confirm (medium)', () => {
     expect(body.executed).toBeFalsy();
     expect(String(rec(body.execution).note)).toMatch(/elicitation/i);
     expect(mutate).not.toHaveBeenCalled();
-    expect(read.mock.calls.filter(([action]) => action !== 'WhmcsDetails' && action !== 'GetConfigurationValue')).toHaveLength(0);
+    expect(
+      read.mock.calls.filter(
+        ([action]) => action !== 'WhmcsDetails' && action !== 'GetConfigurationValue'
+      )
+    ).toHaveLength(0);
   });
 
   it('ACCEPT(confirm:true) proceeds to execute', async () => {

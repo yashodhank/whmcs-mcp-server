@@ -47,7 +47,10 @@ function extractVersion(raw: unknown): { version: string | null; release: string
 }
 
 /** Normalize `GetConfigurationValue` `Version` (e.g. `8.13.6-release.1`). */
-function extractConfigurationVersion(raw: unknown): { version: string | null; release: string | null } {
+function extractConfigurationVersion(raw: unknown): {
+  version: string | null;
+  release: string | null;
+} {
   const value = str(asRecord(raw), 'value');
   if (value === undefined || value.trim() === '') {
     return { version: null, release: null };
@@ -57,7 +60,9 @@ function extractConfigurationVersion(raw: unknown): { version: string | null; re
   return { version, release };
 }
 
-async function probeVersion(client: WhmcsClient): Promise<{ version: string | null; release: string | null }> {
+async function probeVersion(
+  client: WhmcsClient
+): Promise<{ version: string | null; release: string | null }> {
   try {
     const raw = await client.read<Record<string, unknown>>('WhmcsDetails', {});
     const fromDetails = extractVersion(raw);

@@ -19,9 +19,12 @@ vi.mock('../../src/governance/pipeline.js', async (importOriginal) => {
 import { registerExtendedReadTools } from '../../src/tools/extendedReadTools.js';
 
 function harness() {
-  const handlers: Record<string, (p: Record<string, unknown>) => Promise<{ content: { text: string }[] }>> = {};
+  const handlers: Record<
+    string,
+    (p: Record<string, unknown>) => Promise<{ content: { text: string }[] }>
+  > = {};
   const server = {
-    registerTool: (n: string, _cfg: unknown, cb: typeof handlers[string]) => {
+    registerTool: (n: string, _cfg: unknown, cb: (typeof handlers)[string]) => {
       handlers[n] = cb;
     },
   };
@@ -45,7 +48,12 @@ describe('extended read tools', () => {
       ns1: 'ns1.example.net',
       ns2: 'ns2.example.net',
     });
-    registerExtendedReadTools(server as never, { read } as never, logger as never, rateLimiter as never);
+    registerExtendedReadTools(
+      server as never,
+      { read } as never,
+      logger as never,
+      rateLimiter as never
+    );
     const res = await handlers.get_domain_nameservers({ domainid: 12 });
     expect(read).toHaveBeenCalledWith('DomainGetNameservers', { domainid: 12 });
     const payload = JSON.parse(res.content[0].text);
@@ -55,7 +63,12 @@ describe('extended read tools', () => {
   it('list_order_statuses calls GetOrderStatuses', async () => {
     const { server, handlers, logger, rateLimiter } = harness();
     const read = vi.fn().mockResolvedValue({ result: 'success', statuses: { status: [] } });
-    registerExtendedReadTools(server as never, { read } as never, logger as never, rateLimiter as never);
+    registerExtendedReadTools(
+      server as never,
+      { read } as never,
+      logger as never,
+      rateLimiter as never
+    );
     await handlers.list_order_statuses({});
     expect(read).toHaveBeenCalledWith('GetOrderStatuses', {});
   });

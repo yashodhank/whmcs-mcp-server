@@ -33,7 +33,9 @@ export function mapToCanonicalDomainNameservers(raw: unknown): Canonical<Record<
   }));
 }
 
-export function mapToCanonicalDomainLockingStatus(raw: unknown): Canonical<Record<string, unknown>> {
+export function mapToCanonicalDomainLockingStatus(
+  raw: unknown
+): Canonical<Record<string, unknown>> {
   const src = asRecord(raw);
   return passthroughEntity('domain', src, (s) => ({
     domainid: str(s, 'domainid'),
