@@ -52,6 +52,7 @@
  */
 
 import {
+  DESTRUCTIVE_WRITE_SCOPES,
   PROD_NEVER_EXECUTABLE,
   PROD_NEVER_EXECUTABLE_SCOPES,
   type ExecutionDecision,
@@ -133,22 +134,41 @@ export function preAuthorizeIntent(
   // 6. Permanently-blocked actions OR scopes — checked BEFORE any allowlist so
   //    an allowlist mistake can never reach a catastrophic action. The scope
   //    set hard-blocks one scope even when its WHMCS action is shared with a
-  //    safe sibling scope.
-  if (
-    PROD_NEVER_EXECUTABLE.has(req.intent.action) ||
-    PROD_NEVER_EXECUTABLE_SCOPES.has(req.intent.scope)
-  ) {
-    return deny('action_permanently_blocked');
+  //    safe sibling scope. EXCEPTION: a destructive (delete/remove) scope that
+  //    an operator explicitly unblocked via `allowedDestructiveScopes` may pass
+  //    this gate — but it then hits the typed-confirmation check (6b) below.
+  const actionBlocked = PROD_NEVER_EXECUTABLE.has(req.intent.action);
+  const scopeBlocked = PROD_NEVER_EXECUTABLE_SCOPES.has(req.intent.scope);
+  const isDestructive = DESTRUCTIVE_WRITE_SCOPES.has(req.intent.scope);
+  if (actionBlocked || scopeBlocked) {
+    const destructiveOptOut =
+      isDestructive && (req.allowedDestructiveScopes ?? []).includes(req.intent.scope);
+    if (!destructiveOptOut) {
+      return deny('action_permanently_blocked');
+    }
+  }
+  // 6b. Destructive typed confirmation ("double / typed approval" for
+  //     delete/remove). A destructive scope that was unblocked above MUST carry
+  //     the exact configured confirmation phrase. No phrase, or a mismatch,
+  //     denies — a destructive write can never execute on approval alone.
+  if (isDestructive) {
+    const phrase = req.destructiveConfirmPhrase;
+    if (typeof phrase !== 'string' || phrase.length === 0 || req.intent.confirmation !== phrase) {
+      return deny('destructive_confirmation_required');
+    }
   }
   // 7. Per-environment allowlist — TIERED. Enforced for HIGH-RISK intents
   //    always, and for ALL intents when strictAllowlist is set. Low/medium are
   //    otherwise audit-gated (consumer capability + always-on audit) and need
   //    no allowlist. The empty-allowlist keystone therefore still seals
   //    high-risk production money/destruction by default.
+  // Destructive scopes that passed typed confirmation use phrase-only friction —
+  // no per-action allowlist (operator opted in via MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES).
   const allowlistRequired =
-    req.intent.risk === 'high' ||
-    req.strictAllowlist === true ||
-    (req.strictScopes?.includes(req.intent.scope) ?? false);
+    !isDestructive &&
+    (req.intent.risk === 'high' ||
+      req.strictAllowlist === true ||
+      (req.strictScopes?.includes(req.intent.scope) ?? false));
   if (allowlistRequired) {
     if (req.env === 'production') {
       const prodAllow = req.prodAuthorizedActions ?? [];
@@ -176,6 +196,12 @@ export function defaultExecutionAuthorizer(
   const pre = preAuthorizeIntent(req, alreadyExecuted);
   if (!pre.allowed) {
     return pre;
+  }
+  // Destructive (delete/remove) scopes that cleared typed confirmation skip
+  // human approval and monetary caps — phrase-only friction per operator policy.
+  const isDestructive = DESTRUCTIVE_WRITE_SCOPES.has(req.intent.scope);
+  if (isDestructive) {
+    return { allowed: true };
   }
   // 8. Risk-tier policy. High-risk (money) actions require a human approval
   //    record AND must sit within explicitly-configured caps. Caps default

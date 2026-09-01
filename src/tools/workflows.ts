@@ -829,4 +829,174 @@ export function registerWorkflowTools(
       return out({ ...result, close_summary });
     }
   );
+
+  // ============================================================
+  // workflow_suspend_for_nonpayment
+  // ============================================================
+  register(
+    server,
+    'workflow_suspend_for_nonpayment',
+    'DRAFT-ONLY: find active services for clients with overdue unpaid invoices and draft service:suspend intents. Never executes.',
+    {
+      overdue_min_days: z.number().int().min(0).max(3650).default(DUNNING_DEFAULT_MIN_DAYS),
+      limit: z.number().int().min(1).max(500).default(DEFAULT_LIMIT),
+    },
+    logger,
+    rl,
+    async (p, extra) => {
+      const result = baseResult('suspend_for_nonpayment');
+      const progress = new ToolProgress(0, extra);
+      const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
+      const minDays = num(p, 'overdue_min_days') ?? DUNNING_DEFAULT_MIN_DAYS;
+      const limit = num(p, 'limit') ?? DEFAULT_LIMIT;
+      const today = TODAY();
+
+      const invoices = await safeSection<WhmcsRow[]>(
+        'invoices',
+        result.partial_errors,
+        [],
+        async () => {
+          const rows = norm<WhmcsRow>(
+            (
+              await whmcs.read<Record<string, unknown>>('GetInvoices', {
+                status: 'Unpaid',
+                limitnum: FETCH_LIMIT,
+              })
+            ).invoices,
+            'invoice'
+          );
+          return rows.filter((inv) => {
+            const dpd = daysPastDue(str(inv, 'duedate'), today);
+            return dpd !== null && dpd >= minDays;
+          });
+        }
+      );
+
+      const clientIds = [
+        ...new Set(
+          invoices
+            .map((inv) => num(inv, 'userid') ?? num(inv, 'clientid'))
+            .filter((id): id is number => id !== undefined)
+        ),
+      ].slice(0, limit);
+
+      for (const clientid of clientIds) {
+        const services = await safeSection<WhmcsRow[]>(
+          `services:${clientid}`,
+          result.partial_errors,
+          [],
+          async () =>
+            norm<WhmcsRow>(
+              (
+                await whmcs.read<Record<string, unknown>>('GetClientsProducts', {
+                  clientid,
+                  stats: 'Active',
+                })
+              ).products,
+              'product'
+            )
+        );
+
+        for (const svc of services) {
+          const serviceid = num(svc, 'id');
+          if (serviceid === undefined) continue;
+          const candidate: Record<string, unknown> = { clientid, serviceid };
+          const id = draftOrSkip(
+            {
+              auth_token: authToken,
+              scope: 'service:suspend',
+              params: { serviceid },
+              naturalKey: `suspend_nonpayment:${clientid}:${serviceid}`,
+              projected_effect: `Suspend service ${serviceid} for client ${clientid} after unpaid invoice precheck.`,
+              preconditions: { clientid, overdue_invoice_precheck: true },
+            },
+            candidate,
+            result.drafted_intent_ids,
+            result.skipped
+          );
+          candidate.drafted_intent_id = id;
+          result.candidates.push(candidate);
+        }
+      }
+
+      progress.finish();
+      return out(result);
+    }
+  );
+
+  // ============================================================
+  // workflow_new_client_onboarding
+  // ============================================================
+  register(
+    server,
+    'workflow_new_client_onboarding',
+    'DRAFT-ONLY: verify email uniqueness via GetClients search, then draft client:create when no match. Never executes.',
+    {
+      email: z.string().email(),
+      firstname: z.string().min(1),
+      lastname: z.string().min(1),
+      companyname: z.string().optional(),
+    },
+    logger,
+    rl,
+    async (p, extra) => {
+      const result = baseResult('new_client_onboarding');
+      const progress = new ToolProgress(0, extra);
+      const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
+      const email = (typeof p.email === 'string' ? p.email : '').trim().toLowerCase();
+      const firstname = (typeof p.firstname === 'string' ? p.firstname : '').trim();
+      const lastname = (typeof p.lastname === 'string' ? p.lastname : '').trim();
+
+      const existing = await safeSection<WhmcsRow[]>(
+        'clients',
+        result.partial_errors,
+        [],
+        async () =>
+          norm<WhmcsRow>(
+            (
+              await whmcs.read<Record<string, unknown>>('GetClients', {
+                search: email,
+                limitnum: 5,
+              })
+            ).clients,
+            'client'
+          )
+      );
+
+      const duplicate = existing.some(
+        (c) => (str(c, 'email') ?? '').trim().toLowerCase() === email
+      );
+      const candidate: Record<string, unknown> = { email, duplicate_found: duplicate };
+
+      if (duplicate) {
+        result.skipped.push({
+          ref: candidate,
+          reason: 'email already exists — client:create not drafted',
+        });
+      } else {
+        const params: Record<string, unknown> = { firstname, lastname, email };
+        if (typeof p.companyname === 'string' && p.companyname.trim()) {
+          params.companyname = p.companyname.trim();
+        }
+        const id = draftOrSkip(
+          {
+            auth_token: authToken,
+            scope: 'client:create',
+            params,
+            naturalKey: `client_create:${email}`,
+            projected_effect: `Create client ${firstname} ${lastname} <${email}>.`,
+            preconditions: { email_unique: true },
+          },
+          candidate,
+          result.drafted_intent_ids,
+          result.skipped
+        );
+        candidate.drafted_intent_id = id;
+      }
+
+      result.candidates.push(candidate);
+      progress.finish();
+      return out(result);
+    }
+  );
 }

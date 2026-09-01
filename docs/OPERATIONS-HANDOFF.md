@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-08-10
+Status: current as of 2026-09-02 (NEXUS-Sprint: fast path, version probe, broad reads/writes)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -93,6 +93,73 @@ records or intent IDs durable. A restart removes pending in-memory intents and
 approvals; operators must draft and validate a new intent, then obtain a new
 approval. Durable audit, idempotency, and daily-cap paths must be configured
 separately.
+
+### NEXUS-Sprint operator model (2026-09)
+
+- **Governance optional:** default `MCP_GOVERNANCE_ENABLED=false`; consumer registry not required for writes.
+- **Version auto-detect:** lazy `WhmcsDetails` probe with `GetConfigurationValue`
+  `Version` fallback (`src/whmcs/versionProfile.ts`, 15 min cache) feeds validation
+  advisories and `get_capability_matrix`.
+- **Destructive writes:** typed `confirmation` phrase only — no distinct approver, caps, or allowlist when scope is in `MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES`.
+- **Dokploy IP heal:** `WHMCS_HEAL_MODE=dokploy` runs `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` (see [api-connectivity-troubleshooting.md](runbooks/api-connectivity-troubleshooting.md)).
+- **Simple writes runbook:** [docs/runbooks/simple-writes.md](runbooks/simple-writes.md).
+
+### Production verification log (feat/nexus-fast-whmcs-api / PR #103)
+
+Recorded **2026-09-02** from branch `feat/nexus-fast-whmcs-api` against live production
+WHMCS (`.env.production`, `MCP_ENV=production`). Artifacts:
+`.audit-local/nexus-sprint/` (console logs, capability probe, prod-test-program archives).
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| **Build** | PASS | `npm run build` on branch HEAD |
+| **L1–L6 (legacy path)** | **7/7 PASS** | `MCP_GOVERNANCE_ENABLED=false` override for harness + server (matches default NEXUS legacy writes model) |
+| **L1–L6 (governed, prod env)** | **3/7 PASS** | `.env.production` has `MCP_GOVERNANCE_ENABLED=true`; with host `HARNESS_CONSUMER_TOKEN` + inline `MCP_CONSUMER_REGISTRY`, `list_client_domains` cases fail MCP output-schema validation (`items`/`total`/`count` missing) — governed projection defect, not WHMCS connectivity |
+| **L1–L6 (harness preflight)** | **BLOCKED** | Sourcing only `.env.production` (registry via `MCP_CONSUMER_REGISTRY_FILE`, empty inline `MCP_CONSUMER_REGISTRY`) fails harness preflight until `HARNESS_CONSUMER_TOKEN` + inline registry JSON are supplied to the test driver |
+| **Capability probe** | **4/5 supported** | `GetUsers` → `not_authorized` for configured API role; others supported (`node --import tsx scripts/mcp-capability-probe.mjs`; no `npm run mcp:capability-probe` script yet) |
+| **Version family** | **8.13** | `GetConfigurationValue` `Version` → `8.13.6-release.1`; `WhmcsDetails` denied for API credential; `get_capability_matrix` shows `whmcs_version.status=unverified` until details probe succeeds |
+| **Dokploy IP heal smoke** | **PASS (exit 0)** | `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` — API smoke healthy, no heal |
+
+**Blockers before merge:** align production-test harness with
+`MCP_CONSUMER_REGISTRY_FILE` or document operator export of registry + synthetic
+harness token for governed L1–L6 on production hosts.
+
+### Devbox full QA log (feat/nexus-fast-whmcs-api / PR #103)
+
+Recorded **2026-09-02** on branch `feat/nexus-fast-whmcs-api` against the local
+dual stack at **`http://localhost:8013` (WHMCS 8.13.4)** and **`http://localhost:8090`
+(WHMCS 9.0.5)** (`securiace-vps-platform` compose; same ports as
+[whmcs-devbox](https://github.com/yashodhank/whmcs-devbox)). Destructive scopes
+were pre-approved on devbox only (`MCP_MODE=full`, localhost guard, disposable
+seed data). Artifacts: `.audit-local/devbox-leg9.env` (gitignored leg-9 creds),
+`.audit-local/prod-test-program-*` (governed L1–L6 local rerun).
+
+| Gate | 8.13 @ :8013 | 9.0 @ :8090 | Notes |
+|------|--------------|-------------|-------|
+| **Build + Vitest** | PASS | PASS | `npm run typecheck && npm test` — 1585 passed |
+| **L1–L6 governed (local harness)** | PASS | PASS | 7/7 with `HARNESS_CONSUMER_TOKEN` + inline registry |
+| **deepdrive:reads** | **45/68** | **48/68** | Residual fails: workflow arg gaps, `preflight_operation_plan` outputSchema, some role-denied reads |
+| **deepdrive:writes** | **3 EXEC / 16 GATE-OK / 9 FAIL** | **7 EXEC / 16 GATE-OK / 5 FAIL** | Suspend/unsuspend + quote lifecycle exercised; invoice seed gaps on 8.13; cap-deny expectations differ under NEXUS self-approval model |
+| **write-probe** | PASS (dev) | PASS (dev) | All scopes reachable or entity-not-found (no mutation) |
+| **extended read tools (unit)** | PASS | PASS | `tests/tools/extendedReadTools.test.ts` |
+| **Version family (`get_capability_matrix`)** | **8.13 supported** | **9.x supported** | Fallback reads `GetConfigurationValue` `Version` when `WhmcsDetails` denied |
+
+**Destructive devbox simulations (operator-pre-approved, devbox only):**
+
+| Test | Leg | Outcome | Cleanup |
+|------|-----|---------|---------|
+| `service:suspend` → `service:unsuspend` on service 78 | both | GATE-OK / module-not-connected on dev (no real provisioning server) | unsuspend attempted in same harness |
+| `billing:quote:create/update/send` | both | EXECUTED | quote deleted in deepdrive cleanup |
+| `client:contact:add` → `client:contact:delete` + `confirmation=DEVBOX-DESTROY` | 8.13 | add step failed (self-approval friction in one-shot harness); deepdrive contact flow partial | deepdrive cleanup deletes contacts when created |
+| `order:cancel` with confirmation | 8.13 | WHMCS rejected (order not cancellable state) | no prod impact |
+| `service:terminate` | both | DESIGN-DENY (`action_permanently_blocked`) as expected | — |
+
+**Devbox operator notes:** Docker bridge IP `192.168.107.1` must appear in
+`APIAllowedIPs` (serialized array) for MCP stdio hosts calling `:8013`/`:8090`.
+Re-run `~/Projects/whmcs-devbox/bin/whmcs-devbox api-setup` per leg when
+credentials rotate; mirror leg-9 creds separately (`.env.local` typically pins
+the 8.13 leg). Never run destructive scopes against production.
+
 
 ### Client-to-client account-credit transfer
 

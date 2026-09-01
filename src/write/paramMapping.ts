@@ -951,6 +951,46 @@ export function intentToWhmcsParams(
       // executed via the direct DB path, which accepts intent.params as-is.
       return { ...params };
     }
+    case 'order:cancel':
+      return pickFields(params, ['orderid', 'cancelsub']);
+    case 'order:pending':
+      return pickFields(params, ['orderid']);
+    case 'billing:invoice:update':
+      return pickFields(params, [
+        'invoiceid',
+        'status',
+        'paymentmethod',
+        'notes',
+        'date',
+        'duedate',
+        'datepaid',
+        'credit',
+        'taxrate',
+        'taxrate2',
+      ]);
+    case 'billing:billable_item:update':
+      return pickFields(params, ['itemid', 'description', 'amount', 'invoiceaction', 'duedate']);
+    case 'domain:epp:request':
+      return pickFields(params, ['domainid']);
+    case 'domain:record:update':
+      return pickFields(params, [
+        'domainid',
+        'status',
+        'nextduedate',
+        'expirydate',
+        'recurringamount',
+        'registrar',
+        'paymentmethod',
+        'dnsmanagement',
+        'emailforwarding',
+        'idprotection',
+      ]);
+    case 'support:cancel_request:add':
+      return pickFields(params, ['serviceid', 'type', 'reason']);
+    case 'client:close':
+      return pickFields(params, ['clientid']);
+    case 'client:contact:delete':
+      return pickFields(params, ['contactid']);
     default: {
       // Exhaustiveness guard — typescript will flag any new scope here.
       const _exhaustive: never = scope;

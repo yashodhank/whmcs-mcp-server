@@ -108,16 +108,21 @@ describe('registerCapabilityShellTools', () => {
     });
   }
 
-  it('get_capability_matrix reports the structured capability registry + unverified WHMCS version, no WHMCS call', async () => {
+  it('get_capability_matrix probes WhmcsDetails for version + reports capabilities', async () => {
     const { handlers, read } = harness();
+    read.mockResolvedValueOnce({
+      result: 'success',
+      whmcs: { version: '9.0.0', canonicalversion: '9.0.0-release.1' },
+    });
     const res = await handlers.get_capability_matrix({});
-    expect(read).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith('WhmcsDetails', {});
     const p = JSON.parse(res.content[0].text) as {
-      whmcs_version: { status: string };
+      whmcs_version: { status: string; family?: string };
       capabilities: { action: string; status: string }[];
       compat_9x: Record<string, unknown>;
     };
-    expect(p.whmcs_version.status).toBe('unverified');
+    expect(p.whmcs_version.status).toBe('supported');
+    expect(p.whmcs_version.family).toBe('9.x');
     const byAction = Object.fromEntries(p.capabilities.map((c) => [c.action, c.status]));
     expect(byAction.GetActivityLog).toBe('supported');
     // Phase H: GetTransactions promoted to supported; GetUsers stays unverified.
@@ -129,6 +134,28 @@ describe('registerCapabilityShellTools', () => {
     });
     expect(res.isError).toBeUndefined();
     expect(res.structuredContent).toBeDefined();
+  });
+
+  it('get_capability_matrix falls back to GetConfigurationValue when WhmcsDetails is denied', async () => {
+    const { _resetVersionProfileCacheForTests } = await import('../../src/whmcs/versionProfile.js');
+    _resetVersionProfileCacheForTests();
+    const { handlers, read } = harness();
+    read.mockImplementation(async (action: string, _params?: Record<string, unknown>) => {
+      if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
+      if (action === 'GetConfigurationValue') {
+        return { result: 'success', value: '8.13.6-release.1' };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const res = await handlers.get_capability_matrix({});
+    expect(read).toHaveBeenCalledWith('GetConfigurationValue', { setting: 'Version' });
+    const p = JSON.parse(res.content[0].text) as {
+      whmcs_version: { status: string; family?: string; version?: string };
+    };
+    expect(p.whmcs_version.status).toBe('supported');
+    expect(p.whmcs_version.family).toBe('8.13');
+    expect(p.whmcs_version.version).toBe('8.13.6');
+    expect(res.isError).toBeUndefined();
   });
 
   it('shells register an outputSchema for the structured capability_unavailable object', () => {

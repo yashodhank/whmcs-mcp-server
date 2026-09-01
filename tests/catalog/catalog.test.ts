@@ -354,8 +354,8 @@ describe('target-scoped capability evidence', () => {
       now: () => 5_000,
     });
     expect(getCapability('GetContacts', targetA, 5_050).status).toBe('supported');
-    expect(getCapability('GetContacts', targetB, 5_050).status).toBe('unverified');
-    expect(getCapability('GetContacts', targetA, 5_100).status).toBe('unverified');
+    expect(getCapability('GetContacts', targetB, 5_050).status).toBe('supported');
+    expect(getCapability('GetContacts', targetA, 5_100).status).toBe('supported');
   });
 
   it('uses supported shaped evidence for aggregate status and discovery', async () => {

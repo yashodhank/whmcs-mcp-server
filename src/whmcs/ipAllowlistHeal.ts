@@ -100,7 +100,84 @@ function isIpLiteral(ip: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) || /^[0-9a-fA-F:]+:[0-9a-fA-F:]*$/.test(ip);
 }
 
+function resolveDokployHealScript(config: AppConfig): string | null {
+  if (config.WHMCS_HEAL_DOKPLOY_SCRIPT) {
+    return existsSync(config.WHMCS_HEAL_DOKPLOY_SCRIPT) ? config.WHMCS_HEAL_DOKPLOY_SCRIPT : null;
+  }
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    for (const up of ['.', '..', '../..', '../../..']) {
+      const candidate = path.resolve(
+        here,
+        up,
+        'scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh'
+      );
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
 function runUpdaterOnce(config: AppConfig, logger: Logger, reportedIp?: string): Promise<boolean> {
+  if (config.WHMCS_HEAL_MODE === 'dokploy') {
+    return runDokployHealOnce(config, logger);
+  }
+  return runPythonUpdaterOnce(config, logger, reportedIp);
+}
+
+function runDokployHealOnce(config: AppConfig, logger: Logger): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const script = resolveDokployHealScript(config);
+    if (!script) {
+      logger.warn(
+        'IP allowlist heal aborted: dokploy healer script not found (set WHMCS_HEAL_DOKPLOY_SCRIPT)'
+      );
+      resolve(false);
+      return;
+    }
+    logger.warn('WHMCS 403: attempting Dokploy IP allowlist self-heal', { script });
+    const childEnv = {
+      ...process.env,
+      WHMCS_ENV_FILE: process.env.WHMCS_ENV_FILE,
+      WHMCS_API_URL: config.WHMCS_API_URL,
+      WHMCS_IDENTIFIER: config.WHMCS_IDENTIFIER,
+      WHMCS_SECRET: config.WHMCS_SECRET,
+    };
+    let settled = false;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    const child = spawn('bash', [script], {
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const timer = setTimeout(() => {
+      logger.warn('Dokploy IP allowlist heal timed out; killing healer', {
+        timeoutMs: config.WHMCS_AUTO_IP_HEAL_TIMEOUT_MS,
+      });
+      child.kill('SIGKILL');
+      finish(false);
+    }, config.WHMCS_AUTO_IP_HEAL_TIMEOUT_MS);
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      finish(code === 0);
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      finish(false);
+    });
+  });
+}
+
+function runPythonUpdaterOnce(
+  config: AppConfig,
+  logger: Logger,
+  reportedIp?: string
+): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const script = resolveUpdaterScript(config);
     if (!script) {

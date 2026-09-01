@@ -127,13 +127,26 @@ hint to the thrown error (`WHMCS HTTP error: 403 — …`); identify which BEFOR
 ## IP-allowlist auto-heal — scope, limits, why it may not fire
 
 `WHMCS_AUTO_IP_HEAL=true` self-heals **only** cause #2. It triggers only when the
-403 body matches `Invalid IP <X>`, then SSHes (`WHMCS_SSH_HOST/USER/KEY/KNOWN_HOSTS`,
-user defaults `whmcs-ip-updater`) and compare-and-swaps the IP into `APIAllowedIPs`;
-single-flight + cooldown + hard timeout; any failure → "not healed". It will look
-like it "didn't detect/apply" when: the 403 was a WAF/permission 403 (correctly
-skipped); the IP was **already** allowlisted (no-op); the flag is off / cooldown
-active; or the spawned updater couldn't SSH. The reason is now in the surfaced 403
-hint and the server stderr.
+403 body matches `Invalid IP <X>`, then runs the configured heal backend and
+compare-and-swaps the IP into `APIAllowedIPs`; single-flight + cooldown + hard
+timeout; any failure → "not healed".
+
+**Heal backends (`WHMCS_HEAL_MODE`):**
+
+| Mode | When to use | Script |
+|------|-------------|--------|
+| `python` (default) | Legacy SSH updater host | `scripts/whmcs-ip-updater/whmcs_ip_updater.py` via `WHMCS_SSH_*` |
+| `dokploy` | Production Dokploy (`my.securiace.com`) | `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` |
+
+Dokploy flow: Mac-side healer smoke-tests `GetCurrencies`; on `Invalid IP` it SSHes
+to the WHMCS host and runs `server-run-healer.sh`, which `docker exec`s
+`heal-whmcs-allowlist.php` inside the app container. Set
+`WHMCS_HEAL_MODE=dokploy` and `WHMCS_HEAL_DOKPLOY_SCRIPT` if non-default.
+
+It will look like it "didn't detect/apply" when: the 403 was a WAF/permission 403
+(correctly skipped); the IP was **already** allowlisted (no-op); the flag is off /
+cooldown active; or the spawned healer failed. The reason is now in the surfaced
+403 hint and the server stderr.
 
 ## History
 First diagnosed 2026-06-19: a total API outage where the env value had been set

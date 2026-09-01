@@ -57,6 +57,19 @@ export const READ_ALLOWLIST = new Set<string>([
   'GetCurrencies',
   'GetPaymentMethods',
   'WhmcsDetails',
+  // NEXUS extended reads.
+  'DomainGetNameservers',
+  'DomainGetLockingStatus',
+  'GetTicketNotes',
+  'GetOrderStatuses',
+  'GetPromotions',
+  'GetClientsAddons',
+  'GetCancelledPackages',
+  'GetAffiliates',
+  'GetUserPermissions',
+  'GetEmailTemplates',
+  'GetAdminUsers',
+  'DomainGetWhoisInfo',
 ]);
 
 const WRITE_DENY_PREFIX =

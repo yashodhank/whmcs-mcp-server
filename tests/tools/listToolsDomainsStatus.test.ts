@@ -29,7 +29,7 @@ vi.mock('../../src/security.js', () => ({
   ensureClientAllowed: () => null,
 }));
 
-import { registerListTool } from '../../src/tools/listTools.js';
+import { registerListTool, LIST_TOOL_OUTPUT_SCHEMA } from '../../src/tools/listTools.js';
 import { mapToCanonicalDomain } from '../../src/canonical/index.js';
 
 const DOMAIN_CFG = {
@@ -422,6 +422,8 @@ describe('list_client_domains status filter — governance ON', () => {
     // Projected canonical domain rows (status is public.safe → allowed).
     expect(p.items.every((d: any) => d.status === 'Active')).toBe(true);
     expect(p.items[0]).toHaveProperty('domain');
+    expect(res.structuredContent).toBeDefined();
+    expect(LIST_TOOL_OUTPUT_SCHEMA.safeParse(res.structuredContent).success).toBe(true);
   });
 
   it('governed: scan cap → scan_complete=false + warning still on envelope', async () => {

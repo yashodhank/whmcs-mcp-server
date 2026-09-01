@@ -385,3 +385,60 @@ describe('assertWriteScopeAllowed (pure, default-deny)', () => {
     expect(out).not.toContain('synthetic-writer-token-DDDD4444');
   });
 });
+
+// ---- MCP_WRITE_EXTRA_ALLOWED_SCOPES (additive per-deployment scope grant) ----
+
+describe('MCP_WRITE_EXTRA_ALLOWED_SCOPES (additive scope grant)', () => {
+  it('unions extra scopes into a non-anonymous consumer', () => {
+    const env = envWith([writerEntry]);
+    env.MCP_WRITE_EXTRA_ALLOWED_SCOPES = 'client:create,client:update';
+    const registry = loadConsumerRegistry(env);
+    const found = findProfile(registry, 'consumer-writer');
+    expect(consumerWriteScopes(found)).toEqual([
+      'client_note:write',
+      'ticket:reply',
+      'client:create',
+      'client:update',
+    ]);
+  });
+
+  it('defaults to no change when the env var is absent', () => {
+    const registry = loadConsumerRegistry(envWith([writerEntry]));
+    const found = findProfile(registry, 'consumer-writer');
+    expect(consumerWriteScopes(found)).toEqual(['client_note:write', 'ticket:reply']);
+  });
+
+  it('trims whitespace and drops empty segments', () => {
+    const env = envWith([writerEntry]);
+    env.MCP_WRITE_EXTRA_ALLOWED_SCOPES = ' client:create , , ticket:reply ';
+    const registry = loadConsumerRegistry(env);
+    const found = findProfile(registry, 'consumer-writer');
+    expect(consumerWriteScopes(found)).toEqual([
+      'client_note:write',
+      'ticket:reply',
+      'client:create',
+    ]);
+  });
+
+  it('fails closed on an unknown scope name', () => {
+    const env = envWith([writerEntry]);
+    env.MCP_WRITE_EXTRA_ALLOWED_SCOPES = 'totally:made:up:scope';
+    expect(() => loadConsumerRegistry(env)).toThrow(/MCP_WRITE_EXTRA_ALLOWED_SCOPES/);
+  });
+
+  it('never augments the anonymous fallback profile', () => {
+    const env = envWith([writerEntry, anonEntry]);
+    env.MCP_WRITE_EXTRA_ALLOWED_SCOPES = 'client:create';
+    const registry = loadConsumerRegistry(env);
+    const anon = findProfile(registry, 'consumer-anon');
+    expect(consumerWriteScopes(anon)).toEqual([]);
+  });
+
+  it('a legacy write-capable profile (empty scopes) gains only the extra scopes', () => {
+    const env = envWith([opsEntry]);
+    env.MCP_WRITE_EXTRA_ALLOWED_SCOPES = 'client:create';
+    const registry = loadConsumerRegistry(env);
+    const ops = findProfile(registry, 'consumer-ops');
+    expect(consumerWriteScopes(ops)).toEqual(['client:create']);
+  });
+});

@@ -47,6 +47,7 @@ import {
 } from '../write/types.js';
 import { createDraftIntent, IntentStore } from '../write/intents.js';
 import { validateIntent } from '../write/validation.js';
+import { getWhmcsVersionProfile } from '../whmcs/versionProfile.js';
 import { IdempotencyLedger } from '../write/idempotency.js';
 import { DayAmountsStore } from '../write/dayAmountsStore.js';
 import { AuditLog, AuditPersistError, auditEvent } from '../write/audit.js';
@@ -255,6 +256,11 @@ const WRITE_FLOW_ANNOTATIONS = {
   openWorldHint: false,
 } as const;
 
+async function validationContextFor(whmcs: WhmcsClient) {
+  const profile = await getWhmcsVersionProfile(whmcs);
+  return { whmcsVersionFamily: profile.family };
+}
+
 const CREDIT_TRANSFER_READ_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -394,6 +400,7 @@ export interface WorkflowDraftRequest {
   readonly naturalKey: string;
   readonly projected_effect: string;
   readonly preconditions?: Record<string, unknown>;
+  readonly confirmation?: string;
 }
 
 export type WorkflowDraftResult =
@@ -424,6 +431,7 @@ export function draftWorkflowIntent(req: WorkflowDraftRequest): WorkflowDraftRes
     naturalKey: req.naturalKey,
     preconditions: req.preconditions ?? {},
     projected_effect: req.projected_effect,
+    confirmation: req.confirmation,
   });
   store.put(intent);
   audit.append(auditEvent('intent.drafted', intent));
@@ -1276,6 +1284,7 @@ export function registerWriteFlowTools(
       naturalKey: z.string().min(1),
       projected_effect: z.string().min(1),
       preconditions: z.record(z.string(), z.unknown()).optional(),
+      confirmation: z.string().optional(),
     },
     logger,
     rl,
@@ -1292,6 +1301,7 @@ export function registerWriteFlowTools(
         naturalKey: p.naturalKey as string,
         preconditions: (p.preconditions ?? {}) as Record<string, unknown>,
         projected_effect: p.projected_effect as string,
+        confirmation: p.confirmation as string | undefined,
       });
       store.put(intent);
       audit.append(auditEvent('intent.drafted', intent));
@@ -1306,14 +1316,14 @@ export function registerWriteFlowTools(
     { intent_id: z.string().min(1) },
     logger,
     rl,
-    (p) => {
+    async (p) => {
       const res = resolveWriteConsumer(p);
       if (!res.ok) return err(`consumer denied: ${res.reason}`);
       const intent = store.get(p.intent_id as string);
       if (!intent) return err('intent not found', { intent_id: p.intent_id });
       if (intent.consumer_id !== res.profile.id)
         return err('intent does not belong to this consumer', { intent_id: p.intent_id });
-      const validation = validateIntent(intent, {});
+      const validation = validateIntent(intent, await validationContextFor(whmcs));
       const next = store.transition(intent.intent_id, validation.ok ? 'validated' : 'rejected');
       audit.append(auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next));
       return out(toToolResult(next, 'validate', { validation, execution: { attempted: false } }));
@@ -1448,6 +1458,8 @@ export function registerWriteFlowTools(
           prodAuthorizedActions: productionAuthorizedActions(),
           strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
           strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+          destructiveConfirmPhrase: config.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE,
+          allowedDestructiveScopes: config.MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES,
           humanApproval: approval,
           amountContext,
           caps: {
@@ -1612,6 +1624,8 @@ export function registerWriteFlowTools(
           prodAuthorizedActions: productionAuthorizedActions(),
           strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
           strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+          destructiveConfirmPhrase: config.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE,
+          allowedDestructiveScopes: config.MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES,
         },
         (k) => ledger.seen(k)
       );
@@ -1727,6 +1741,8 @@ export function registerWriteFlowTools(
           prodAuthorizedActions: productionAuthorizedActions(),
           strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
           strictScopes: config.MCP_WRITE_STRICT_SCOPES,
+          destructiveConfirmPhrase: config.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE,
+          allowedDestructiveScopes: config.MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES,
         },
         (k) => ledger.seen(k)
       );
@@ -1813,6 +1829,8 @@ export function registerWriteFlowTools(
         strictAllowlist: config.MCP_WRITE_STRICT_ALLOWLIST,
         strictScopes: config.MCP_WRITE_STRICT_SCOPES,
         requireDistinctApprover: config.MCP_WRITE_REQUIRE_DISTINCT_APPROVER,
+        destructiveConfirmPhrase: config.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE,
+        allowedDestructiveScopes: config.MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES,
         humanApproval: approvals.get(intent.intent_id),
         amountContext,
         caps: {
@@ -1978,6 +1996,7 @@ export function registerWriteFlowTools(
       naturalKey: z.string().min(1),
       projected_effect: z.string().min(1),
       preconditions: z.record(z.string(), z.unknown()).optional(),
+      confirmation: z.string().optional(),
     },
     logger,
     rl,
@@ -1994,10 +2013,11 @@ export function registerWriteFlowTools(
         naturalKey: p.naturalKey as string,
         preconditions: (p.preconditions ?? {}) as Record<string, unknown>,
         projected_effect: p.projected_effect as string,
+        confirmation: p.confirmation as string | undefined,
       });
       store.put(intent);
       audit.append(auditEvent('intent.drafted', intent));
-      const validation = validateIntent(intent, {});
+      const validation = validateIntent(intent, await validationContextFor(whmcs));
       if (!validation.ok) {
         const rej = store.transition(intent.intent_id, 'rejected');
         audit.append(auditEvent('intent.rejected', rej));
@@ -2096,7 +2116,7 @@ export function registerWriteFlowTools(
       });
       store.put(intent);
       audit.append(auditEvent('intent.drafted', intent, undefined, 'pending-whmcs-native'));
-      const validation = validateIntent(intent, {});
+      const validation = validateIntent(intent, await validationContextFor(whmcs));
       if (!validation.ok) {
         const rejected = store.transition(intent.intent_id, 'rejected');
         audit.append(auditEvent('intent.rejected', rejected, undefined, 'pending-whmcs-native'));

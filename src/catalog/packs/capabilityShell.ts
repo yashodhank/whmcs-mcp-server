@@ -6,6 +6,8 @@ import { Logger } from '../../logging.js';
 import { RateLimiter, RateLimitError } from '../../rateLimiter.js';
 import { AUTH_SHAPE, ensureToolAuth } from '../../security.js';
 import { READ_ONLY_ANNOTATIONS } from '../../tools/listTools.js';
+import type { WhmcsClient } from '../../whmcs/WhmcsClient.js';
+import { getWhmcsVersionProfile } from '../../whmcs/versionProfile.js';
 import { OperationCatalog } from '../registry.js';
 import type { OperationDefinition } from '../types.js';
 import { PLANNING_CATALOG_VERSION, planningOperationDescriptors } from './planningOperations.js';
@@ -14,7 +16,16 @@ export const CAPABILITY_CATALOG_VERSION = 3;
 
 /** Stable, additive output schema retained from the manual registrar. */
 const CAPABILITY_MATRIX_OUTPUT_SHAPE = {
-  whmcs_version: z.object({ status: z.string(), note: z.string().optional() }).optional(),
+  whmcs_version: z
+    .object({
+      status: z.string(),
+      family: z.string().optional(),
+      version: z.string().nullable().optional(),
+      release: z.string().nullable().optional(),
+      probed_at: z.string().optional(),
+      note: z.string().optional(),
+    })
+    .optional(),
   capabilities: z
     .array(
       z.object({
@@ -35,11 +46,12 @@ const DESCRIPTION =
   'Read-only machine-readable capability + WHMCS-version status matrix (supported/unverified/unsupported per action). Pure; calls no WHMCS API. WHMCS version is reported unverified until prod-probed.';
 
 function createCapabilityMatrixHandler(
+  whmcs: WhmcsClient,
   logger: Logger,
   rl: RateLimiter
 ): ToolCallback<z.ZodRawShape> {
   const name = 'get_capability_matrix';
-  return ((params: Record<string, unknown>) => {
+  return (async (params: Record<string, unknown>) => {
     const log = logger.child();
     const t0 = Date.now();
     try {
@@ -48,6 +60,7 @@ function createCapabilityMatrixHandler(
       log.logToolCall(name, params, false);
       if (!rl.tryConsume()) throw new RateLimitError();
 
+      const versionProfile = await getWhmcsVersionProfile(whmcs);
       const capabilities = Object.values(CAPABILITY_REGISTRY).map((capability) => ({
         action: capability.action,
         capability: capability.capability,
@@ -56,13 +69,17 @@ function createCapabilityMatrixHandler(
       }));
       const payload = {
         whmcs_version: {
-          status: 'unverified' as const,
-          note: 'No allowlisted WHMCS version source is probed by this read-only build; version must be confirmed in production.',
+          status:
+            versionProfile.family === 'unknown' ? ('unverified' as const) : ('supported' as const),
+          family: versionProfile.family,
+          version: versionProfile.version,
+          release: versionProfile.release,
+          probed_at: versionProfile.probedAt,
         },
         capabilities,
         compat_9x: {
-          immutable_non_draft_invoices: true,
-          credit_debit_notes: true,
+          immutable_non_draft_invoices: versionProfile.family === '9.x',
+          credit_debit_notes: versionProfile.family === '9.x',
           note: 'WHMCS 9.0 GA: non-draft invoices are immutable; corrections via credit/debit notes. Reads unaffected. See whmcs://docs/compat-9x.',
         },
       };
@@ -124,15 +141,20 @@ function defineCapabilityMatrixOperation(
 }
 
 export function createCapabilityMatrixDefinition(
+  whmcs: WhmcsClient,
   logger: Logger,
   rl: RateLimiter
 ): OperationDefinition {
-  return defineCapabilityMatrixOperation(createCapabilityMatrixHandler(logger, rl));
+  return defineCapabilityMatrixOperation(createCapabilityMatrixHandler(whmcs, logger, rl));
 }
 
-export function createCapabilityShellCatalog(logger: Logger, rl: RateLimiter): OperationCatalog {
+export function createCapabilityShellCatalog(
+  whmcs: WhmcsClient,
+  logger: Logger,
+  rl: RateLimiter
+): OperationCatalog {
   return new OperationCatalog(
-    [createCapabilityMatrixDefinition(logger, rl)],
+    [createCapabilityMatrixDefinition(whmcs, logger, rl)],
     CAPABILITY_CATALOG_VERSION,
     config.MCP_MAX_PAGE_SIZE
   );

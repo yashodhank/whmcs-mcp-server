@@ -101,6 +101,8 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 
 Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md). Operator troubleshooting: [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md).
 
+Pre-push CI parity (matches GitHub `build-test` / related jobs): [docs/runbooks/local-ci-parity-before-push.md](docs/runbooks/local-ci-parity-before-push.md).
+
 ## Safety rules for agents editing this repo
 
 1. **No secrets in git** — credentials, registry tokens, `.env.local`, prod seeds.
@@ -127,6 +129,7 @@ Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/loc
 | [docs/runbooks/production-test-program.md](docs/runbooks/production-test-program.md) | Reliability / RCA test program                               |
 | [docs/reference/cursor-skills.md](docs/reference/cursor-skills.md)                   | Recommended Cursor skills                                    |
 | [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                     |
+| [docs/runbooks/simple-writes.md](docs/runbooks/simple-writes.md)                     | Default write model (governance off, destructive phrase)     |
 | [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                               | Product boundary, ownership, runtime, release, and handoff checklist |
 
 ## Cursor / rules

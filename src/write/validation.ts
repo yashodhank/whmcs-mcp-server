@@ -25,10 +25,13 @@ import {
   type WriteIntent,
   type WriteScope,
 } from './types.js';
+import type { WhmcsVersionFamily } from '../whmcs/versionProfile.js';
 
 /** Already-read snapshots / flags the caller may pass; never fetched here. */
 export interface ValidationContext {
   readonly preconditionSnapshots?: Readonly<Record<string, unknown>>;
+  /** When supplied, WHMCS 9 billing advisories apply only for `9.x`. */
+  readonly whmcsVersionFamily?: WhmcsVersionFamily;
 }
 
 /**
@@ -115,6 +118,16 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'service:transfer_owner': ['source_clientid', 'dest_clientid', 'service_ids', 'invoice_mode'],
   // billing:invoice:reassign — direct DB write; params defined by the executor.
   'billing:invoice:reassign': ['invoice_id', 'dest_clientid'],
+  // NEXUS broad-tier.
+  'order:cancel': ['orderid'],
+  'order:pending': ['orderid'],
+  'billing:invoice:update': ['invoiceid'],
+  'billing:billable_item:update': ['itemid'],
+  'domain:epp:request': ['domainid'],
+  'domain:record:update': ['domainid'],
+  'support:cancel_request:add': ['serviceid', 'type'],
+  'client:close': ['clientid'],
+  'client:contact:delete': ['contactid'],
 };
 
 /** Contact fields the contact:add / contact:update ≥1-field rules accept. */
@@ -251,7 +264,7 @@ function validateQuoteItems(items: unknown): ValidationIssue[] {
  * Validate a draft intent. `ok=false` if any issue has severity='error'.
  * compat_warnings are non-blocking advisories.
  */
-export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): ValidationResult {
+export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {}): ValidationResult {
   const issues: ValidationIssue[] = [];
   const compat_warnings: string[] = [];
 
@@ -401,9 +414,23 @@ export function validateIntent(intent: WriteIntent, _ctx: ValidationContext): Va
     }
   }
 
-  // WHMCS 9 compatibility advisory for billing scopes (non-blocking).
-  if (intent.scope.startsWith('billing:')) {
+  // WHMCS 9 compatibility advisory for billing scopes (non-blocking) — only when
+  // the install is known to be 9.x.
+  if (ctx.whmcsVersionFamily === '9.x' && intent.scope.startsWith('billing:')) {
     compat_warnings.push(WHMCS9_BILLING_ADVISORY);
+  }
+
+  // billing:invoice:update — blocked on WHMCS 9.x for non-draft invoices.
+  if (intent.scope === 'billing:invoice:update' && ctx.whmcsVersionFamily === '9.x') {
+    const status = intent.params.status;
+    if (typeof status === 'string' && status.toLowerCase() !== 'draft') {
+      issues.push({
+        code: 'whmcs9_invoice_immutable',
+        severity: 'error',
+        message:
+          'billing:invoice:update on WHMCS 9.x is limited to draft invoices; use credit/debit notes for posted invoices',
+      });
+    }
   }
 
   // ── Enhanced billing business-logic validators ──────────────────────────

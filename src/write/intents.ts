@@ -28,6 +28,8 @@ export interface CreateDraftIntentInput {
   readonly naturalKey: string;
   readonly preconditions: Readonly<Record<string, unknown>>;
   readonly projected_effect: string;
+  /** Typed confirmation for destructive scopes (matches the configured phrase). */
+  readonly confirmation?: string;
   readonly contract?: ContractName;
   /** Idempotency dedupe window width (ms). */
   readonly windowMs?: number;
@@ -69,6 +71,7 @@ export function createDraftIntent(
     created_at: new Date(createdMs).toISOString(),
     expires_at: new Date(createdMs + ttlMs).toISOString(),
     ...(input.contract === undefined ? {} : { contract: input.contract }),
+    ...(input.confirmation === undefined ? {} : { confirmation: input.confirmation }),
   };
 }
 
