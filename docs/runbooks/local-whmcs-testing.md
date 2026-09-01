@@ -24,6 +24,15 @@ Point this MCP at a leg via `.env.local` (`MCP_ENV=local`,
 Run the dev matrix with `npm run build && npm test`, `npm run mcp:deepdrive:reads`,
 `npm run mcp:deepdrive:writes`, and `npm run mcp:write-probe` per leg.
 
+**Destructive testing:** Cursor agents may run destructive write scopes on this
+devbox **only** when the operator has pre-approved it (`MCP_MODE=full`,
+`MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES`, typed `MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE`,
+localhost `WHMCS_API_URL`). Never point destructive probes at production.
+
+After `api-setup`, ensure the Docker bridge IP WHMCS reports (often
+`192.168.107.1`) is in `APIAllowedIPs` — `127.0.0.1` alone is insufficient for
+MCP stdio hosts on macOS Docker Desktop.
+
 The **in-repo** compose under `deploy/whmcs-test/` (ports **8813 / 8890**,
 project `whmcsmcp-whmcs-test`) remains available when you need an isolated
 snapshot/seed workflow that does not share the devbox DB.
