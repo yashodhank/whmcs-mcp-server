@@ -102,6 +102,25 @@ separately.
 - **Dokploy IP heal:** `WHMCS_HEAL_MODE=dokploy` runs `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` (see [api-connectivity-troubleshooting.md](runbooks/api-connectivity-troubleshooting.md)).
 - **Simple writes runbook:** [docs/runbooks/simple-writes.md](runbooks/simple-writes.md).
 
+### Production verification log (feat/nexus-fast-whmcs-api / PR #103)
+
+Recorded **2026-09-02** from branch `feat/nexus-fast-whmcs-api` against live production
+WHMCS (`.env.production`, `MCP_ENV=production`). Artifacts:
+`.audit-local/nexus-sprint/` (console logs, capability probe, prod-test-program archives).
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| **Build** | PASS | `npm run build` on branch HEAD |
+| **L1–L6 (legacy path)** | **7/7 PASS** | `MCP_GOVERNANCE_ENABLED=false` override for harness + server (matches default NEXUS legacy writes model) |
+| **L1–L6 (governed, prod env)** | **3/7 PASS** | `.env.production` has `MCP_GOVERNANCE_ENABLED=true`; with host `HARNESS_CONSUMER_TOKEN` + inline `MCP_CONSUMER_REGISTRY`, `list_client_domains` cases fail MCP output-schema validation (`items`/`total`/`count` missing) — governed projection defect, not WHMCS connectivity |
+| **L1–L6 (harness preflight)** | **BLOCKED** | Sourcing only `.env.production` (registry via `MCP_CONSUMER_REGISTRY_FILE`, empty inline `MCP_CONSUMER_REGISTRY`) fails harness preflight until `HARNESS_CONSUMER_TOKEN` + inline registry JSON are supplied to the test driver |
+| **Capability probe** | **4/5 supported** | `GetUsers` → `not_authorized` for configured API role; others supported (`node --import tsx scripts/mcp-capability-probe.mjs`; no `npm run mcp:capability-probe` script yet) |
+| **Version family** | **8.13** | `GetConfigurationValue` `Version` → `8.13.6-release.1`; `WhmcsDetails` denied for API credential; `get_capability_matrix` shows `whmcs_version.status=unverified` until details probe succeeds |
+| **Dokploy IP heal smoke** | **PASS (exit 0)** | `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` — API smoke healthy, no heal |
+
+**Blockers before merge:** fix governed `list_client_domains` structured output (or document required harness env for governed L1–L6); align production-test harness with `MCP_CONSUMER_REGISTRY_FILE` or document operator export of registry + synthetic harness token.
+
+
 ### Client-to-client account-credit transfer
 
 `transfer_client_credit` uses only supported WHMCS API actions and is compatible
