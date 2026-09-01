@@ -27,6 +27,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { SCOPE_ACTION } from '../src/write/types.js';
 
 const LEG = process.env.WHMCS_API_URL ?? 'http://localhost:8890';
@@ -66,6 +70,7 @@ const transport = new StdioClientTransport({
     MCP_PROD_HIGH_RISK_PER_ACTION_CAP: '1000000000',
     MCP_PROD_HIGH_RISK_DAILY_CAP: '1000000000000',
     MCP_WRITE_STRICT_ALLOWLIST: 'false',
+    MCP_CREDIT_TRANSFER_STATE_PATH: path.join(REPO_ROOT, '.audit-local/credit-transfer-state.jsonl'),
     MCP_CONSUMER_REGISTRY: REGISTRY,
   },
   stderr: 'ignore',

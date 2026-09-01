@@ -5,6 +5,31 @@ A self-contained dual WHMCS stack so the MCP can be exercised end-to-end
 read-only against production `my.securiace.com` (IP-allowlist 403s, prod-only
 500s).
 
+## Default for agent / multipurpose local testing (`whmcs-devbox`)
+
+Going forward, prefer the standalone **[whmcs-devbox](https://github.com/yashodhank/whmcs-devbox)**
+stack (`~/Projects/whmcs-devbox`) as the **default reusable multipurpose** WHMCS
+dev/test instance for Cursor agents and cross-project module work. It runs
+**8.13 on `http://localhost:8013`** and **9.0 on `http://localhost:8090`**
+(MailHog `:8025`). One-time API automation:
+
+```bash
+cd ~/Projects/whmcs-devbox
+./bin/whmcs-devbox doctor
+./bin/whmcs-devbox api-setup all    # credential + APIAllowedIPs
+```
+
+Point this MCP at a leg via `.env.local` (`MCP_ENV=local`,
+`WHMCS_API_URL=http://localhost:8013` or `:8090`, `WHMCS_ALLOW_HTTP=true`).
+Run the dev matrix with `npm run build && npm test`, `npm run mcp:deepdrive:reads`,
+`npm run mcp:deepdrive:writes`, and `npm run mcp:write-probe` per leg.
+
+The **in-repo** compose under `deploy/whmcs-test/` (ports **8813 / 8890**,
+project `whmcsmcp-whmcs-test`) remains available when you need an isolated
+snapshot/seed workflow that does not share the devbox DB.
+
+---
+
 This stack was **replicated and customized** from
 `securiace-vps-platform/deploy/whmcs-test/`. It is fully independent of that
 project: distinct ports, container/network/volume names, compose project
