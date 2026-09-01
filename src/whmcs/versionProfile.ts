@@ -1,8 +1,10 @@
 /**
- * Lazy WHMCS version probe via WhmcsDetails.
+ * Lazy WHMCS version probe via WhmcsDetails with GetConfigurationValue fallback.
  *
- * Classifies the install as 8.13.x, other 8.x, or 9.x+. Cached in-process for
- * 15 minutes; used by write validation advisories and the capability matrix.
+ * Many production API roles deny `WhmcsDetails` but permit
+ * `GetConfigurationValue` for setting `Version` (e.g. `8.13.6-release.1`).
+ * Classifies the install as 8.13.x, other 8.x, or 9.x+. Cached in-process
+ * for 15 minutes; used by write validation advisories and the capability matrix.
  * Does not block startup unless the caller opts into strict healthcheck elsewhere.
  */
 
@@ -44,6 +46,38 @@ function extractVersion(raw: unknown): { version: string | null; release: string
   };
 }
 
+/** Normalize `GetConfigurationValue` `Version` (e.g. `8.13.6-release.1`). */
+function extractConfigurationVersion(raw: unknown): { version: string | null; release: string | null } {
+  const value = str(asRecord(raw), 'value');
+  if (value === undefined || value.trim() === '') {
+    return { version: null, release: null };
+  }
+  const release = value.trim();
+  const version = release.replace(/-release.*$/i, '') || release;
+  return { version, release };
+}
+
+async function probeVersion(client: WhmcsClient): Promise<{ version: string | null; release: string | null }> {
+  try {
+    const raw = await client.read<Record<string, unknown>>('WhmcsDetails', {});
+    const fromDetails = extractVersion(raw);
+    if (fromDetails.version !== null && fromDetails.version.trim() !== '') {
+      return fromDetails;
+    }
+  } catch {
+    /* role may deny WhmcsDetails — fall through */
+  }
+
+  try {
+    const raw = await client.read<Record<string, unknown>>('GetConfigurationValue', {
+      setting: 'Version',
+    });
+    return extractConfigurationVersion(raw);
+  } catch {
+    return { version: null, release: null };
+  }
+}
+
 /** Reset module cache. Test-only. */
 export function _resetVersionProfileCacheForTests(): void {
   cached = undefined;
@@ -62,14 +96,7 @@ export async function getWhmcsVersionProfile(
     return cached.profile;
   }
 
-  let version: string | null = null;
-  let release: string | null = null;
-  try {
-    const raw = await client.read<Record<string, unknown>>('WhmcsDetails', {});
-    ({ version, release } = extractVersion(raw));
-  } catch {
-    /* fail-soft — unknown family */
-  }
+  const { version, release } = await probeVersion(client);
 
   const profile: WhmcsVersionProfile = {
     family: parseFamily(version),

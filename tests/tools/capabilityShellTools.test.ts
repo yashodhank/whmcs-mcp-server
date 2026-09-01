@@ -136,6 +136,28 @@ describe('registerCapabilityShellTools', () => {
     expect(res.structuredContent).toBeDefined();
   });
 
+  it('get_capability_matrix falls back to GetConfigurationValue when WhmcsDetails is denied', async () => {
+    const { _resetVersionProfileCacheForTests } = await import('../../src/whmcs/versionProfile.js');
+    _resetVersionProfileCacheForTests();
+    const { handlers, read } = harness();
+    read.mockImplementation(async (action: string, params?: Record<string, unknown>) => {
+      if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
+      if (action === 'GetConfigurationValue') {
+        return { result: 'success', value: '8.13.6-release.1' };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const res = await handlers.get_capability_matrix({});
+    expect(read).toHaveBeenCalledWith('GetConfigurationValue', { setting: 'Version' });
+    const p = JSON.parse(res.content[0].text) as {
+      whmcs_version: { status: string; family?: string; version?: string };
+    };
+    expect(p.whmcs_version.status).toBe('supported');
+    expect(p.whmcs_version.family).toBe('8.13');
+    expect(p.whmcs_version.version).toBe('8.13.6');
+    expect(res.isError).toBeUndefined();
+  });
+
   it('shells register an outputSchema for the structured capability_unavailable object', () => {
     const { configs } = harness();
     const cfg = configs.list_users;

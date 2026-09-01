@@ -49,6 +49,34 @@ describe('versionProfile', () => {
     expect(profile.version).toBeNull();
   });
 
+  it('falls back to GetConfigurationValue when WhmcsDetails is denied', async () => {
+    const read = vi.fn(async (action: string) => {
+      if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
+      if (action === 'GetConfigurationValue') {
+        return { result: 'success', value: '8.13.6-release.1' };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const profile = await getWhmcsVersionProfile({ read } as never);
+    expect(read).toHaveBeenCalledWith('GetConfigurationValue', { setting: 'Version' });
+    expect(profile.family).toBe('8.13');
+    expect(profile.version).toBe('8.13.6');
+    expect(profile.release).toBe('8.13.6-release.1');
+  });
+
+  it('falls back when WhmcsDetails succeeds but carries no version', async () => {
+    const read = vi.fn(async (action: string) => {
+      if (action === 'WhmcsDetails') return { result: 'success', whmcs: {} };
+      if (action === 'GetConfigurationValue') {
+        return { result: 'success', value: '9.0.1-release.1' };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const profile = await getWhmcsVersionProfile({ read } as never);
+    expect(profile.family).toBe('9.x');
+    expect(profile.version).toBe('9.0.1');
+  });
+
   it('caches the profile for 15 minutes', async () => {
     let t = 1_000_000;
     const read = vi.fn().mockResolvedValue({
