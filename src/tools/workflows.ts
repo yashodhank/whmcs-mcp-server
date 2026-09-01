@@ -941,9 +941,9 @@ export function registerWorkflowTools(
       const result = baseResult('new_client_onboarding');
       const progress = new ToolProgress(0, extra);
       const authToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
-      const email = String(p.email ?? '').trim().toLowerCase();
-      const firstname = String(p.firstname ?? '').trim();
-      const lastname = String(p.lastname ?? '').trim();
+      const email = (typeof p.email === 'string' ? p.email : '').trim().toLowerCase();
+      const firstname = (typeof p.firstname === 'string' ? p.firstname : '').trim();
+      const lastname = (typeof p.lastname === 'string' ? p.lastname : '').trim();
 
       const existing = await safeSection<WhmcsRow[]>(
         'clients',
@@ -962,7 +962,7 @@ export function registerWorkflowTools(
       );
 
       const duplicate = existing.some(
-        (c) => String(str(c, 'email') ?? '').trim().toLowerCase() === email
+        (c) => (str(c, 'email') ?? '').trim().toLowerCase() === email
       );
       const candidate: Record<string, unknown> = { email, duplicate_found: duplicate };
 

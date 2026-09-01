@@ -140,7 +140,7 @@ describe('registerCapabilityShellTools', () => {
     const { _resetVersionProfileCacheForTests } = await import('../../src/whmcs/versionProfile.js');
     _resetVersionProfileCacheForTests();
     const { handlers, read } = harness();
-    read.mockImplementation(async (action: string, params?: Record<string, unknown>) => {
+    read.mockImplementation(async (action: string, _params?: Record<string, unknown>) => {
       if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
       if (action === 'GetConfigurationValue') {
         return { result: 'success', value: '8.13.6-release.1' };
