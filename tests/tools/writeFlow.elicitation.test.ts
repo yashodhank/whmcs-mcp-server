@@ -63,6 +63,12 @@ function setup(
     elicitInput: (p: unknown) => Promise<{ action?: string; content?: Record<string, unknown> }>;
   }
 ): Handlers {
+  const versionRead = vi.fn(async (action: string, params?: Record<string, unknown>) => {
+    if (action === 'WhmcsDetails') {
+      return { result: 'success', whmcs: { version: '8.13.1' } };
+    }
+    return read(action, params);
+  });
   const handlers: Handlers = {};
   const base = {
     registerTool: (n: string, _c: unknown, cb: unknown) => {
@@ -87,7 +93,7 @@ function setup(
   };
   registerWriteFlowTools(
     server as never,
-    { mutate, read } as never,
+    { mutate, read: versionRead } as never,
     logger as never,
     { tryConsume: () => true } as never
   );
@@ -113,7 +119,7 @@ describe('write — elicitation inline confirm (medium)', () => {
     expect(body.executed).toBeFalsy();
     expect(String(rec(body.execution).note)).toMatch(/elicitation/i);
     expect(mutate).not.toHaveBeenCalled();
-    expect(read.mock.calls.filter(([action]) => action !== 'WhmcsDetails')).toHaveLength(0);
+    expect(read.mock.calls.filter(([action]) => action !== 'WhmcsDetails' && action !== 'GetConfigurationValue')).toHaveLength(0);
   });
 
   it('ACCEPT(confirm:true) proceeds to execute', async () => {

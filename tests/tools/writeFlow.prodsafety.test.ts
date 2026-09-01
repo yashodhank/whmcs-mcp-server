@@ -58,7 +58,12 @@ function harness() {
     child: () => cl,
   };
   const mutate = vi.fn();
-  const read = vi.fn();
+  const read = vi.fn(async (action: string) => {
+    if (action === 'WhmcsDetails') {
+      return { result: 'success', whmcs: { version: '8.13.1' } };
+    }
+    return { result: 'success' };
+  });
   registerWriteFlowTools(
     server as never,
     { mutate, read } as never,
@@ -96,6 +101,6 @@ describe('Phase G+ — HIGH-RISK production sealed by default (empty prod allowl
     expect(rec(ep.execution).blocked_reason).toBe('action_not_prod_authorized');
     // KEYSTONE: with no prod allowlist configured, no WHMCS mutation occurs.
     expect(mutate).not.toHaveBeenCalled();
-    expect(read.mock.calls.every(([action]) => action === 'WhmcsDetails')).toBe(true);
+    expect(read.mock.calls.every(([action]) => action === 'WhmcsDetails' || action === 'GetConfigurationValue')).toBe(true);
   });
 });

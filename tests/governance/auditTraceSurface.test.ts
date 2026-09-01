@@ -20,6 +20,7 @@ import type { Canonical } from '../../src/governance/types.js';
 const TOKEN = 'tok-trace-aaaaaaaa';
 
 function setRegistry(): void {
+  delete process.env.MCP_CONSUMER_REGISTRY_FILE;
   process.env.MCP_CONSUMER_REGISTRY = JSON.stringify([
     {
       id: 'ops_desk',
@@ -50,6 +51,7 @@ function canonical(): Canonical<Record<string, unknown>> {
 afterEach(() => {
   delete process.env.MCP_AUDIT_TRACE;
   delete process.env.MCP_CONSUMER_REGISTRY;
+  delete process.env.MCP_CONSUMER_REGISTRY_FILE;
   delete process.env.MCP_GOVERNANCE_ENABLED;
   delete process.env.MCP_ENV;
   __resetRegistryCacheForTests();
