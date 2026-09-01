@@ -101,6 +101,8 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 
 Local dual-WHMCS stack: [docs/runbooks/local-whmcs-testing.md](docs/runbooks/local-whmcs-testing.md). Operator troubleshooting: [docs/runbooks/ai-agent-local.md](docs/runbooks/ai-agent-local.md).
 
+Pre-push CI parity (matches GitHub `build-test` / related jobs): [docs/runbooks/local-ci-parity-before-push.md](docs/runbooks/local-ci-parity-before-push.md).
+
 ## Safety rules for agents editing this repo
 
 1. **No secrets in git** — credentials, registry tokens, `.env.local`, prod seeds.
