@@ -171,15 +171,25 @@ export class IntentStore {
   private loadFromDisk(file: string): void {
     if (!fs.existsSync(file)) return;
     try {
-      const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { intents?: WriteIntent[] };
-      if (!Array.isArray(raw.intents)) return;
-      for (const intent of raw.intents) {
-        if (intent !== null && typeof intent === 'object' && typeof intent.intent_id === 'string') {
-          this.intents.set(intent.intent_id, intent);
-        }
+      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (typeof raw !== 'object' || raw === null || !('intents' in raw)) return;
+      const intents = (raw as { intents: unknown }).intents;
+      if (!Array.isArray(intents)) return;
+      for (const item of intents) {
+        if (!isWriteIntentSnapshot(item)) continue;
+        this.intents.set(item.intent_id, item);
       }
     } catch {
       /* torn/malformed snapshot — start empty rather than fail boot */
     }
   }
+}
+
+function isWriteIntentSnapshot(value: unknown): value is WriteIntent {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'intent_id' in value &&
+    typeof (value as { intent_id: unknown }).intent_id === 'string'
+  );
 }

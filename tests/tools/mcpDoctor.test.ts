@@ -57,7 +57,7 @@ describe('mcp_doctor', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        if (String(url).includes('openid-configuration.php')) {
+        if (url.includes('openid-configuration.php')) {
           return {
             ok: true,
             status: 200,
@@ -69,10 +69,10 @@ describe('mcp_doctor', () => {
               }),
           };
         }
-        if (String(url).includes('.well-known')) {
+        if (url.includes('.well-known')) {
           return { ok: false, status: 404, text: async () => 'not found' };
         }
-        if (String(url).includes('certs.php')) {
+        if (url.includes('certs.php')) {
           return { ok: true, status: 200, text: async () => JSON.stringify({ keys: [] }) };
         }
         return { ok: false, status: 500, text: async () => '' };

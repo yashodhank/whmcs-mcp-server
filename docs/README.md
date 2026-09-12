@@ -50,6 +50,7 @@ Step-by-step operational guides for setup, testing, and capability probing.
 | [runbooks/production-governed-writes.md](runbooks/production-governed-writes.md) | Host-neutral production write authorization, approval, read-back, revocation, and restart procedure |
 | [runbooks/grokbot-stdio-access.md](runbooks/grokbot-stdio-access.md) | Grok Bot / Business WhatsApp stdio access (local escape hatch) |
 | [runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.md) | Phase 0 evidence: OIDC discovery, JWKS, GetUsers, version on prod 8.13.7 |
+| [runbooks/local-ci-parity-before-push.md](runbooks/local-ci-parity-before-push.md) | `npm run ci:node` — local parity with GitHub `build-test` + `ci-ok` |
 
 ---
 

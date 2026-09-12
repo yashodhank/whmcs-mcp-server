@@ -1,26 +1,36 @@
 name: CI
 
-# Gate for the standing auto-merge policy: every PR into main (and every push
-# to main) must pass build, typecheck, lint, the repository-wide format check,
-# and the full test suite before it can be merged.
+# Merge gate: every PR and every push to main must pass build, typecheck,
+# lint (zero warnings), format, the full test suite, MCP catalog/transport
+# contracts, capability catalog, official MCP conformance, and the
+# python/php updater checks. Require the `ci-ok` job in branch protection
+# so a green subset cannot merge.
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CI: '1'
+  NO_COLOR: '1'
+  WHMCS_API_URL: https://whmcs.invalid/includes/api.php
+  WHMCS_IDENTIFIER: ci-dummy-identifier
+  WHMCS_SECRET: ci-dummy-secret
 
 jobs:
   build-test:
     name: build-test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -45,14 +55,8 @@ jobs:
         run: npm run format:check
 
       - name: Test
-        # The suite is fully mocked (no live WHMCS calls), but tests/setup.ts
-        # hard-requires these vars to be present. Dummy placeholders satisfy the
-        # guard; they are NOT real credentials.
-        env:
-          WHMCS_API_URL: https://whmcs.invalid/includes/api.php
-          WHMCS_IDENTIFIER: ci-dummy-identifier
-          WHMCS_SECRET: ci-dummy-secret
-        run: npm test
+        # Dummy WHMCS placeholders only (see npm run test:ci). Not credentials.
+        run: npm run test:ci
 
       - name: MCP catalog and transport contracts
         run: npm run mcp:test:contracts
@@ -63,6 +67,7 @@ jobs:
   mcp-conformance:
     name: mcp-conformance
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -80,12 +85,16 @@ jobs:
   python-php-check:
     name: python-php-check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Require PHP
+        run: php -v
 
       - name: Python syntax check (ip updater)
         run: python3 -m py_compile scripts/whmcs-ip-updater/whmcs_ip_updater.py
@@ -97,5 +106,21 @@ jobs:
         run: python3 -m pytest scripts/whmcs-ip-updater/tests/ -q
 
       - name: PHP lint (remote worker + bootstrap-callable PHP)
+        run: php -l scripts/whmcs-ip-updater/remote/whmcs_api_ip_updater.php
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [build-test, mcp-conformance, python-php-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
         run: |
-          php -l scripts/whmcs-ip-updater/remote/whmcs_api_ip_updater.php
+          set -euo pipefail
+          echo "build-test=${{ needs.build-test.result }}"
+          echo "mcp-conformance=${{ needs.mcp-conformance.result }}"
+          echo "python-php-check=${{ needs.python-php-check.result }}"
+          test "${{ needs.build-test.result }}" = "success"
+          test "${{ needs.mcp-conformance.result }}" = "success"
+          test "${{ needs.python-php-check.result }}" = "success"

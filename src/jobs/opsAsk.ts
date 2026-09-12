@@ -150,7 +150,7 @@ export async function runStaffJob(args: {
   whmcs: WhmcsClient;
   clientid?: number;
   email?: string;
-  listDrafts?: () => Array<Record<string, unknown>>;
+  listDrafts?: () => Record<string, unknown>[];
 }): Promise<Record<string, unknown>> {
   const errs: PartialError[] = [];
   const { job, whmcs } = args;
@@ -318,7 +318,7 @@ export async function runStaffJob(args: {
     const suspended = products.filter(
       (p) => (str(p, 'status') ?? '').toLowerCase() === 'suspended'
     );
-    const actions: Array<{ rank: number; action: string; reason: string }> = [];
+    const actions: { rank: number; action: string; reason: string }[] = [];
     if (overdueCount > 0) {
       actions.push({
         rank: 1,

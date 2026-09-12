@@ -355,6 +355,7 @@ describe('ops_operator', () => {
 describe('contract name coverage', () => {
   it('every ContractName is buildable and env-projectable', () => {
     const names: ContractName[] = [...CONTRACT_NAMES];
-    expect(names).toHaveLength(10);
+    expect(names).toHaveLength(Object.keys(CONTRACTS).length);
+    expect(new Set(names).size).toBe(names.length);
   });
 });

@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief: ops_ask, mcp_doctor, Phase 0 OIDC facts)
+Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + CI merge gate)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -294,11 +294,19 @@ Every code, configuration, governance, or operational behavior change must:
    added after a PR was closed or merged; and
 7. merge only after required GitHub checks are green.
 
-The CI gate currently runs Node build, typecheck, lint, the full Vitest suite,
-Python tests for the optional IP updater, and PHP syntax checks. No release
-tagging or image-digest policy is currently declared; establish those before
-production deployment rather than treating a mutable image tag as release
-identity.
+The CI gate (`.github/workflows/ci.yml`) runs on every pull request and every
+push to `main`. `build-test` is build, typecheck, lint with `--max-warnings 0`,
+format, the full Vitest suite (`npm run test:ci`), MCP catalog/transport
+contracts, and the capability catalog check. `mcp-conformance` and
+`python-php-check` are required siblings. The `ci-ok` job fails unless all
+three succeed — require `ci-ok` in branch protection so a green subset cannot
+merge. Local parity: `npm run ci:node` (see
+[local-ci-parity-before-push.md](runbooks/local-ci-parity-before-push.md)).
+Catalog count drift is closed by generating `tests/fixtures/mcp/catalog-v1.json`
+via `npm run catalog:update` and having the hermetic sentinel read those
+counts. No release tagging or image-digest policy is currently declared;
+establish those before production deployment rather than treating a mutable
+image tag as release identity.
 
 ## Operational rules
 

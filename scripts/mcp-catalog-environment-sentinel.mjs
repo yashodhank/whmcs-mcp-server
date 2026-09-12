@@ -1,14 +1,26 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../dist/index.js';
 
+const fixturePath = fileURLToPath(new URL('../tests/fixtures/mcp/catalog-v1.json', import.meta.url));
+const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
+if (
+  !Array.isArray(fixture.tools) ||
+  !Array.isArray(fixture.prompts) ||
+  !Array.isArray(fixture.resources) ||
+  !Array.isArray(fixture.resourceTemplates)
+) {
+  throw new Error(`MCP catalog fixture is missing catalog arrays: ${fixturePath}`);
+}
 const expected = Object.freeze({
-  tools: 79,
-  prompts: 10,
-  resources: 5,
-  resourceTemplates: 9,
+  tools: fixture.tools.length,
+  prompts: fixture.prompts.length,
+  resources: fixture.resources.length,
+  resourceTemplates: fixture.resourceTemplates.length,
 });
 const whmcsCalls = [];
 const whmcsClient = new Proxy(

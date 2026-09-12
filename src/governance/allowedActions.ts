@@ -11,7 +11,7 @@ import { CAPABILITY_REGISTRY } from './capabilities.js';
 import type { ConsumerProfile } from './types.js';
 
 /** Historical example-registry names → live tool / capability ids. */
-const ACTION_ALIASES: Readonly<Record<string, readonly string[]>> = {
+const ACTION_ALIASES: Readonly<Partial<Record<string, readonly string[]>>> = {
   list_tickets: ['list_client_tickets', 'GetTickets'],
   list_client_tickets: ['list_tickets', 'GetTickets'],
   get_ticket: ['get_ticket_thread', 'GetTicket'],
@@ -27,8 +27,8 @@ function expand(token: string): Set<string> {
   if (aliases !== undefined) {
     for (const alias of aliases) out.add(alias);
   }
-  const cap = CAPABILITY_REGISTRY[token];
-  if (cap !== undefined) {
+  if (Object.hasOwn(CAPABILITY_REGISTRY, token)) {
+    const cap = CAPABILITY_REGISTRY[token];
     out.add(cap.capability);
     out.add(cap.action);
   }

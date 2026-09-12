@@ -192,7 +192,7 @@ export async function precheckDomainRename(
 const store = new IntentStore(Date.now, config.MCP_WRITE_INTENT_STORE_PATH || undefined);
 
 /** Staff `draft_work` job: ids/state only, never intent params. */
-export function listWriteIntentsForConsumer(consumerId: string): Array<Record<string, unknown>> {
+export function listWriteIntentsForConsumer(consumerId: string): Record<string, unknown>[] {
   return store.list(consumerId).map((intent) => ({
     intent_id: intent.intent_id,
     scope: intent.scope,

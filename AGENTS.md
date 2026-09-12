@@ -94,6 +94,7 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | Script                                | Purpose                                                      |
 | ------------------------------------- | ------------------------------------------------------------ |
 | `npm run build`                       | Produce `dist/index.js` (required before MCP hosts connect). |
+| `npm run ci:node`                     | Local parity with GitHub `build-test` (lint/format/tests/catalog). |
 | `npm test`                            | Vitest unit/integration suite.                               |
 | `npm run mcp:test:production-program` | L0–L6 production test program.                               |
 | `scripts/mcp-governed-smoke.mjs`      | Governed read smoke.                                         |
@@ -110,7 +111,7 @@ Pre-push CI parity (matches GitHub `build-test` / related jobs): [docs/runbooks/
 1. **No secrets in git** — credentials, registry tokens, `.env.local`, prod seeds.
 2. **Preserve stdio contract** — no `console.log` on stdout; use `Logger` → stderr.
 3. **Minimal diffs** — match existing patterns in the tool module you touch.
-4. **Tests** — add/adjust Vitest for behavior changes; run `npm run typecheck && npm test` before PR.
+4. **Tests** — add/adjust Vitest for behavior changes; run `npm run ci:node` before PR (lint `--max-warnings 0`, format, tests, catalog contracts).
 5. **WHMCS 9** — invoice immutability and credit/debit notes: read [docs/reference/whmcs9-credit-debit-notes.md](docs/reference/whmcs9-credit-debit-notes.md) before billing/write changes.
 6. **Do not commit** `.cursor/hooks/state/` or other IDE-local paths.
 7. **Keep the handoff current** — every code, governance, deployment, approval,

@@ -155,9 +155,5 @@ export function requireSingleClient(
       resolution,
     };
   }
-  const only = resolution.clients[0];
-  if (only === undefined) {
-    return { ok: false, reason: 'no linked clients', resolution };
-  }
-  return { ok: true, clientid: only.clientid };
+  return { ok: true, clientid: resolution.clients[0].clientid };
 }

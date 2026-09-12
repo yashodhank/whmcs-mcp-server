@@ -32,6 +32,7 @@ describe('public MCP catalog v1 contract', () => {
   });
 
   it('matches the compatibility-significant saved catalog exactly', () => {
+    // Intentional catalog change: `npm run catalog:update` in the same commit.
     expect(catalog).toEqual(fixture());
     expect(harness.whmcsCalls).toEqual([]);
   });
