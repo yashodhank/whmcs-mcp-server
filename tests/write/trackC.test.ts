@@ -460,10 +460,8 @@ describe('Track C validation', () => {
       true
     );
     expect(
-      validateIntent(
-        intent('order:accept', { orderid: 1, autosetup: false, sendemail: false }),
-        {}
-      ).ok
+      validateIntent(intent('order:accept', { orderid: 1, autosetup: false, sendemail: false }), {})
+        .ok
     ).toBe(true);
     // non-boolean values rejected
     for (const bad of ['false', 0, 1, 'true', null]) {
