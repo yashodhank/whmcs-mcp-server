@@ -156,16 +156,84 @@ describe('Track C strict mappers', () => {
     });
   });
 
-  it('order:accept emits ONLY {orderid}, drops fraud/provisioning flags', () => {
+  it('order:accept emits {orderid} and drops fraud/provisioning flags when booleans not explicit', () => {
     const out = intentToWhmcsParams('order:accept', {
       orderid: 42,
       fraudbypass: true,
-      autosetup: true,
-      sendemail: true,
       serverid: 3,
+      registrar: 'enom',
+      sendregistrar: true,
     });
     expect(out).toEqual({ orderid: 42 });
-    expect(out).not.toHaveProperty('fraudbypass');
+    for (const k of ['fraudbypass', 'serverid', 'registrar', 'sendregistrar']) {
+      expect(out).not.toHaveProperty(k);
+    }
+  });
+
+  it('order:accept forwards autosetup:false to disable module provisioning', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 99,
+      autosetup: false,
+    });
+    expect(out).toEqual({ orderid: 99, autosetup: false });
+  });
+
+  it('order:accept forwards autosetup:true explicitly', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 99,
+      autosetup: true,
+    });
+    expect(out).toEqual({ orderid: 99, autosetup: true });
+  });
+
+  it('order:accept forwards sendemail:false to suppress welcome email', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 99,
+      sendemail: false,
+    });
+    expect(out).toEqual({ orderid: 99, sendemail: false });
+  });
+
+  it('order:accept forwards both autosetup + sendemail booleans together', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 7,
+      autosetup: false,
+      sendemail: false,
+    });
+    expect(out).toEqual({ orderid: 7, autosetup: false, sendemail: false });
+  });
+
+  it('order:accept omits autosetup/sendemail when not provided (preserves WHMCS defaults)', () => {
+    const out = intentToWhmcsParams('order:accept', { orderid: 42 });
+    expect(out).toEqual({ orderid: 42 });
+    expect(out).not.toHaveProperty('autosetup');
+    expect(out).not.toHaveProperty('sendemail');
+  });
+
+  it('order:accept drops non-boolean autosetup/sendemail values (string, number)', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 42,
+      autosetup: 'false',
+      sendemail: 0,
+    });
+    expect(out).toEqual({ orderid: 42 });
+  });
+
+  it('order:accept still drops dangerous extras alongside valid booleans', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 42,
+      autosetup: false,
+      sendemail: false,
+      fraudbypass: true,
+      serverid: 3,
+      registrar: 'enom',
+      sendregistrar: true,
+      evil: true,
+    });
+    expect(out).toEqual({ orderid: 42, autosetup: false, sendemail: false });
+    for (const k of ['fraudbypass', 'serverid', 'registrar', 'sendregistrar', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
   });
 
   it('client:create passes ONLY allowlisted AddClient fields, drops extras', () => {
@@ -382,6 +450,36 @@ describe('Track C validation', () => {
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.code === 'invalid_orderid')).toBe(true);
     }
+  });
+
+  it('order:accept validates optional autosetup/sendemail as booleans', () => {
+    expect(validateIntent(intent('order:accept', { orderid: 1, autosetup: false }), {}).ok).toBe(
+      true
+    );
+    expect(validateIntent(intent('order:accept', { orderid: 1, sendemail: false }), {}).ok).toBe(
+      true
+    );
+    expect(
+      validateIntent(
+        intent('order:accept', { orderid: 1, autosetup: false, sendemail: false }),
+        {}
+      ).ok
+    ).toBe(true);
+    // non-boolean values rejected
+    for (const bad of ['false', 0, 1, 'true', null]) {
+      const r = validateIntent(intent('order:accept', { orderid: 1, autosetup: bad }), {});
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.code === 'invalid_autosetup')).toBe(true);
+    }
+    for (const bad of ['false', 0, 1, 'true', null]) {
+      const r = validateIntent(intent('order:accept', { orderid: 1, sendemail: bad }), {});
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.code === 'invalid_sendemail')).toBe(true);
+    }
+    // undefined is fine (omitted = WHMCS defaults)
+    expect(
+      validateIntent(intent('order:accept', { orderid: 1, autosetup: undefined }), {}).ok
+    ).toBe(true);
   });
 
   it('client:create requires firstname/lastname/email with valid email shape', () => {

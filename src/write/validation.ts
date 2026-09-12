@@ -879,9 +879,9 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
     }
   }
 
-  // Track C — order:accept: orderid must be a positive integer. (Fraud /
-  // provisioning flags are intentionally NOT validated or accepted — the mapper
-  // emits only orderid.)
+  // Track C — order:accept: orderid must be a positive integer. Optional
+  // boolean flags (autosetup, sendemail) are validated when present; non-boolean
+  // values are rejected so a string "false" or number 0 never leaks through.
   if (intent.scope === 'order:accept') {
     const oid = intent.params.orderid;
     if (typeof oid !== 'number' || !Number.isInteger(oid) || oid <= 0) {
@@ -890,6 +890,16 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
         severity: 'error',
         message: 'order:accept `orderid` must be a positive integer',
       });
+    }
+    for (const key of ['autosetup', 'sendemail'] as const) {
+      const v = intent.params[key];
+      if (v !== undefined && typeof v !== 'boolean') {
+        issues.push({
+          code: `invalid_${key}`,
+          severity: 'error',
+          message: `order:accept \`${key}\` must be a boolean when provided`,
+        });
+      }
     }
   }
 
