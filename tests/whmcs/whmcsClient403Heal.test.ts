@@ -161,6 +161,7 @@ describe('WhmcsClient 403 edge/WAF handling + diagnosability', () => {
 
     expect(String(err.message)).toMatch(/Invalid Permissions/i);
     expect(String(err.message)).toMatch(/api-connectivity-troubleshooting\.md/);
+    expect(err.forbiddenKind).toBe('invalid_permissions');
     expect(post).toHaveBeenCalledTimes(1); // no reset retry for a bodied 403
   });
 

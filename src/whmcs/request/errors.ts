@@ -15,6 +15,8 @@ export class WhmcsBusinessError extends Error {
 export class WhmcsTransportError extends Error {
   statusCode?: number;
   outcomeUnknown: boolean;
+  /** Discriminated 403 sub-kind (only set when `statusCode === 403`). */
+  forbiddenKind?: import('./classifier.js').ForbiddenKind;
 
   constructor(message: string, statusCode?: number, outcomeUnknown = false) {
     super(message);

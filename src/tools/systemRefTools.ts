@@ -159,14 +159,16 @@ export function registerSystemRefTools(
 
 /**
  * Detect if an error is a WHMCS "Invalid Permissions" 403 for a specific action.
- * This happens when the API credential's allowed-actions role does not include
- * the action (e.g. WhmcsDetails is often disabled).
+ * Checks `forbiddenKind` on WhmcsTransportError (set by the pipeline's 403
+ * classifier) so detection works even after the pipeline rewrites the original
+ * WHMCS body into a diagnostic message. Falls back to message-matching for
+ * WhmcsBusinessError (HTTP 200 with result=error, message preserved verbatim).
  */
 function isPermissionDenied(e: unknown): boolean {
-  if (e instanceof WhmcsBusinessError) {
-    return /invalid\s+permissions/i.test(e.message);
-  }
   if (e instanceof WhmcsTransportError && e.statusCode === 403) {
+    return e.forbiddenKind === 'invalid_permissions';
+  }
+  if (e instanceof WhmcsBusinessError) {
     return /invalid\s+permissions/i.test(e.message);
   }
   return false;
