@@ -132,6 +132,8 @@ export const WRITE_ACTION_CATALOG: Readonly<Record<WriteScope, WriteActionMeta>>
   'client:create': meta('client:create'),
   'client:update': meta('client:update'),
   'service:change_package': meta('service:change_package'),
+  'service:product:set': meta('service:product:set'),
+  'service:customfields:update': meta('service:customfields:update'),
   'service:upgrade': meta('service:upgrade'),
   'domain:idprotect:toggle': meta('domain:idprotect:toggle'),
   'domain:lock:toggle': meta('domain:lock:toggle'),

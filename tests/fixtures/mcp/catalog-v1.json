@@ -1328,6 +1328,8 @@
               "client:create",
               "client:update",
               "service:change_package",
+              "service:product:set",
+              "service:customfields:update",
               "service:upgrade",
               "domain:idprotect:toggle",
               "domain:lock:toggle",
@@ -8503,6 +8505,127 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
+      "description": "Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS, staff allow-lists, Grok write posture (sealed scopes, package/CF, order accept, merge, DSN).",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "mcp_doctor",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {},
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Staff-first WHMCS 8.13.7 jobs (morning digest, overdue, ticket inbox, billing card, GDPR export). Audience comes from the staff consumer/OIDC allow-lists, not the prompt. Customer door is OIDC link/handoff until a user-delegated API is proven.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "clientid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "contract": {
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+          },
+          "job": {
+            "enum": [
+              "morning_digest",
+              "overdue_digest",
+              "ticket_inbox",
+              "next_best_action",
+              "close_pack",
+              "system_health",
+              "draft_work",
+              "billing_card",
+              "gdpr_export_pack",
+              "renewal_digest",
+              "ticket_status",
+              "handoff_pack",
+              "credit_notes"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "type": "object"
+      },
+      "name": "ops_ask",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {},
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "job": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
       "description": "Run only explicitly allowlisted pure/safe-read checks from an unexpired compiled PlanIR. Never writes.",
       "execution": {
         "taskSupport": "forbidden"
@@ -10537,6 +10660,8 @@
               "client:create",
               "client:update",
               "service:change_package",
+              "service:product:set",
+              "service:customfields:update",
               "service:upgrade",
               "domain:idprotect:toggle",
               "domain:lock:toggle",
