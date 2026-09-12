@@ -48,6 +48,7 @@ import { registerPlaybookResource } from './playbook/whmcsOpsPlaybook.js';
 import { registerCompat9xResource } from './resources/compat9x.js';
 import { registerCapabilityCatalogResource } from './resources/capabilityCatalog.js';
 import { registerPlanningResource } from './resources/planning.js';
+import { hasStdioDefaultToken } from './auth/trustedStdioDefault.js';
 
 /**
  * Build a fully-configured McpServer (capabilities + all tools/resources/
@@ -150,6 +151,13 @@ async function main(): Promise<void> {
     toolAllowlist:
       config.MCP_TOOL_ALLOWLIST.length > 0 ? config.MCP_TOOL_ALLOWLIST : 'all tools enabled',
   });
+
+  if (config.MCP_TRANSPORT === 'stdio' && hasStdioDefaultToken()) {
+    logger.info(
+      'Trusted stdio default consumer token enabled — governed tools will use the ' +
+        'default consumer when auth_token is omitted'
+    );
+  }
 
   // Initialize rate limiter
   const rateLimiter = new RateLimiter(logger);
