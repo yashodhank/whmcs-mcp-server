@@ -32,9 +32,14 @@ import {
   resolveConsumer,
   assertWriteScopeAllowed,
   consumerWriteCapability,
+  consumerWriteScopes,
 } from '../governance/consumers.js';
 import { getProjectionEnv, getConsumerRegistry } from '../governance/pipeline.js';
-import { resolveStdioDefaultToken } from '../auth/trustedStdioDefault.js';
+import { resolveStdioDefaultToken, hasStdioDefaultToken } from '../auth/trustedStdioDefault.js';
+import {
+  resolveStdioApproverToken,
+  hasApproverDefaultToken,
+} from '../auth/trustedApproverDefault.js';
 import {
   WRITE_SCOPES,
   type WriteScope,
@@ -67,6 +72,11 @@ import {
 } from '../whmcs/WhmcsDb.js';
 import { runServiceMoves, TransferRollback } from '../write/transferCascade.js';
 import { loadLiveProductionAuthorization } from '../write/liveAuthorization.js';
+import {
+  buildPreflight,
+  type ExecutionPreflight,
+  type PreflightContext,
+} from '../write/remediation.js';
 import {
   CreditTransferStore,
   executeClientCreditTransfer,
@@ -411,6 +421,34 @@ const RESULT_OUTPUT_SHAPE = {
     })
     .optional(),
   transfer: z.record(z.string(), z.unknown()).optional(),
+  execution_preflight: z
+    .object({
+      would_allow: z.boolean(),
+      blocked_reason: z.string().optional(),
+      missing_allowlist: z.array(z.string()).optional(),
+      allowlist_source: z.enum(['file', 'env', 'empty']).optional(),
+      allowlist_path: z.string().optional(),
+      remediation: z.array(
+        z.object({
+          code: z.string(),
+          message: z.string(),
+          next_tool: z.string().optional(),
+        })
+      ),
+    })
+    .optional(),
+  approval_needed: z
+    .object({
+      intent_id: z.string(),
+      required_approvals: z.number(),
+      approver_must_differ: z.boolean(),
+      scope: z.string(),
+      would_call: z.object({
+        action: z.string(),
+        params: z.record(z.string(), z.unknown()),
+      }),
+    })
+    .optional(),
   // Diagnostic keys carried only by an `err()` result (success never sets these).
   isError: z.literal(true).optional(),
   error: z.string().optional(),
@@ -526,12 +564,104 @@ function productionAuthorizedActions(): readonly string[] {
     try {
       return loadLiveProductionAuthorization(filePath);
     } catch {
-      // A live control-plane failure must become a normal deny-by-default
-      // decision, not an unstructured tool exception or a stale grant.
       return [];
     }
   }
   return config.MCP_PROD_WRITE_AUTHORIZED;
+}
+
+/**
+ * Allowlist source metadata for preflight/posture responses.
+ * NEVER echoes secrets or token values.
+ */
+function allowlistMeta(): { source: 'file' | 'env' | 'empty'; path?: string } {
+  const filePath = (config as Record<string, unknown>).MCP_PROD_WRITE_AUTHORIZED_FILE;
+  if (typeof filePath === 'string' && filePath.trim() !== '') {
+    return { source: 'file', path: filePath.trim() };
+  }
+  const envActions = (config as Record<string, unknown>).MCP_PROD_WRITE_AUTHORIZED as
+    | string[]
+    | undefined;
+  if (envActions !== undefined && envActions.length > 0) {
+    return { source: 'env' };
+  }
+  return { source: 'empty' };
+}
+
+/**
+ * Build a PreflightContext for the remediation module from intent + runtime state.
+ */
+function preflightCtx(intent: WriteIntent): PreflightContext {
+  const cfg = config as Record<string, unknown>;
+  const meta = allowlistMeta();
+  let prodActions: readonly string[];
+  try {
+    const raw = productionAuthorizedActions();
+    prodActions = Array.isArray(raw) ? raw : [];
+  } catch {
+    prodActions = [];
+  }
+  const capsPerAction = (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0;
+  const capsDaily = (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0;
+  const amountCtx =
+    intent.risk === 'high'
+      ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
+      : undefined;
+  return {
+    allowlistSource: meta.source,
+    allowlistPath: meta.path,
+    prodAuthorizedActions: prodActions,
+    action: intent.action,
+    scope: intent.scope,
+    capsPerAction,
+    capsDaily,
+    intentAmount: amountCtx?.amount,
+  };
+}
+
+/**
+ * Dry-run the full execution gate against an intent WITHOUT mutating state.
+ * Returns a structured ExecutionPreflight that tells agents exactly what
+ * would happen and how to fix it.
+ */
+function dryRunExecutionPreflight(
+  intent: WriteIntent,
+  _consumerId: string,
+  consumerCap: string,
+  approval?: HumanApprovalRecord
+): ExecutionPreflight {
+  const cfg = config as Record<string, unknown>;
+  const isHigh = intent.risk === 'high';
+  const amountContext = isHigh
+    ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
+    : undefined;
+  const decision = defaultExecutionAuthorizer(
+    {
+      intent,
+      env: getProjectionEnv(),
+      mcpMode: config.MCP_MODE,
+      consumerWriteCapability: consumerCap,
+      runtimeAuthorizedActions: runtimeAuthorizedActions(),
+      killSwitch: (cfg.MCP_WRITE_KILL_SWITCH as boolean | undefined) ?? false,
+      prodAuthorizedActions: productionAuthorizedActions(),
+      strictAllowlist: (cfg.MCP_WRITE_STRICT_ALLOWLIST as boolean | undefined) ?? false,
+      strictScopes: (cfg.MCP_WRITE_STRICT_SCOPES as readonly string[] | undefined) ?? [],
+      requireDistinctApprover:
+        (cfg.MCP_WRITE_REQUIRE_DISTINCT_APPROVER as boolean | undefined) ?? true,
+      destructiveConfirmPhrase:
+        (cfg.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE as string | undefined) ?? '',
+      allowedDestructiveScopes:
+        (cfg.MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES as readonly string[] | undefined) ?? [],
+      humanApproval: approval,
+      amountContext,
+      caps: {
+        perAction: (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0,
+        daily: (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0,
+      },
+    },
+    (k) => ledger.seen(k)
+  );
+  return buildPreflight(decision, preflightCtx(intent));
 }
 
 function toToolResult(
@@ -578,7 +708,7 @@ function toToolResult(
   } catch {
     whmcsParams = undefined;
   }
-  return {
+  const result: Record<string, unknown> = {
     intent: intentRec,
     stage,
     risk_flags: [
@@ -595,6 +725,16 @@ function toToolResult(
     executed: false,
     ...extra,
   };
+  const blockedReason = (extra.execution as Record<string, unknown> | undefined)?.blocked_reason as
+    | ExecutionDeniedReason
+    | undefined;
+  if (blockedReason) {
+    result.execution_preflight = buildPreflight(
+      { allowed: false, reason: blockedReason },
+      preflightCtx(intentRec)
+    );
+  }
+  return result;
 }
 
 /** Accurate append-only audit event shape (mirrors `AuditEvent`). */
@@ -1386,33 +1526,45 @@ export function registerWriteFlowTools(
       const validation = validateIntent(intent, await validationContextFor(whmcs));
       const next = store.transition(intent.intent_id, validation.ok ? 'validated' : 'rejected');
       audit.append(auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next));
-      return out(toToolResult(next, 'validate', { validation, execution: { attempted: false } }));
+      const cap = consumerWriteCapability(res.profile);
+      const preflight = dryRunExecutionPreflight(
+        { ...next, state: 'approved' } as WriteIntent,
+        res.profile.id,
+        cap
+      );
+      return out({
+        ...toToolResult(next, 'validate', { validation, execution: { attempted: false } }),
+        execution_preflight: preflight,
+      });
     }
   );
 
   register(
     server,
     'approve_write_intent',
-    'Phase F: record an approval for a validated intent. NO mutation. Requires a consumer whose writeCapability permits approval/execution.',
+    'Phase F: record an approval for a validated intent. NO mutation. Requires a consumer whose writeCapability permits approval/execution. On trusted stdio without auth_token, auto-injects MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN (distinct approver).',
     {
       intent_id: z.string().min(1),
       approver: z.string().min(1),
       decision: z.enum(['approved', 'rejected']),
       reason: z.string().optional(),
+      user_confirmation_ref: z.string().optional(),
     },
     logger,
     rl,
     (p) => {
-      const res = resolveWriteConsumer(p);
+      const callerToken = typeof p.auth_token === 'string' ? p.auth_token : undefined;
+      const approverToken =
+        resolveStdioApproverToken(config.MCP_TRANSPORT, callerToken) ?? callerToken;
+      const res = resolveConsumer(approverToken, getProjectionEnv(), getConsumerRegistry(), {
+        allowAnon: false,
+      });
       if (!res.ok) return err(`consumer denied: ${res.reason}`);
       const cap = consumerWriteCapability(res.profile);
       if (cap === 'false' || cap === 'disabled' || cap === 'draft_only')
         return err('consumer not permitted to approve write intents', { writeCapability: cap });
       const intent = store.get(p.intent_id as string);
       if (!intent) return err('intent not found', { intent_id: p.intent_id });
-      // Separation of duties: the approver need NOT be the drafter (it must, for
-      // high-risk, be a DISTINCT consumer — enforced at execute time). The
-      // approver must still be independently authorized for the intent's scope.
       const scopeOk = assertWriteScopeAllowed(res.profile, intent.scope);
       if (!scopeOk.ok)
         return err('approver not authorized for this write scope', {
@@ -1423,12 +1575,12 @@ export function registerWriteFlowTools(
         return err(`intent must be validated before approval (state=${intent.state})`);
       const approved = p.decision === 'approved';
       const next = store.transition(intent.intent_id, approved ? 'approved' : 'rejected');
+      const confirmRef =
+        typeof p.user_confirmation_ref === 'string' ? p.user_confirmation_ref : undefined;
       if (approved) {
-        // Recorded human approval — required by the authorizer for high-risk
-        // (money) actions. A rejection clears any prior approval record.
         approvals.set(intent.intent_id, {
           approver: String(p.approver),
-          approver_consumer_id: res.profile.id, // server-derived, identity-bound
+          approver_consumer_id: res.profile.id,
           at:
             intent.scope === 'billing:credit:transfer'
               ? 'pending-whmcs-native'
@@ -1437,11 +1589,14 @@ export function registerWriteFlowTools(
       } else {
         approvals.delete(intent.intent_id);
       }
+      const auditDetail = confirmRef
+        ? `by ${String(p.approver)} (ref: ${confirmRef})`
+        : `by ${String(p.approver)}`;
       audit.append(
         auditEvent(
           approved ? 'intent.approved' : 'intent.rejected',
           next,
-          `by ${String(p.approver)}`,
+          auditDetail,
           intent.scope === 'billing:credit:transfer'
             ? 'pending-whmcs-native'
             : new Date().toISOString()
@@ -2102,12 +2257,28 @@ export function registerWriteFlowTools(
           intent.risk === 'high'
             ? 'high-risk: call approve_write_intent then execute_write_intent'
             : `writeCapability='${cap}' cannot one-call execute; use approve_write_intent then execute_write_intent`;
-        return out(
-          toToolResult(validated, 'validate', {
+        const preflight = dryRunExecutionPreflight(
+          { ...validated, state: 'approved' } as WriteIntent,
+          res.profile.id,
+          cap
+        );
+        return out({
+          ...toToolResult(validated, 'validate', {
             validation,
             execution: { attempted: false, note },
-          })
-        );
+          }),
+          execution_preflight: preflight,
+          approval_needed: {
+            intent_id: intent.intent_id,
+            required_approvals: intent.risk === 'high' ? 2 : 1,
+            approver_must_differ: intent.risk === 'high',
+            scope: intent.scope,
+            would_call: {
+              action: intent.action,
+              params: intent.params,
+            },
+          },
+        });
       }
       // MEDIUM one-call writes: if the client supports MCP Elicitation, ask for
       // an explicit inline confirm BEFORE executing (best-UX approval in a single
@@ -2258,6 +2429,274 @@ export function registerWriteFlowTools(
     },
     RESULT_OUTPUT_SHAPE,
     CREDIT_TRANSFER_READ_ANNOTATIONS
+  );
+
+  // ── get_write_posture: agent-readable governance posture snapshot ────────
+  const POSTURE_OUTPUT_SHAPE = {
+    kill_switch: z.object({ value: z.boolean(), hot: z.literal(false) }),
+    mcp_mode: z.object({ value: z.string(), hot: z.literal(false) }),
+    mcp_env: z.string(),
+    allowlist: z.object({
+      source: z.enum(['file', 'env', 'empty']),
+      path: z.string().optional(),
+      actions: z.array(z.string()),
+      readable: z.boolean().optional(),
+      hot: z.boolean(),
+    }),
+    caps: z.object({
+      per_action: z.number(),
+      daily: z.number(),
+      hot: z.literal(false),
+    }),
+    consumer: z
+      .object({
+        id: z.string(),
+        write_capability: z.string(),
+        allowed_write_scopes: z.array(z.string()),
+      })
+      .optional(),
+    extra_allowed_scopes: z.array(z.string()),
+    default_executor_configured: z.boolean(),
+    default_approver_configured: z.boolean(),
+    strict_allowlist: z.boolean(),
+    strict_scopes: z.array(z.string()),
+    require_distinct_approver: z.boolean(),
+    isError: z.literal(true).optional(),
+    error: z.string().optional(),
+  } as const;
+
+  register(
+    server,
+    'get_write_posture',
+    'Read-only governance posture snapshot: kill switch, MCP_MODE, live allowlist contents/source, caps, consumer write profile, default executor/approver configured. Never echoes secrets or tokens.',
+    {},
+    logger,
+    rl,
+    (p) => {
+      const cfg = config as Record<string, unknown>;
+      const meta = allowlistMeta();
+      let actions: string[] = [];
+      let readable: boolean | undefined;
+      if (meta.source === 'file' && meta.path) {
+        try {
+          actions = [...loadLiveProductionAuthorization(meta.path)];
+          readable = true;
+        } catch {
+          readable = false;
+        }
+      } else if (meta.source === 'env') {
+        actions = [...config.MCP_PROD_WRITE_AUTHORIZED];
+      }
+      const res = resolveWriteConsumer(p);
+      const consumerInfo = res.ok
+        ? {
+            id: res.profile.id,
+            write_capability: consumerWriteCapability(res.profile),
+            allowed_write_scopes: [...consumerWriteScopes(res.profile)],
+          }
+        : undefined;
+      const extraScopes = (cfg.MCP_WRITE_EXTRA_ALLOWED_SCOPES as string[] | undefined) ?? [];
+      return out({
+        kill_switch: {
+          value: (cfg.MCP_WRITE_KILL_SWITCH as boolean | undefined) ?? false,
+          hot: false as const,
+        },
+        mcp_mode: {
+          value: config.MCP_MODE,
+          hot: false as const,
+        },
+        mcp_env: config.MCP_ENV,
+        allowlist: {
+          source: meta.source,
+          ...(meta.path ? { path: meta.path } : {}),
+          actions,
+          ...(readable !== undefined ? { readable } : {}),
+          hot: meta.source === 'file',
+        },
+        caps: {
+          per_action: (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0,
+          daily: (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0,
+          hot: false as const,
+        },
+        ...(consumerInfo ? { consumer: consumerInfo } : {}),
+        extra_allowed_scopes: [...extraScopes],
+        default_executor_configured: hasStdioDefaultToken(),
+        default_approver_configured: hasApproverDefaultToken(),
+        strict_allowlist: (cfg.MCP_WRITE_STRICT_ALLOWLIST as boolean | undefined) ?? false,
+        strict_scopes: [...((cfg.MCP_WRITE_STRICT_SCOPES as string[] | undefined) ?? [])],
+        require_distinct_approver:
+          (cfg.MCP_WRITE_REQUIRE_DISTINCT_APPROVER as boolean | undefined) ?? true,
+      });
+    },
+    POSTURE_OUTPUT_SHAPE,
+    { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  );
+
+  // ── prepare_domain_order: read-mostly composite tool ──────────────────────
+  const DOMAIN_PREPARE_OUTPUT_SHAPE = {
+    proposal: z
+      .object({
+        domain: z.string(),
+        available: z.boolean().optional(),
+        tld_pricing: z.record(z.string(), z.unknown()).optional(),
+        payment_methods: z.array(z.record(z.string(), z.unknown())).optional(),
+      })
+      .optional(),
+    intent_id: z.string().optional(),
+    intent: INTENT_OBJECT_SHAPE.optional(),
+    execution_preflight: z
+      .object({
+        would_allow: z.boolean(),
+        blocked_reason: z.string().optional(),
+        missing_allowlist: z.array(z.string()).optional(),
+        allowlist_source: z.enum(['file', 'env', 'empty']).optional(),
+        allowlist_path: z.string().optional(),
+        remediation: z.array(
+          z.object({
+            code: z.string(),
+            message: z.string(),
+            next_tool: z.string().optional(),
+          })
+        ),
+      })
+      .optional(),
+    validation: VALIDATION_OBJECT_SHAPE.optional(),
+    isError: z.literal(true).optional(),
+    error: z.string().optional(),
+  } as const;
+
+  register(
+    server,
+    'prepare_domain_order',
+    'Read-mostly composite: check domain availability, get TLD pricing, list payment methods, draft+validate an order:create intent, and dry-run the execution preflight. DOMAIN-ONLY: the order:create scope maps one domain per intent to WHMCS AddOrder; it does NOT support pid/hosting/SSL products (use the standard product ordering UI for those). NEVER executes, NEVER auto-approves.',
+    {
+      clientid: z.number().int().positive(),
+      domain: z.string().min(3),
+      regperiod: z.number().int().positive().optional(),
+      paymentmethod: z.string().optional(),
+    },
+    logger,
+    rl,
+    async (p) => {
+      if (
+        ('pid' in p && p.pid !== undefined) ||
+        ('productid' in p && p.productid !== undefined) ||
+        ('hosting' in p && p.hosting !== undefined)
+      ) {
+        return err(
+          'prepare_domain_order is domain-only; the order:create scope maps one domain per intent ' +
+            'to WHMCS AddOrder and does not support pid/hosting/SSL products. Use the standard ' +
+            'product ordering UI or a separate governed scope for hosting orders.',
+          { scope: 'order:create' }
+        );
+      }
+      const res = resolveWriteConsumer(p);
+      if (!res.ok) return err(`consumer denied: ${res.reason}`);
+      const scope: WriteScope = 'order:create';
+      const scopeGate = assertWriteScopeAllowed(res.profile, scope);
+      if (!scopeGate.ok) return err(`write scope denied: ${scopeGate.reason}`, { scope });
+
+      const domain = String(p.domain).trim().toLowerCase();
+      const tld = domain.includes('.') ? domain.slice(domain.indexOf('.')) : '';
+
+      let available: boolean | undefined;
+      try {
+        const avail = await whmcs.read('DomainWhois', { domain });
+        const statusRaw = (avail as Record<string, unknown>).status;
+        available = statusRaw === 'available';
+      } catch {
+        available = undefined;
+      }
+
+      let tldPricing: Record<string, unknown> | undefined;
+      if (tld) {
+        try {
+          const pricing = await whmcs.read('GetTLDPricing', { currencyid: 1 });
+          const pricingData = pricing as Record<string, unknown>;
+          const allPricing = pricingData.pricing as Record<string, unknown> | undefined;
+          if (allPricing) {
+            const tldKey = tld.replace(/^\./, '');
+            tldPricing = (allPricing[tldKey] ?? allPricing[tld]) as
+              | Record<string, unknown>
+              | undefined;
+          }
+        } catch {
+          tldPricing = undefined;
+        }
+      }
+
+      let paymentMethods: Record<string, unknown>[] | undefined;
+      try {
+        const methods = await whmcs.read('GetPaymentMethods', {});
+        const methodsData = methods as { paymentmethods?: { paymentmethod?: unknown[] } };
+        paymentMethods = (methodsData.paymentmethods?.paymentmethod ?? []) as Record<
+          string,
+          unknown
+        >[];
+      } catch {
+        paymentMethods = undefined;
+      }
+
+      const regperiod = typeof p.regperiod === 'number' ? p.regperiod : 1;
+      const orderParams: Record<string, unknown> = {
+        clientid: p.clientid,
+        domains: [
+          {
+            domainname: domain,
+            regperiod,
+            ...(typeof p.paymentmethod === 'string'
+              ? { paymentmethod: p.paymentmethod }
+              : paymentMethods?.[0]
+                ? { paymentmethod: paymentMethods[0].module }
+                : {}),
+          },
+        ],
+        paymentmethod:
+          typeof p.paymentmethod === 'string'
+            ? p.paymentmethod
+            : paymentMethods?.[0]
+              ? String(paymentMethods[0].module)
+              : 'mailin',
+      };
+
+      const draftResult = draftWorkflowIntent({
+        auth_token: typeof p.auth_token === 'string' ? p.auth_token : undefined,
+        scope,
+        params: orderParams,
+        naturalKey: `domain-order:${domain}`,
+        projected_effect: `Register domain ${domain} for client #${String(p.clientid)} (${String(regperiod)} year)`,
+      });
+      if (!draftResult.ok) return err(`draft failed: ${draftResult.reason}`);
+
+      const intent = store.get(draftResult.intent_id);
+      if (!intent)
+        return err('draft intent not found after creation', { intent_id: draftResult.intent_id });
+      const validation = validateIntent(intent, await validationContextFor(whmcs));
+      const next = store.transition(intent.intent_id, validation.ok ? 'validated' : 'rejected');
+      audit.append(auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next));
+
+      const cap = consumerWriteCapability(res.profile);
+      const preflight = dryRunExecutionPreflight(
+        { ...next, state: 'approved' } as WriteIntent,
+        res.profile.id,
+        cap
+      );
+
+      return out({
+        proposal: {
+          domain,
+          available,
+          ...(tldPricing ? { tld_pricing: tldPricing } : {}),
+          ...(paymentMethods ? { payment_methods: paymentMethods } : {}),
+        },
+        intent_id: draftResult.intent_id,
+        intent: next,
+        validation,
+        execution_preflight: preflight,
+      });
+    },
+    DOMAIN_PREPARE_OUTPUT_SHAPE,
+    { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   );
 
   register(

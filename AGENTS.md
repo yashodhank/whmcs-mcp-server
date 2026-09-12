@@ -11,7 +11,7 @@ every substantive change.
 
 - **Transport:** MCP over **stdio** (Cursor, Claude Desktop, Kilo, etc.). Logs go to **stderr** only; never write to stdout except JSON-RPC.
 - **Backend:** WHMCS External API via `WhmcsClient` (`src/whmcs/`).
-- **Surface:** 79 catalog tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow, planning, `ops_ask`, `mcp_doctor`) plus **9 resource endpoints/templates**. Production WHMCS baseline is **8.13.7**.
+- **Surface:** 81 catalog tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow, agent-native write UX, planning, `ops_ask`, `mcp_doctor`) plus **9 resource endpoints/templates**. Production WHMCS baseline is **8.13.7**.
 
 ## Architecture (current)
 
@@ -43,6 +43,7 @@ MCP host → src/index.ts
 | Capability / probes | `capabilityShellTools.ts`                                                          | `get_capability_matrix`, `get_stats`, `list_users` (unverified) |
 | Ticket read         | `ticketThreadTool.ts`                                                              | `get_ticket_thread`                                             |
 | Write flow          | `writeFlow.ts`                                                                     | `draft_write_intent`, `execute_write_intent`                    |
+| Write UX / posture  | `writeFlow.ts`                                                                     | `get_write_posture`, `prepare_domain_order`                     |
 
 Register new tools in the matching module, then wire registration from `src/index.ts`. Prefer **zod** input/output schemas and return **`structuredContent`** when `outputSchema` is declared (see `tests/tools/outputSchemaCompliance.test.ts`).
 
@@ -87,6 +88,7 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `MCP_CLIENT_CUSTOM_FIELD_LABELS`   | `id:label` pairs for stable custom-field names in client output.                                                                                                                                          |
 | `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. `MCP_PROD_WRITE_AUTHORIZED_FILE` is the live owner-only JSON allowlist; edit it to change approved actions/scopes without restarting the MCP. |
 | `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. Local escape hatch only (ADR-0002.4). See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md). |
+| `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for `approve_write_intent` on trusted stdio. Must resolve to a DISTINCT consumer from the executor default. `_FILE` variant supported. See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md). |
 | `MCP_STAFF_CONSUMER_IDS` / `MCP_STAFF_OIDC_SUBS` | Staff `ops_ask` allow-lists (consumer ids ∪ OIDC `sub`). Empty ⇒ nobody is staff. |
 | `MCP_WHMCS_OIDC_ISSUER`           | WHMCS origin rejected as an MCP Bearer issuer (defaults to `WHMCS_API_URL` origin). |
 | `MCP_EFFECT_LEDGER_PATH`          | JSONL `{at,consumer_id,job,clientid,effect}` — no payloads or tokens. |

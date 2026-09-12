@@ -57,6 +57,34 @@ Safety:
 - The raw token is **never logged** (only its presence/absence is logged at boot).
 - The token must match an entry in the consumer registry by sha256 hash.
 
+## Trusted stdio default approver (P1 — dual control)
+
+For write operations that require a distinct approver, configure a second
+default token so AI agents can call `approve_write_intent` without auth_token
+and automatically resolve a distinct approver consumer:
+
+```bash
+# Approver default (must resolve to a DIFFERENT consumer than the executor default)
+MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN=<raw-approver-bearer-token>
+# OR: MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE=~/.config/whmcs-mcp/default-approver-token
+```
+
+With both defaults configured, agents can draft/validate/execute with the
+executor default and approve with the approver default — no manual token
+passing or file reading needed. The execution gate still enforces that
+`approver_consumer_id !== drafter consumer_id`.
+
+## Agent write workflow (P0+P1)
+
+When an agent encounters `action_not_prod_authorized` after `execute_write_intent`:
+1. Call `get_write_posture` to inspect the current allowlist and its source.
+2. If `allowlist.source` is `"file"`, ask the human to add the scope/action to
+   the live file — takes effect immediately, no restart.
+3. Never grep env, cat token files, or kill MCP processes.
+
+For domain registrations, use `prepare_domain_order` to build a proposal with
+availability, pricing, and an execution_preflight — then present to the human.
+
 ## Consumer registry setup
 
 The registry should include an `operator-reconcile` consumer with read access to

@@ -213,17 +213,52 @@ export MCP_CONSUMER_REGISTRY='[{"id":"ops_operator","token_sha256":"<real sha256
 
 `writeCapability` is modeled but **inert** — no production write path exists.
 
-## operator-reconcile — Grok Bot / Business WhatsApp reads
+## operator-reconcile — Grok Bot / Business WhatsApp reads + writes
 
 The `operator-reconcile` consumer (example above) is designed for trusted stdio
 consumers such as Grok Bot (Business WhatsApp integration). Key design points:
 
-- **Read-only** (`writeCapability: "false"`) — no write scopes, no mutation.
 - **Broad read surface**: tickets, invoices, services, currencies, client details,
   account 360, billing snapshot, capability matrix — the actions Grok Bot needs
   to answer customer queries about overdue invoices, renewals, and service status.
 - **ops_operator contract** — includes operational fields but NOT raw
   credentials or PII beyond what is needed for reconciliation.
+
+For **write-capable** deployments where the agent also drafts/validates/executes
+governed writes, set `writeCapability` to `"execution_allowed"` and list the
+required `allowedWriteScopes`. This is the **executor/drafter** identity.
+
+### Separation of duties (SoD) for production writes
+
+High-risk writes require a distinct approver. Add a second consumer entry for
+the approver role:
+
+```json
+{
+  "id": "operator-approver",
+  "token_sha256": "<sha256-of-a-different-token>",
+  "allowedScopes": ["read"],
+  "defaultContract": "ops_operator",
+  "allowedContracts": ["ops_operator"],
+  "allowedActions": [],
+  "writeCapability": "approval_required",
+  "allowedWriteScopes": ["order:create", "billing:credit:add"],
+  "envRestrictions": [],
+  "anonymous": false
+}
+```
+
+Configure the trusted stdio defaults so agents satisfy dual control without
+reading token files:
+
+```sh
+# Executor default (used by draft/validate/execute when auth_token is omitted)
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN=<raw-token-for-operator-reconcile>
+
+# Approver default (used by approve_write_intent when auth_token is omitted)
+# MUST resolve to a DIFFERENT consumer than the executor default
+MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN=<raw-token-for-operator-approver>
+```
 
 ### Trusted stdio default consumer
 
@@ -250,7 +285,9 @@ If your production registry is at
 `operator-reconcile` entry with:
 - A real `token_sha256` (hash of a new random token)
 - The `allowedActions` list from the example above
-- `"writeCapability": "false"` — no write access
+- `"writeCapability": "execution_allowed"` for write-capable, `"false"` for read-only
+
+For SoD, also add the `operator-approver` entry with a different token.
 
 The live file can be updated without restarting the MCP (the registry cache
 TTL is 60 s by default).
