@@ -100,41 +100,43 @@ function scopedAbortSignal(
 }
 
 function forbiddenHint(kind: ForbiddenKind | undefined, healNote: string | undefined): string {
-  const suffix =
-    (healNote ? ` Auto-heal: ${healNote}.` : '') +
-    ' See docs/runbooks/api-connectivity-troubleshooting.md';
+  const runbook = ' See docs/runbooks/api-connectivity-troubleshooting.md';
   switch (kind) {
     case 'invalid_ip':
       return (
         'HTTP 403 — Invalid IP: caller IP is not in the WHMCS API allowlist (APIAllowedIPs). ' +
         'The IP auto-heal can fix this if WHMCS_AUTO_IP_HEAL is enabled.' +
-        suffix
+        (healNote ? ` Auto-heal: ${healNote}.` : '') +
+        runbook
       );
     case 'invalid_permissions':
       return (
         'HTTP 403 — Invalid Permissions: the API credential role does not allow this action. ' +
-        'This is NOT an IP issue. Add the action to the API Credentials allowed-actions list in ' +
-        'WHMCS Setup → Staff Management → API Credentials, or use a fallback.' +
-        suffix
+        'This is NOT an IP issue — auto-heal will not help. Add the action to the API ' +
+        'Credentials allowed-actions list in WHMCS Setup → Staff Management → API Credentials, ' +
+        'or use a fallback.' +
+        runbook
       );
     case 'waf_or_empty':
       return (
         'HTTP 403 — edge/WAF/proxy block (no WHMCS body). Verify by curling the same endpoint+IP; ' +
         'if curl works but this client gets 403, it is a WAF/connection block, not an IP or ' +
         'credential issue.' +
-        suffix
+        (healNote ? ` Auto-heal: ${healNote}.` : '') +
+        runbook
       );
     case 'unknown':
     case undefined:
       return (
         'HTTP 403 from WHMCS — one of: (1) caller IP not in APIAllowedIPs; ' +
         '(2) edge/WAF/proxy block; (3) permission/role ACL on the credential.' +
-        suffix
+        (healNote ? ` Auto-heal: ${healNote}.` : '') +
+        runbook
       );
     default: {
       const _exhaustive: never = kind;
       void _exhaustive;
-      return 'HTTP 403 from WHMCS.' + suffix;
+      return 'HTTP 403 from WHMCS.' + runbook;
     }
   }
 }
@@ -155,7 +157,9 @@ function asTransportError(
     }
     if (status === 403) {
       const hint = forbiddenHint(classified.forbiddenKind, healNote);
-      return new WhmcsTransportError(`WHMCS HTTP error: 403 — ${hint}`, 403);
+      const err = new WhmcsTransportError(`WHMCS HTTP error: 403 — ${hint}`, 403);
+      err.forbiddenKind = classified.forbiddenKind;
+      return err;
     }
     return new WhmcsTransportError(`WHMCS HTTP error: ${status}`, status);
   }
