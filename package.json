@@ -68,24 +68,24 @@
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "axios": "^1.19.0",
-    "dotenv": "^17.2.3",
-    "mysql2": "^3.23.1",
-    "uuid": "^13.0.0",
-    "zod": "4.4.3"
+    "axios": "^1.20.0",
+    "dotenv": "^17.4.2",
+    "mysql2": "^3.24.4",
+    "uuid": "^14.0.2",
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "@eslint/js": "^9.28.0",
+    "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/conformance": "0.1.16",
-    "@types/node": "^25.0.0",
-    "@types/uuid": "^10.0.0",
+    "@types/node": "^26.5.0",
+    "@types/uuid": "^11.0.0",
     "@vitest/coverage-v8": "^4.1.11",
-    "eslint": "^9.28.0",
-    "prettier": "^3.5.3",
+    "eslint": "^10.10.0",
+    "prettier": "^3.9.6",
     "tsup": "^8.5.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.33.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^4.1.11"
   }
 }
