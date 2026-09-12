@@ -131,6 +131,86 @@ fails closed when the running process tries to load it.
 | Change `MCP_MODE`, caps, or durable paths | Yes | Static runtime configuration |
 | Restart with a pending draft, validated, or approved intent | Fresh ceremony required | Intent IDs and approval records are process-local; draft and validate a new intent, then obtain a new approval |
 
+## Agent-readable governance (P0)
+
+### Execution preflight
+
+`validate_write_intent` now returns an `execution_preflight` object alongside
+the validation result. This dry-runs the full execution gate WITHOUT mutating
+state, telling the agent exactly what would happen if the intent were approved
+and executed:
+
+```json
+{
+  "would_allow": false,
+  "blocked_reason": "action_not_prod_authorized",
+  "missing_allowlist": ["billing:credit:add", "AddCredit"],
+  "allowlist_source": "file",
+  "allowlist_path": "/etc/mcp/prod-write-authorized.json",
+  "remediation": [
+    {
+      "code": "not_allowlisted",
+      "message": "Action \"AddCredit\" (scope \"billing:credit:add\") is not in the production allowlist. Add it to the live allowlist file (/etc/mcp/prod-write-authorized.json) — no restart needed.",
+      "next_tool": "get_write_posture"
+    }
+  ]
+}
+```
+
+Every execution denial (`execute_write_intent` returning `blocked_reason`) also
+includes this same `execution_preflight` shape with structured remediation.
+
+### Write posture inspection
+
+`get_write_posture` is a read-only tool that returns the current governance
+posture: kill switch, MCP_MODE, live allowlist contents/source/path/readable
+status, monetary caps, consumer write profile (id, capability, allowed scopes),
+and whether default executor/approver tokens are configured. It never echoes
+secrets or raw tokens.
+
+When an agent encounters `action_not_prod_authorized`:
+1. Call `get_write_posture` to see the current allowlist and its source.
+2. If source is `file`, ask the human operator to add the scope/action to the
+   live allowlist file — no MCP restart needed.
+3. If source is `env`, the operator must add to `MCP_PROD_WRITE_AUTHORIZED`
+   and restart.
+4. Never grep env, cat token files, or kill MCP processes.
+
+## Chat-native dual control (P1)
+
+### Default approver token
+
+When `approve_write_intent` is called on trusted stdio WITHOUT an `auth_token`,
+the MCP server auto-injects `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN` (or the
+`_FILE` variant), resolving a distinct approver consumer identity. This enables
+dual control without agents reading token files from disk.
+
+Configure in the environment:
+- `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN` — raw bearer token (env var), or
+- `MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN_FILE` — path to owner-only file.
+
+The approver token MUST resolve to a different consumer id than the
+drafter/executor default. The execution gate still enforces separation of duties.
+
+### User confirmation reference
+
+`approve_write_intent` accepts an optional `user_confirmation_ref` string — an
+audit annotation referencing the chat message or ticket where the human
+confirmed. It does NOT bypass any gate or distinct-approver requirement.
+
+### Domain order preparation
+
+`prepare_domain_order` is a read-mostly composite tool that:
+1. Checks domain availability (DomainWhois).
+2. Gets TLD pricing (GetTLDPricing).
+3. Lists payment methods (GetPaymentMethods).
+4. Drafts and validates an `order:create` intent.
+5. Dry-runs the execution preflight.
+
+It NEVER executes, NEVER auto-approves. The agent presents the proposal to the
+human; the human says yes; the agent calls `approve_write_intent` then
+`execute_write_intent` through the standard ceremony.
+
 ## Per-intent ceremony
 
 For high-risk work, use the executor token for draft/validate/execute and the
@@ -138,9 +218,9 @@ distinct approver token for approve:
 
 ```text
 draft_write_intent
-  → validate_write_intent
-  → approve_write_intent (distinct approver)
-  → execute_write_intent (original executor)
+  → validate_write_intent   (returns execution_preflight)
+  → approve_write_intent    (distinct approver, or auto via default approver)
+  → execute_write_intent    (original executor)
   → read back the WHMCS record
 ```
 
