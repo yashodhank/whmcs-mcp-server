@@ -33,7 +33,9 @@ vi.mock('../../src/auth/tokenVerifier.js', () => ({
       Promise.resolve(
         token === 'good'
           ? { ok: true, claims: { client_id: 'oc-1', scopes: ['whmcs:read'] } }
-          : { ok: false, reason: 'audience_mismatch' }
+          : token === 'whmcs-iss'
+            ? { ok: false, reason: 'whmcs_token_not_mcp_audience' }
+            : { ok: false, reason: 'audience_mismatch' }
       ),
   }),
 }));
@@ -105,6 +107,17 @@ describe('OAuth resource-server HTTP path', () => {
       body: JSON.stringify(toolCall('get_stats', {})),
     });
     expect(r.status).toBe(401);
+  });
+
+  it('401 + WWW-Authenticate when the bearer is a WHMCS-issuer token', async () => {
+    const r = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer whmcs-iss' },
+      body: JSON.stringify(toolCall('ops_ask', { job: 'morning_digest' })),
+    });
+    expect(r.status).toBe(401);
+    expect(r.headers.get('www-authenticate')).toMatch(/resource_metadata=/);
+    expect(r.headers.get('www-authenticate')).toMatch(/invalid_token/);
   });
 
   it('403 insufficient_scope: read-only token cannot call a high-risk write', async () => {

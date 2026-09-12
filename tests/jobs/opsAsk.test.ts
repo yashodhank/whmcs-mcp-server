@@ -120,6 +120,34 @@ describe('runStaffJob', () => {
     expect((r.tax as { gst_tds_amounts: string }).gst_tds_amounts).toBe('not_computed');
   });
 
+  it('next_best_action ranks unpaid then suspended without naming WHMCS tools', async () => {
+    const read = vi.fn().mockImplementation(async (action: string) => {
+      if (action === 'GetClientsDetails') {
+        return {
+          result: 'success',
+          id: 42,
+          email: 'ada@example.com',
+          stats: { numunpaidinvoices: 1, numoverdueinvoices: 0, numactivetickets: 0 },
+        };
+      }
+      if (action === 'GetClientsProducts') {
+        return {
+          products: {
+            product: [{ id: 9, status: 'Suspended' }],
+          },
+        };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const r = await runStaffJob({
+      job: 'next_best_action',
+      whmcs: { read } as never,
+      clientid: 42,
+    });
+    const actions = r.actions as { action: string }[];
+    expect(actions.map((a) => a.action)).toEqual(['follow_up_unpaid', 'review_suspended_services']);
+  });
+
   it('credit_notes is unavailable on 8.13', async () => {
     const read = vi.fn().mockImplementation(async (action: string) => {
       if (action === 'GetConfigurationValue')

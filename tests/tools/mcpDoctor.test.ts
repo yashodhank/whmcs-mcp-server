@@ -53,7 +53,30 @@ vi.mock('../../src/governance/capabilities.js', () => ({
   getCapability: () => ({ action: 'GetUsers', status: 'unverified', capability: 'list_users' }),
 }));
 
+import { config } from '../../src/config.js';
 import { registerMcpDoctorTools } from '../../src/tools/mcpDoctor.js';
+
+function registerDoctor() {
+  const handlers: Record<string, (p: Record<string, unknown>) => Promise<unknown>> = {};
+  const server = {
+    registerTool: (
+      n: string,
+      _c: unknown,
+      cb: (p: Record<string, unknown>) => Promise<unknown>
+    ) => {
+      handlers[n] = cb;
+    },
+  };
+  const logger = { child: () => ({ logToolCall: vi.fn(), logToolResult: vi.fn() }) };
+  const read = vi.fn().mockRejectedValue(new Error('denied'));
+  registerMcpDoctorTools(
+    server as never,
+    { read } as never,
+    logger as never,
+    { tryConsume: () => true } as never
+  );
+  return handlers;
+}
 
 describe('mcp_doctor', () => {
   beforeEach(() => {
@@ -84,26 +107,7 @@ describe('mcp_doctor', () => {
   });
 
   it('reports 8.13 family, empty JWKS, and staff allow-list warning', async () => {
-    const handlers: Record<string, (p: Record<string, unknown>) => Promise<unknown>> = {};
-    const server = {
-      registerTool: (
-        n: string,
-        _c: unknown,
-        cb: (p: Record<string, unknown>) => Promise<unknown>
-      ) => {
-        handlers[n] = cb;
-      },
-    };
-    const logger = { child: () => ({ logToolCall: vi.fn(), logToolResult: vi.fn() }) };
-    const read = vi.fn().mockRejectedValue(new Error('denied'));
-    registerMcpDoctorTools(
-      server as never,
-      { read } as never,
-      logger as never,
-      {
-        tryConsume: () => true,
-      } as never
-    );
+    const handlers = registerDoctor();
     const res = (await handlers.mcp_doctor({})) as { structuredContent: Record<string, unknown> };
     const sc = res.structuredContent;
     expect(sc.whmcs_version).toMatchObject({ family: '8.13', version: '8.13.7' });
@@ -113,5 +117,21 @@ describe('mcp_doctor', () => {
     expect((sc.oauth_rs as { federation: string }).federation).toBe('required');
     expect((sc.oauth_rs as { whmcs_issuer_rejected: boolean }).whmcs_issuer_rejected).toBe(true);
     expect(sc.empty_allowed_actions).toEqual(['wide']);
+  });
+
+  it('warns when MCP_OAUTH_ISSUERS includes the WHMCS origin', async () => {
+    config.MCP_OAUTH_ISSUERS.push('https://my.securiace.com');
+    try {
+      const handlers = registerDoctor();
+      const res = (await handlers.mcp_doctor({})) as { structuredContent: Record<string, unknown> };
+      const warnings = res.structuredContent.warnings as string[];
+      expect(warnings.some((w) => w.includes('federation AS'))).toBe(true);
+      expect(
+        (res.structuredContent.oauth_rs as { issuers_include_whmcs_origin: boolean })
+          .issuers_include_whmcs_origin
+      ).toBe(true);
+    } finally {
+      config.MCP_OAUTH_ISSUERS.length = 0;
+    }
   });
 });
