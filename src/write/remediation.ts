@@ -32,6 +32,9 @@ export interface PreflightContext {
   readonly prodAuthorizedActions: readonly string[];
   readonly action: string;
   readonly scope: string;
+  readonly capsPerAction?: number;
+  readonly capsDaily?: number;
+  readonly intentAmount?: number;
 }
 
 export function remediationForDeny(
@@ -132,15 +135,31 @@ export function remediationForDeny(
           next_tool: 'approve_write_intent',
         },
       ];
-    case 'amount_cap_exceeded':
+    case 'amount_cap_exceeded': {
+      const parts: string[] = [];
+      if (ctx?.capsPerAction !== undefined) {
+        parts.push(`per_action_cap=${ctx.capsPerAction}`);
+      }
+      if (ctx?.capsDaily !== undefined) {
+        parts.push(`daily_cap=${ctx.capsDaily}`);
+      }
+      if (ctx?.intentAmount !== undefined) {
+        parts.push(`intent_amount=${ctx.intentAmount}`);
+      }
+      const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+      const zeroNote =
+        (ctx?.capsPerAction ?? 0) <= 0 || (ctx?.capsDaily ?? 0) <= 0
+          ? ' Caps default to 0 (deny-all); configure positive values to enable high-risk execution.'
+          : '';
       return [
         {
           code: 'cap_exceeded',
           message:
-            'The action amount exceeds MCP_PROD_HIGH_RISK_PER_ACTION_CAP or MCP_PROD_HIGH_RISK_DAILY_CAP. An operator must raise the caps if this is intentional.',
+            `The action amount exceeds configured monetary caps${detail}.${zeroNote} An operator must raise MCP_PROD_HIGH_RISK_PER_ACTION_CAP and/or MCP_PROD_HIGH_RISK_DAILY_CAP (restart required).`,
           next_tool: 'get_write_posture',
         },
       ];
+    }
     case 'destructive_confirmation_required':
       return [
         {

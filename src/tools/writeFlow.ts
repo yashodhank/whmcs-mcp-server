@@ -433,6 +433,18 @@ const RESULT_OUTPUT_SHAPE = {
       ),
     })
     .optional(),
+  approval_needed: z
+    .object({
+      intent_id: z.string(),
+      required_approvals: z.number(),
+      approver_must_differ: z.boolean(),
+      scope: z.string(),
+      would_call: z.object({
+        action: z.string(),
+        params: z.record(z.string(), z.unknown()),
+      }),
+    })
+    .optional(),
   // Diagnostic keys carried only by an `err()` result (success never sets these).
   isError: z.literal(true).optional(),
   error: z.string().optional(),
@@ -573,6 +585,7 @@ function allowlistMeta(): { source: 'file' | 'env' | 'empty'; path?: string } {
  * Build a PreflightContext for the remediation module from intent + runtime state.
  */
 function preflightCtx(intent: WriteIntent): PreflightContext {
+  const cfg = config as Record<string, unknown>;
   const meta = allowlistMeta();
   let prodActions: readonly string[];
   try {
@@ -581,12 +594,20 @@ function preflightCtx(intent: WriteIntent): PreflightContext {
   } catch {
     prodActions = [];
   }
+  const capsPerAction = (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0;
+  const capsDaily = (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0;
+  const amountCtx = intent.risk === 'high'
+    ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
+    : undefined;
   return {
     allowlistSource: meta.source,
     allowlistPath: meta.path,
     prodAuthorizedActions: prodActions,
     action: intent.action,
     scope: intent.scope,
+    capsPerAction,
+    capsDaily,
+    intentAmount: amountCtx?.amount,
   };
 }
 
@@ -2227,12 +2248,28 @@ export function registerWriteFlowTools(
           intent.risk === 'high'
             ? 'high-risk: call approve_write_intent then execute_write_intent'
             : `writeCapability='${cap}' cannot one-call execute; use approve_write_intent then execute_write_intent`;
-        return out(
-          toToolResult(validated, 'validate', {
+        const preflight = dryRunExecutionPreflight(
+          { ...validated, state: 'approved' } as WriteIntent,
+          res.profile.id,
+          cap
+        );
+        return out({
+          ...toToolResult(validated, 'validate', {
             validation,
             execution: { attempted: false, note },
-          })
-        );
+          }),
+          execution_preflight: preflight,
+          approval_needed: {
+            intent_id: intent.intent_id,
+            required_approvals: intent.risk === 'high' ? 2 : 1,
+            approver_must_differ: intent.risk === 'high',
+            scope: intent.scope,
+            would_call: {
+              action: intent.action,
+              params: intent.params,
+            },
+          },
+        });
       }
       // MEDIUM one-call writes: if the client supports MCP Elicitation, ask for
       // an explicit inline confirm BEFORE executing (best-UX approval in a single
@@ -2387,18 +2424,20 @@ export function registerWriteFlowTools(
 
   // ── get_write_posture: agent-readable governance posture snapshot ────────
   const POSTURE_OUTPUT_SHAPE = {
-    kill_switch: z.boolean(),
-    mcp_mode: z.string(),
+    kill_switch: z.object({ value: z.boolean(), hot: z.literal(false) }),
+    mcp_mode: z.object({ value: z.string(), hot: z.literal(false) }),
     mcp_env: z.string(),
     allowlist: z.object({
       source: z.enum(['file', 'env', 'empty']),
       path: z.string().optional(),
       actions: z.array(z.string()),
       readable: z.boolean().optional(),
+      hot: z.boolean(),
     }),
     caps: z.object({
       per_action: z.number(),
       daily: z.number(),
+      hot: z.literal(false),
     }),
     consumer: z
       .object({
@@ -2407,6 +2446,7 @@ export function registerWriteFlowTools(
         allowed_write_scopes: z.array(z.string()),
       })
       .optional(),
+    extra_allowed_scopes: z.array(z.string()),
     default_executor_configured: z.boolean(),
     default_approver_configured: z.boolean(),
     strict_allowlist: z.boolean(),
@@ -2446,21 +2486,31 @@ export function registerWriteFlowTools(
             allowed_write_scopes: [...consumerWriteScopes(res.profile)],
           }
         : undefined;
+      const extraScopes = (cfg.MCP_WRITE_EXTRA_ALLOWED_SCOPES as string[] | undefined) ?? [];
       return out({
-        kill_switch: (cfg.MCP_WRITE_KILL_SWITCH as boolean | undefined) ?? false,
-        mcp_mode: config.MCP_MODE,
+        kill_switch: {
+          value: (cfg.MCP_WRITE_KILL_SWITCH as boolean | undefined) ?? false,
+          hot: false as const,
+        },
+        mcp_mode: {
+          value: config.MCP_MODE,
+          hot: false as const,
+        },
         mcp_env: config.MCP_ENV,
         allowlist: {
           source: meta.source,
           ...(meta.path ? { path: meta.path } : {}),
           actions,
           ...(readable !== undefined ? { readable } : {}),
+          hot: meta.source === 'file',
         },
         caps: {
           per_action: (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0,
           daily: (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0,
+          hot: false as const,
         },
         ...(consumerInfo ? { consumer: consumerInfo } : {}),
+        extra_allowed_scopes: [...extraScopes],
         default_executor_configured: hasStdioDefaultToken(),
         default_approver_configured: hasApproverDefaultToken(),
         strict_allowlist: (cfg.MCP_WRITE_STRICT_ALLOWLIST as boolean | undefined) ?? false,
@@ -2509,7 +2559,7 @@ export function registerWriteFlowTools(
   register(
     server,
     'prepare_domain_order',
-    'Read-mostly composite: check domain availability, get TLD pricing, list payment methods, draft+validate an order:create intent, and dry-run the execution preflight. NEVER executes or auto-approves. Returns a proposal + draft intent_id + execution_preflight for agent/human review.',
+    'Read-mostly composite: check domain availability, get TLD pricing, list payment methods, draft+validate an order:create intent, and dry-run the execution preflight. DOMAIN-ONLY: the order:create scope maps one domain per intent to WHMCS AddOrder; it does NOT support pid/hosting/SSL products (use the standard product ordering UI for those). NEVER executes, NEVER auto-approves.',
     {
       clientid: z.number().int().positive(),
       domain: z.string().min(3),
@@ -2519,6 +2569,18 @@ export function registerWriteFlowTools(
     logger,
     rl,
     async (p) => {
+      if (
+        ('pid' in p && p.pid !== undefined) ||
+        ('productid' in p && p.productid !== undefined) ||
+        ('hosting' in p && p.hosting !== undefined)
+      ) {
+        return err(
+          'prepare_domain_order is domain-only; the order:create scope maps one domain per intent ' +
+            'to WHMCS AddOrder and does not support pid/hosting/SSL products. Use the standard ' +
+            'product ordering UI or a separate governed scope for hosting orders.',
+          { scope: 'order:create' }
+        );
+      }
       const res = resolveWriteConsumer(p);
       if (!res.ok) return err(`consumer denied: ${res.reason}`);
       const scope: WriteScope = 'order:create';

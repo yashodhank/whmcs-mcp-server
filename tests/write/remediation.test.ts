@@ -61,7 +61,39 @@ describe('remediationForDeny', () => {
     expect(steps[0].message).toContain('MCP_PROD_WRITE_AUTHORIZED_FILE');
   });
 
-  it('returns cap_exceeded remediation', () => {
+  it('returns cap_exceeded remediation with caps and amount context', () => {
+    const ctx: PreflightContext = {
+      allowlistSource: 'empty',
+      prodAuthorizedActions: [],
+      action: 'AddCredit',
+      scope: 'billing:credit:add',
+      capsPerAction: 100,
+      capsDaily: 500,
+      intentAmount: 200,
+    };
+    const steps = remediationForDeny('amount_cap_exceeded', ctx);
+    expect(steps[0].code).toBe('cap_exceeded');
+    expect(steps[0].message).toContain('per_action_cap=100');
+    expect(steps[0].message).toContain('daily_cap=500');
+    expect(steps[0].message).toContain('intent_amount=200');
+    expect(steps[0].next_tool).toBe('get_write_posture');
+  });
+
+  it('returns cap_exceeded remediation with zero-note when caps are 0', () => {
+    const ctx: PreflightContext = {
+      allowlistSource: 'empty',
+      prodAuthorizedActions: [],
+      action: 'AddCredit',
+      scope: 'billing:credit:add',
+      capsPerAction: 0,
+      capsDaily: 0,
+    };
+    const steps = remediationForDeny('amount_cap_exceeded', ctx);
+    expect(steps[0].message).toContain('default to 0');
+    expect(steps[0].message).toContain('deny-all');
+  });
+
+  it('returns cap_exceeded remediation without context (backward compat)', () => {
     const steps = remediationForDeny('amount_cap_exceeded');
     expect(steps[0].code).toBe('cap_exceeded');
     expect(steps[0].next_tool).toBe('get_write_posture');

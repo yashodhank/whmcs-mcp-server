@@ -68,6 +68,7 @@ vi.mock('../../src/security.js', () => ({ AUTH_SHAPE: {} }));
 import { registerWriteFlowTools, __resetWriteFlowForTests } from '../../src/tools/writeFlow.js';
 import { _resetApproverDefaultTokenForTests } from '../../src/auth/trustedApproverDefault.js';
 import { _resetStdioDefaultTokenForTests } from '../../src/auth/trustedStdioDefault.js';
+import { remediationForDeny } from '../../src/write/remediation.js';
 
 interface Res {
   content: { text: string }[];
@@ -209,21 +210,28 @@ describe('P0 — get_write_posture', () => {
 
     const r = await handlers.get_write_posture({});
     const result = J(r);
-    expect(typeof result.kill_switch).toBe('boolean');
-    expect(typeof result.mcp_mode).toBe('string');
+    const ks = result.kill_switch as Record<string, unknown>;
+    expect(typeof ks.value).toBe('boolean');
+    expect(ks.hot).toBe(false);
+    const mode = result.mcp_mode as Record<string, unknown>;
+    expect(typeof mode.value).toBe('string');
+    expect(mode.hot).toBe(false);
     expect(typeof result.mcp_env).toBe('string');
     expect(result.allowlist).toBeDefined();
     const al = result.allowlist as Record<string, unknown>;
     expect(['file', 'env', 'empty']).toContain(al.source);
     expect(Array.isArray(al.actions)).toBe(true);
+    expect(typeof al.hot).toBe('boolean');
     expect(result.caps).toBeDefined();
     const caps = result.caps as Record<string, unknown>;
     expect(typeof caps.per_action).toBe('number');
     expect(typeof caps.daily).toBe('number');
+    expect(caps.hot).toBe(false);
     expect(typeof result.default_executor_configured).toBe('boolean');
     expect(typeof result.default_approver_configured).toBe('boolean');
     expect(typeof result.strict_allowlist).toBe('boolean');
     expect(typeof result.require_distinct_approver).toBe('boolean');
+    expect(Array.isArray(result.extra_allowed_scopes)).toBe(true);
   });
 
   it('includes consumer info when auth_token is provided', async () => {
@@ -340,5 +348,58 @@ describe('P1 — prepare_domain_order', () => {
     expect(pf.would_allow).toBe(false);
     expect(pf.blocked_reason).toBeDefined();
     expect((pf.remediation as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it('prepare_domain_order rejects pid/hosting params with clear guidance', async () => {
+    const { handlers } = harness();
+    const r = await handlers.prepare_domain_order({
+      clientid: 42,
+      domain: 'test.com',
+      pid: 5,
+      ...tok('drafter'),
+    });
+    expect(r.isError).toBe(true);
+    expect(J(r).error).toMatch(/domain-only/i);
+  });
+});
+
+describe('Refinement R2 — caps in amount_cap_exceeded remediation', () => {
+  it('amount_cap_exceeded remediation shows configured caps and zero-note', () => {
+    const steps = remediationForDeny('amount_cap_exceeded', {
+      allowlistSource: 'empty',
+      prodAuthorizedActions: [],
+      action: 'AddCredit',
+      scope: 'billing:credit:add',
+      capsPerAction: 0,
+      capsDaily: 0,
+      intentAmount: 50,
+    });
+    expect(steps[0].code).toBe('cap_exceeded');
+    expect(steps[0].message).toContain('per_action_cap=0');
+    expect(steps[0].message).toContain('daily_cap=0');
+    expect(steps[0].message).toContain('intent_amount=50');
+    expect(steps[0].message).toContain('default to 0');
+  });
+});
+
+describe('Refinement R6 — hot-reload labels in get_write_posture', () => {
+  it('kill_switch and caps are labeled hot:false', async () => {
+    const { handlers } = harness();
+    const r = await handlers.get_write_posture({});
+    const result = J(r);
+    const ks = result.kill_switch as Record<string, unknown>;
+    expect(ks.hot).toBe(false);
+    const caps = result.caps as Record<string, unknown>;
+    expect(caps.hot).toBe(false);
+    const mode = result.mcp_mode as Record<string, unknown>;
+    expect(mode.hot).toBe(false);
+  });
+
+  it('file-based allowlist is labeled hot:true', async () => {
+    const { handlers } = harness();
+    const r = await handlers.get_write_posture({});
+    const result = J(r);
+    const al = result.allowlist as Record<string, unknown>;
+    expect(typeof al.hot).toBe('boolean');
   });
 });

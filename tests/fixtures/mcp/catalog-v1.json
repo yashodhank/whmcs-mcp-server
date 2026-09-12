@@ -257,6 +257,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
@@ -1428,6 +1473,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
@@ -1738,6 +1828,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
@@ -3478,6 +3613,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
@@ -7186,6 +7366,9 @@
                 },
                 "type": "array"
               },
+              "hot": {
+                "type": "boolean"
+              },
               "path": {
                 "type": "string"
               },
@@ -7203,7 +7386,8 @@
             },
             "required": [
               "source",
-              "actions"
+              "actions",
+              "hot"
             ],
             "type": "object"
           },
@@ -7213,13 +7397,18 @@
               "daily": {
                 "type": "number"
               },
+              "hot": {
+                "const": false,
+                "type": "boolean"
+              },
               "per_action": {
                 "type": "number"
               }
             },
             "required": [
               "per_action",
-              "daily"
+              "daily",
+              "hot"
             ],
             "type": "object"
           },
@@ -7255,18 +7444,52 @@
           "error": {
             "type": "string"
           },
+          "extra_allowed_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "isError": {
             "const": true,
             "type": "boolean"
           },
           "kill_switch": {
-            "type": "boolean"
+            "additionalProperties": false,
+            "properties": {
+              "hot": {
+                "const": false,
+                "type": "boolean"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "hot"
+            ],
+            "type": "object"
           },
           "mcp_env": {
             "type": "string"
           },
           "mcp_mode": {
-            "type": "string"
+            "additionalProperties": false,
+            "properties": {
+              "hot": {
+                "const": false,
+                "type": "boolean"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "hot"
+            ],
+            "type": "object"
           },
           "require_distinct_approver": {
             "type": "boolean"
@@ -7287,6 +7510,7 @@
           "mcp_env",
           "allowlist",
           "caps",
+          "extra_allowed_scopes",
           "default_executor_configured",
           "default_approver_configured",
           "strict_allowlist",
@@ -9476,7 +9700,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Read-mostly composite: check domain availability, get TLD pricing, list payment methods, draft+validate an order:create intent, and dry-run the execution preflight. NEVER executes or auto-approves. Returns a proposal + draft intent_id + execution_preflight for agent/human review.",
+      "description": "Read-mostly composite: check domain availability, get TLD pricing, list payment methods, draft+validate an order:create intent, and dry-run the execution preflight. DOMAIN-ONLY: the order:create scope maps one domain per intent to WHMCS AddOrder; it does NOT support pid/hosting/SSL products (use the standard product ordering UI for those). NEVER executes, NEVER auto-approves.",
       "execution": {
         "taskSupport": "forbidden"
       },
@@ -9865,6 +10089,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
@@ -10175,6 +10444,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
@@ -11242,6 +11556,51 @@
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
+          "approval_needed": {
+            "additionalProperties": false,
+            "properties": {
+              "approver_must_differ": {
+                "type": "boolean"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "required_approvals": {
+                "type": "number"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "would_call": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "action",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "intent_id",
+              "required_approvals",
+              "approver_must_differ",
+              "scope",
+              "would_call"
+            ],
+            "type": "object"
+          },
           "error": {
             "type": "string"
           },
