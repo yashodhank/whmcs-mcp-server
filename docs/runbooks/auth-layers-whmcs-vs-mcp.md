@@ -158,7 +158,7 @@ Optional automated aid: runbooks [write-capability-probe.md](./write-capability-
 | `billing:invoice:create` | `CreateInvoice` | medium |
 | `billing:invoice:update` | `UpdateInvoice` | medium |
 | `billing:billable_item:add` | `AddBillableItem` | medium |
-| `billing:billable_item:update` | `UpdateBillableItem` | medium |
+| `billing:billable_item:update` | `UpdateBillableItem` ⚠️ **not a real WHMCS API action** | medium |
 | `billing:quote:create` | `CreateQuote` | medium |
 | `billing:quote:update` | `UpdateQuote` | medium |
 | `billing:quote:send` | `SendQuote` | low |
