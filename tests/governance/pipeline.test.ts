@@ -111,6 +111,28 @@ describe('governProjection (pure core)', () => {
     expect(r.status).toBe('consumer_denied');
   });
 
+  it('denies a non-empty allowedActions miss', () => {
+    const json = JSON.stringify([
+      {
+        id: 'narrow',
+        token_sha256: hashToken(TOKEN_LLM),
+        defaultContract: 'llm_safe_summary',
+        allowedContracts: ['llm_safe_summary'],
+        allowedActions: ['list_client_tickets'],
+        writeCapability: 'false',
+      },
+    ]);
+    const r = governProjection({
+      ...base,
+      registry: loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: json } as NodeJS.ProcessEnv),
+      authToken: TOKEN_LLM,
+      requiredAction: 'get_account_360',
+    });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe('action_denied');
+    expect(r.data).toBeUndefined();
+  });
+
   it('does not mutate the input canonical object', () => {
     const c = demoCanonical();
     const snapshot = JSON.stringify(c);

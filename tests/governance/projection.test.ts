@@ -94,7 +94,7 @@ function fixture(): Canonical<SyntheticEntity> {
 /* ── contract registry ─────────────────────────────────────────────────────── */
 
 describe('CONTRACTS registry', () => {
-  it('exposes all 9 frozen contracts each covering every FieldClass', () => {
+  it('exposes all frozen contracts each covering every FieldClass', () => {
     for (const name of CONTRACT_NAMES) {
       const c = CONTRACTS[name];
       expect(c).toBeDefined();
@@ -355,6 +355,6 @@ describe('ops_operator', () => {
 describe('contract name coverage', () => {
   it('every ContractName is buildable and env-projectable', () => {
     const names: ContractName[] = [...CONTRACT_NAMES];
-    expect(names).toHaveLength(9);
+    expect(names).toHaveLength(10);
   });
 });

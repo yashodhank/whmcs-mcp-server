@@ -20,8 +20,8 @@ This playbook provides guidelines for AI agents administering WHMCS installation
 
 ## What This MCP Knows
 
-This MCP is connected directly to WHMCS (billing, clients, services, domains, tickets).
-Use read-only list tools for reports; prefer \`list_invoices\` and \`list_services\` for
+This MCP is connected directly to WHMCS **8.13.7** (billing, clients, services, domains, tickets).
+Prefer \`ops_ask\` jobs for Grok/staff shift work. Use read-only list tools for reports; prefer \`list_invoices\` and \`list_services\` for
 cross-client revenue and paying-client questions.
 
 ## Reporting Patterns
@@ -66,16 +66,22 @@ cross-client revenue and paying-client questions.
 ## Service Operations
 
 ### Suspension vs Termination
-- **Prefer \`suspend_service\`** over \`terminate_service\` when in doubt
+- Prefer governed write-flow scope \`service:suspend\` over \`service:terminate\` when in doubt
+- Direct tools \`suspend_service\` / \`terminate_service\` are **retired**
 - Suspension is reversible; termination is permanent
 - For overdue accounts, suspend first and escalate
 
 ### Termination Safety
-- Requires explicit \`confirm: true\` parameter
-- Check for unpaid invoices before terminating
+- \`service:terminate\` is permanently blocked in the write-flow
+- Check for unpaid invoices before any lifecycle change
 - Consider open support tickets that may relate to billing disputes
 
 ## Support Operations
+
+### Ticket lists
+- Use \`list_client_tickets\` (not \`list_tickets\`) and \`get_ticket_thread\` (not \`get_ticket\`)
+- \`GetTickets\` + \`clientid\` may miss admin-created tickets; staff inbox is \`ops_ask\` job \`ticket_inbox\` (no clientid)
+- Prefer \`ops_ask\` jobs: \`morning_digest\`, \`overdue_digest\`, \`ticket_inbox\`, \`billing_card\`
 
 ### Reply Types
 - Use \`type: 'Client'\` for replies visible to the customer
@@ -115,7 +121,7 @@ For sensitive operations:
 
 ## Anti-Patterns (What NOT to Do)
 
-❌ Never bypass confirmation on \`terminate_service\`
+❌ Never bypass confirmation on \`service:terminate\` / retired \`terminate_service\`
 ❌ Never assume gateway refund when using \`record_refund\`
 ❌ Never create duplicate clients without checking first
 ❌ Never modify paid invoices without proper justification

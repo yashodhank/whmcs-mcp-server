@@ -22,9 +22,12 @@ export const WHMCS_COMPAT_9X = `
 
 ## Verified facts
 
-- **WHMCS 8.13** is the LTS branch (support until **2026-05-31**). PHP 8.3 is
-  only safe **after** upgrading WHMCS first.
-- **WHMCS 9.0** is the current GA branch and introduces:
+- **WHMCS 8.13** is the production LTS branch. **8.13.7** (2026-09-03) is a
+  security-only maintenance build (CVE-2026-67399 / CVE-2026-67398). Official
+  anticipated EOL is **TBD** — the older “LTS until 2026-05-31” note is stale
+  (8.13.7 shipped after that date). PHP 8.3 is only safe **after** upgrading
+  WHMCS first.
+- **WHMCS 9.0** is a separate GA line (upgrade fork, not current prod) and introduces:
   - **Immutable non-draft invoices** — once an invoice leaves draft it cannot
     be edited; corrections happen via **credit/debit notes**.
   - **Credit / debit notes** as first-class billing entities.

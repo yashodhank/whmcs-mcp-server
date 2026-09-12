@@ -47,4 +47,4 @@ After `npm run build`, confirm live counts:
 node scripts/mcp-catalog-environment-sentinel.mjs
 ```
 
-The line should match the fixture (currently `77/10/5/9` for tools/prompts/resources/resourceTemplates).
+The line should match the fixture (currently `79/10/5/9` for tools/prompts/resources/resourceTemplates).

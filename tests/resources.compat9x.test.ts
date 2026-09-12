@@ -23,7 +23,8 @@ describe('whmcs://docs/compat-9x resource', () => {
     expect(out.contents[0].mimeType).toBe('text/markdown');
     expect(text).toMatch(/immutable non-draft invoices/i);
     expect(text).toMatch(/credit ?\/ ?debit notes/i);
-    expect(text).toMatch(/2026-05-31/);
+    expect(text).toMatch(/8\.13\.7/);
+    expect(text).toMatch(/TBD/);
     expect(text).toMatch(/read-only/i);
   });
 });

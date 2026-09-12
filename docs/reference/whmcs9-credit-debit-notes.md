@@ -2,6 +2,9 @@
 
 > Status: B1 canonical modeling + design only. **No WHMCS call is made, no
 > tool is registered, and the underlying read action is NOT claimed supported.**
+> Production is **WHMCS 8.13.7** — credit/debit notes do not exist there.
+> `ops_ask` job `credit_notes` returns `unsupported` on 8.13 and `unverified`
+> on 9.x until a real capability probe promotes an action.
 
 ## 1. WHMCS 8 vs 9
 

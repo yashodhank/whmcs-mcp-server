@@ -414,6 +414,23 @@ const configSchema = z
     ),
     MCP_OAUTH_RESOURCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     MCP_OAUTH_AUDIENCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    // Staff ops_ask allow-list (consumer ids). Empty ⇒ nobody is staff.
+    MCP_STAFF_CONSUMER_IDS: z.preprocess(preprocessCommaSeparatedString, z.string().default('')),
+    // Read-side job audit JSONL. Empty ⇒ disabled.
+    MCP_READ_AUDIT_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // Durable write-intent snapshot. Empty ⇒ in-memory (lost on restart).
+    MCP_WRITE_INTENT_STORE_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // Customer user-delegated API proven on this 8.13.7 install. Default false.
+    MCP_CUSTOMER_USER_API_PROVEN: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
     MCP_OAUTH_ISSUERS: z.preprocess((val) => {
       const raw = preprocessCommaSeparatedString(val);
       if (raw === '') return [];

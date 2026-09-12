@@ -21,6 +21,7 @@ Architecture decisions, governance contracts, and phase-based design records.
 | [design/controlled-writes-phase-f.md](design/controlled-writes-phase-f.md) | Phase F–G+ controlled-write engine design and implementation record (sealed by default) |
 | [design/controlled-writes-phase-i.md](design/controlled-writes-phase-i.md) | Phase I recommendation: GO/NO-GO analysis for first production write ungating |
 | [design/oauth.md](design/oauth.md) | OAuth 2.1 / PRM resource-server design (components 1–4) |
+| [design/adr/0001-whmcs-8137-mcp-baseline.md](design/adr/0001-whmcs-8137-mcp-baseline.md) | Frozen ADRs: 8.13.7 jobs/OIDC/Admin API; no 9.x notes/REST in current prod |
 | [design/mcp-adoption.md](design/mcp-adoption.md) | MCP protocol adoption notes, open items, and HTTP-transport follow-ups |
 | [design/capability-catalog.md](design/capability-catalog.md) | Typed operation catalog, invariants, capability evidence, discovery, and incremental domain-pack migration |
 | [design/whmcs-request-pipeline.md](design/whmcs-request-pipeline.md) | Typed WHMCS request stages, bounded/coalesced read acceleration, deadlines, telemetry, and rollout controls |
@@ -47,6 +48,8 @@ Step-by-step operational guides for setup, testing, and capability probing.
 | [runbooks/production-test-program.md](runbooks/production-test-program.md) | L0–L6 reliability and RCA test program for production validation |
 | [runbooks/testing-readonly.md](runbooks/testing-readonly.md) | Verifying read-only posture in Cursor and integration test harness |
 | [runbooks/production-governed-writes.md](runbooks/production-governed-writes.md) | Host-neutral production write authorization, approval, read-back, revocation, and restart procedure |
+| [runbooks/grokbot-stdio-access.md](runbooks/grokbot-stdio-access.md) | Grok Bot / Business WhatsApp stdio access (local escape hatch) |
+| [runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.md) | Phase 0 evidence: OIDC discovery, JWKS, GetUsers, version on prod 8.13.7 |
 
 ---
 

@@ -79,6 +79,27 @@ function redactValue(value: unknown): unknown {
   return value;
 }
 
+const BUSINESS_ID_KEYS = [
+  'clientid',
+  'invoiceid',
+  'ticketid',
+  'serviceid',
+  'domainid',
+  'orderid',
+  'userid',
+  'job',
+] as const;
+
+/** Production tool logs: identifiers only, never search/subject/body. */
+export function businessIdsOnly(inputs: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of BUSINESS_ID_KEYS) {
+    const value = inputs[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
 function redactSensitive(data: Record<string, unknown>): Record<string, unknown> {
   const redacted: Record<string, unknown> = {};
 
@@ -178,9 +199,19 @@ export class Logger {
   }
 
   /**
-   * Log a tool invocation
+   * Log a tool invocation.
+   * Production: tool name + business ids only (no search/ticket bodies).
+   * Other envs: redacted inputs (secrets already stripped by `log()`).
    */
   logToolCall(toolName: string, inputs: Record<string, unknown>, isMutating: boolean): void {
+    if (config.MCP_ENV === 'production') {
+      this.info(`Tool invoked: ${toolName}`, {
+        toolName,
+        isMutating,
+        ...businessIdsOnly(inputs),
+      });
+      return;
+    }
     this.info(`Tool invoked: ${toolName}`, {
       toolName,
       inputs,

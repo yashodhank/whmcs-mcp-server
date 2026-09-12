@@ -11,7 +11,7 @@ every substantive change.
 
 - **Transport:** MCP over **stdio** (Cursor, Claude Desktop, Kilo, etc.). Logs go to **stderr** only; never write to stdout except JSON-RPC.
 - **Backend:** WHMCS External API via `WhmcsClient` (`src/whmcs/`).
-- **Surface:** 61 tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow and non-executing planning) plus **9 resource endpoints/templates**.
+- **Surface:** 79 catalog tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow, planning, `ops_ask`, `mcp_doctor`) plus **9 resource endpoints/templates**. Production WHMCS baseline is **8.13.7**.
 
 ## Architecture (current)
 

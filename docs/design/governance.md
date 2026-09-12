@@ -81,6 +81,7 @@ Named contracts (frozen set):
 | `admin_full_trusted` | admin dashboards | drop | allow | allow | allow | authed + profile-permitted |
 | `debug_local` | local debugging | mask | allow | allow | allow | MCP_ENV=local only |
 | `none_local_only` | raw, no projection | allow | allow | allow | allow | **HARD-reject unless MCP_ENV=local** |
+| `grok_channel_safe` | WhatsApp / Grok channel | drop | summarize | mask name/email; drop phone/address/tax | allow | authed; no staff notes |
 
 Rules:
 - `secret.credential` is **drop** in every contract except `debug_local`(mask)/

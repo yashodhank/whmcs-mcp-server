@@ -13,8 +13,11 @@
   registry entry's `token_sha256`.
 - The matched profile decides the **data contract** (projection), allowed
   scopes/actions, environment restrictions, write capability, and (optionally)
-  `allowedWriteScopes` (write is inert this engagement — production stays
-  read-only; see "Write scopes" below).
+  `allowedWriteScopes`.
+- **`allowedActions` is enforced** on governed list/aggregator tools and
+  `ops_ask` when the list is non-empty. Use live tool names
+  (`list_client_tickets`, `get_ticket_thread`) or capability ids (`list_tickets`).
+  An empty list remains unrestricted (legacy); `mcp_doctor` warns about that.
 - Unknown / no token in `production` ⇒ **denied** (unless an explicit
   `anonymous` entry pinned to `llm_safe_summary` exists **and**
   `MCP_ALLOW_ANON_LLM=true`).
@@ -44,7 +47,7 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "allowedScopes": ["read"],
     "defaultContract": "llm_safe_summary",
     "allowedContracts": ["llm_safe_summary"],
-    "allowedActions": ["get_client_details", "list_invoices", "list_tickets", "get_ticket", "list_activity_log"],
+    "allowedActions": ["get_client_details", "list_invoices", "list_client_tickets", "get_ticket_thread", "list_activity_log"],
     "writeCapability": "false",
     "envRestrictions": [],
     "anonymous": false
@@ -55,7 +58,7 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "allowedScopes": ["read"],
     "defaultContract": "ops_operator",
     "allowedContracts": ["ops_operator"],
-    "allowedActions": ["list_clients", "get_client_details", "list_client_products", "list_client_domains", "list_invoices", "get_invoice", "list_orders", "list_tickets", "get_ticket", "list_activity_log"],
+    "allowedActions": ["list_clients", "get_client_details", "list_client_products", "list_client_domains", "list_invoices", "get_invoice", "list_orders", "list_client_tickets", "get_ticket_thread", "list_activity_log"],
     "writeCapability": "false",
     "envRestrictions": [],
     "anonymous": false
@@ -88,7 +91,7 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "allowedScopes": ["read"],
     "defaultContract": "support_triage",
     "allowedContracts": ["support_triage"],
-    "allowedActions": ["list_tickets", "get_ticket", "list_support_departments", "get_client_details", "list_client_products"],
+    "allowedActions": ["list_client_tickets", "get_ticket_thread", "list_support_departments", "get_client_details", "list_client_products"],
     "writeCapability": "false",
     "envRestrictions": [],
     "anonymous": false
@@ -99,7 +102,7 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "allowedScopes": ["read"],
     "defaultContract": "support_triage",
     "allowedContracts": ["support_triage"],
-    "allowedActions": ["list_tickets", "get_ticket", "list_support_departments", "get_client_details", "list_client_products"],
+    "allowedActions": ["list_client_tickets", "get_ticket_thread", "list_support_departments", "get_client_details", "list_client_products"],
     "writeCapability": "approval_required",
     "allowedWriteScopes": ["ticket:reply", "ticket:status"],
     "envRestrictions": [],
@@ -121,8 +124,8 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "id": "operator-reconcile",
     "token_sha256": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
     "allowedScopes": ["read"],
-    "defaultContract": "ops_operator",
-    "allowedContracts": ["ops_operator", "billing_reconciliation"],
+    "defaultContract": "grok_channel_safe",
+    "allowedContracts": ["grok_channel_safe", "ops_operator", "billing_reconciliation"],
     "allowedActions": [
       "search_clients",
       "get_client_details",
@@ -136,9 +139,10 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
       "get_currencies",
       "get_whmcs_details",
       "get_capability_matrix",
-      "list_tickets",
-      "get_ticket",
+      "list_client_tickets",
       "get_ticket_thread",
+      "ops_ask",
+      "mcp_doctor",
       "list_support_departments",
       "get_billing_snapshot",
       "get_account_360",

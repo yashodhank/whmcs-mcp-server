@@ -5,7 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../dist/index.js';
 
 const expected = Object.freeze({
-  tools: 77,
+  tools: 79,
   prompts: 10,
   resources: 5,
   resourceTemplates: 9,

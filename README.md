@@ -46,6 +46,7 @@ For deeper diagrams — write-flow lifecycle, workflow-tool orchestration, and g
   - **Capability & probes** — `get_capability_matrix`, `get_stats`, transactions, automation log, system refs
   - **Controlled write-flow** — `draft_write_intent` → `validate_write_intent` → `approve_write_intent` → `execute_write_intent` → `get_write_intent`, plus a one-call `write` shortcut. **Sealed by default** — `MCP_MODE=read_only` plus empty `MCP_PROD_WRITE_AUTHORIZED` makes production writes byte-identical to absolute deny.
   - **Workflow tools** (new) — `workflow_dunning_sweep`, `workflow_renewal_risk_triage`, `workflow_ticket_triage_to_resolution`, `workflow_month_end_close`: DRAFT-ONLY composite orchestrators that read WHMCS data, compute candidates, and emit governed write-intent drafts — never execute.
+  - **8.13.7 jobs** — `ops_ask` (staff digest / inbox / billing card / GDPR export) and `mcp_doctor` (OIDC + API-role + version). Customer door is link/handoff until a user-delegated API is proven.
 
 - **9 MCP prompts** — ops-playbook blueprints: `dunning_sweep`, `renewal_risk_triage`, `ticket_triage_to_resolution`, `month_end_close` (with-drafts counterparts to the `workflow_*` tools), plus `month_end_reconciliation`, `phantom_tds_sweep`, `suspend_for_nonpayment`, `new_client_onboarding`, `domain_renewal_review`.
 

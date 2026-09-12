@@ -6,6 +6,8 @@
  * action are read from the FROZEN SCOPE_RISK / SCOPE_ACTION maps in types.ts.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import {
   SCOPE_ACTION,
@@ -92,23 +94,34 @@ function isWriteIntentState(value: string): value is WriteIntentState {
 }
 
 /**
- * In-memory intent store with a validated state machine + TTL prune. No
- * persistence and no WHMCS — this only tracks proposed mutations.
+ * Intent store with a validated state machine + TTL prune.
+ * No path ⇒ in-memory (legacy). Path set ⇒ JSON snapshot survives restart.
  */
 export class IntentStore {
   private readonly intents = new Map<string, WriteIntent>();
   private readonly now: () => number;
+  private readonly filePath?: string;
 
-  constructor(now: () => number = Date.now) {
+  constructor(now: () => number = Date.now, filePath?: string) {
     this.now = now;
+    this.filePath = filePath !== undefined && filePath.trim() !== '' ? filePath : undefined;
+    if (this.filePath !== undefined) this.loadFromDisk(this.filePath);
   }
 
   put(intent: WriteIntent): void {
     this.intents.set(intent.intent_id, intent);
+    this.persist();
   }
 
   get(intent_id: string): WriteIntent | undefined {
     return this.intents.get(intent_id);
+  }
+
+  /** Non-expired intents, optionally filtered by consumer. Params omitted. */
+  list(consumerId?: string): WriteIntent[] {
+    this.prune();
+    const all = [...this.intents.values()];
+    return consumerId === undefined ? all : all.filter((i) => i.consumer_id === consumerId);
   }
 
   /**
@@ -130,14 +143,43 @@ export class IntentStore {
     }
     const next: WriteIntent = { ...current, state: nextState };
     this.intents.set(intent_id, next);
+    this.persist();
     return next;
   }
 
   /** Drop intents whose expires_at is in the past. */
   prune(): void {
     const t = this.now();
+    let changed = false;
     for (const [id, intent] of this.intents) {
-      if (Date.parse(intent.expires_at) <= t) this.intents.delete(id);
+      if (Date.parse(intent.expires_at) <= t) {
+        this.intents.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
+
+  private persist(): void {
+    const file = this.filePath;
+    if (file === undefined) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const snapshot = JSON.stringify({ intents: [...this.intents.values()] });
+    fs.writeFileSync(file, snapshot, { encoding: 'utf8', mode: 0o600 });
+  }
+
+  private loadFromDisk(file: string): void {
+    if (!fs.existsSync(file)) return;
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { intents?: WriteIntent[] };
+      if (!Array.isArray(raw.intents)) return;
+      for (const intent of raw.intents) {
+        if (intent !== null && typeof intent === 'object' && typeof intent.intent_id === 'string') {
+          this.intents.set(intent.intent_id, intent);
+        }
+      }
+    } catch {
+      /* torn/malformed snapshot — start empty rather than fail boot */
     }
   }
 }

@@ -1,8 +1,8 @@
 /**
  * PHASE H.1 / Track B — classification taxonomy expansion.
  *
- * Proves the three new FieldClasses exist, that every one of the 9 frozen
- * ContractPolicy maps has a (correct + safe) entry for each, and that the
+ * Proves the three new FieldClasses exist, that every frozen ContractPolicy
+ * map has a (correct + safe) entry for each, and that the
  * secret.credential drop-invariant + env restrictions are UNCHANGED.
  *
  * Synthetic data only.
@@ -21,7 +21,7 @@ describe('new FieldClasses are part of the frozen taxonomy', () => {
     }
   });
 
-  it('every one of the 9 contracts has an entry for each new class (exhaustive)', () => {
+  it('every contract has an entry for each new class (exhaustive)', () => {
     for (const name of CONTRACT_NAMES) {
       const policy = CONTRACTS[name].policy;
       for (const c of NEW_CLASSES) {
@@ -55,6 +55,7 @@ describe('new class actions are correct + safe', () => {
     expect(CONTRACTS.none_local_only.policy['system.diagnostic']).toBe('allow');
     expect(CONTRACTS.llm_safe_summary.policy['system.diagnostic']).toBe('drop');
     expect(CONTRACTS.client_portal_self.policy['system.diagnostic']).toBe('drop');
+    expect(CONTRACTS.grok_channel_safe.policy['system.diagnostic']).toBe('drop');
     expect(CONTRACTS.billing_reconciliation.policy['system.diagnostic']).toBe('summarize');
     expect(CONTRACTS.renewal_automation.policy['system.diagnostic']).toBe('summarize');
     expect(CONTRACTS.support_triage.policy['system.diagnostic']).toBe('summarize');

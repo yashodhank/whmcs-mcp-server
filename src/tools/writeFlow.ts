@@ -189,7 +189,18 @@ export async function precheckDomainRename(
  * in-memory, byte-identical to legacy). The deploy restart that ships a write
  * change therefore does not wipe the audit trail or the replay guard.
  */
-const store = new IntentStore();
+const store = new IntentStore(Date.now, config.MCP_WRITE_INTENT_STORE_PATH || undefined);
+
+/** Staff `draft_work` job: ids/state only, never intent params. */
+export function listWriteIntentsForConsumer(consumerId: string): Array<Record<string, unknown>> {
+  return store.list(consumerId).map((intent) => ({
+    intent_id: intent.intent_id,
+    scope: intent.scope,
+    state: intent.state,
+    expires_at: intent.expires_at,
+    risk: intent.risk,
+  }));
+}
 const ledger = new IdempotencyLedger(
   undefined,
   undefined,
