@@ -1,0 +1,26 @@
+# Grouped npm updates. Ignore Vitest majors until @vitest/coverage-v8 and the
+# suite are upgraded together — Dependabot #111 broke `npm ci` by pulling
+# vitest@5 while leaving coverage-v8 on 4.x.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm_and_yarn:
+        patterns:
+          - '*'
+        exclude-patterns:
+          - vitest
+          - '@vitest/*'
+    ignore:
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@vitest/coverage-v8'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@vitest/mocker'
+        update-types:
+          - version-update:semver-major
