@@ -15,9 +15,11 @@
  *      `get_support_departments` → real `get_ticket_departments`).
  *
  *   2. Governance ON but the harness has no consumer token AND no
- *      `MCP_CONSUMER_REGISTRY`: every governed read would return a
- *      blanket `{ isError:true, status:'consumer_denied', ... no_token }`
- *      which must NOT be mislabeled as auth_or_network / pagination_drift
+ *      registry source (`MCP_CONSUMER_REGISTRY` inline JSON or
+ *      `MCP_CONSUMER_REGISTRY_FILE` path — same precedence the MCP server
+ *      uses): every governed read would return a blanket
+ *      `{ isError:true, status:'consumer_denied', ... no_token }` which
+ *      must NOT be mislabeled as auth_or_network / pagination_drift
  *      product failures. Fail fast instead.
  *
  * This module is plain `.mjs`: tsc `npm run typecheck` only globs
@@ -73,9 +75,15 @@ export function validateToolNames(requested, live) {
  *
  * Resolution:
  *   - governance OFF / unset  → legacy/default path, no token injection.
- *   - governance ON  + token + registry → proceed, inject bearer.
- *   - governance ON  + (missing token OR missing registry)
+ *   - governance ON  + token + registry source → proceed, inject bearer.
+ *   - governance ON  + (missing token OR missing registry source)
  *                              → fail fast as harness_config_error.
+ *
+ * Registry source (pure env presence check — no file I/O here):
+ *   non-empty `MCP_CONSUMER_REGISTRY` OR non-empty `MCP_CONSUMER_REGISTRY_FILE`.
+ * The spawned MCP server loads/validates the file itself; the harness only
+ * needs to know a registry will be available and which synthetic bearer to
+ * inject into tool calls.
  *
  * The token is taken from `HARNESS_CONSUMER_TOKEN` (a synthetic, test-only
  * value supplied by the harness operator — never a real secret).
@@ -96,16 +104,24 @@ export function governancePreflight(env) {
     env.HARNESS_CONSUMER_TOKEN.length > 0
       ? env.HARNESS_CONSUMER_TOKEN
       : undefined;
-  const registry =
+  const registryInline =
     typeof env.MCP_CONSUMER_REGISTRY === 'string' &&
-    env.MCP_CONSUMER_REGISTRY.length > 0
+    env.MCP_CONSUMER_REGISTRY.trim().length > 0
       ? env.MCP_CONSUMER_REGISTRY
       : undefined;
+  const registryFile =
+    typeof env.MCP_CONSUMER_REGISTRY_FILE === 'string' &&
+    env.MCP_CONSUMER_REGISTRY_FILE.trim().length > 0
+      ? env.MCP_CONSUMER_REGISTRY_FILE
+      : undefined;
+  const registry = registryInline ?? registryFile;
 
   if (token === undefined || registry === undefined) {
     const lacking = [
       token === undefined ? 'consumer token (HARNESS_CONSUMER_TOKEN)' : null,
-      registry === undefined ? 'consumer registry (MCP_CONSUMER_REGISTRY)' : null,
+      registry === undefined
+        ? 'consumer registry (MCP_CONSUMER_REGISTRY or MCP_CONSUMER_REGISTRY_FILE)'
+        : null,
     ]
       .filter(Boolean)
       .join(' and ');
@@ -116,8 +132,8 @@ export function governancePreflight(env) {
         `governance ON but no ${lacking} available to the harness: every ` +
         `governed read tool would return a blanket consumer_denied/no_token. ` +
         `Refusing to run cases and emit blanket denials as product failures. ` +
-        `Supply a synthetic HARNESS_CONSUMER_TOKEN + MCP_CONSUMER_REGISTRY, ` +
-        `or disable governance for the legacy path.`,
+        `Supply a synthetic HARNESS_CONSUMER_TOKEN plus MCP_CONSUMER_REGISTRY ` +
+        `or MCP_CONSUMER_REGISTRY_FILE, or disable governance for the legacy path.`,
     };
   }
 

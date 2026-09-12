@@ -205,6 +205,43 @@
       "version": 1
     },
     {
+      "id": "capabilities.write_scope_availability.read",
+      "public_name": "list_write_scope_availability",
+      "domain": "capabilities",
+      "description": "Read-only listing of all declared write scopes with their dynamic availability on the current WHMCS install. Shows which granted scopes are actually executable, which are missing from the WHMCS API, which are version-gated, and which need infrastructure (DB DSN / custom executor). Never removes scopes from grants — informational only. Filters to consumer-granted scopes by default.",
+      "effects": "pure",
+      "risk_tier": "none",
+      "whmcs_actions": [],
+      "capability": {
+        "mode": "none",
+        "probe": "none"
+      },
+      "governance": {
+        "scope": null,
+        "output": "sanitized",
+        "rawWhmcsOutput": false
+      },
+      "cache": {
+        "mode": "none"
+      },
+      "cost": {
+        "kind": "constant",
+        "maxWhmcsCalls": 0,
+        "maxItems": 200
+      },
+      "auth": {
+        "toolAuthRequired": true,
+        "consumerFiltered": false
+      },
+      "pagination": null,
+      "prerequisites": [],
+      "fallbacks": [],
+      "protocol_features": [
+        "tools"
+      ],
+      "version": 1
+    },
+    {
       "id": "clients.account_360.read",
       "public_name": "get_account_360",
       "domain": "clients",

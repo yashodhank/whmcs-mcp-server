@@ -194,15 +194,16 @@ WHMCS (`.env.production`, `MCP_ENV=production`). Artifacts:
 |------|--------|-------|
 | **Build** | PASS | `npm run build` on branch HEAD |
 | **L1–L6 (legacy path)** | **7/7 PASS** | `MCP_GOVERNANCE_ENABLED=false` override for harness + server (matches default NEXUS legacy writes model) |
-| **L1–L6 (governed, prod env)** | **3/7 PASS** | `.env.production` has `MCP_GOVERNANCE_ENABLED=true`; with host `HARNESS_CONSUMER_TOKEN` + inline `MCP_CONSUMER_REGISTRY`, `list_client_domains` cases fail MCP output-schema validation (`items`/`total`/`count` missing) — governed projection defect, not WHMCS connectivity |
-| **L1–L6 (harness preflight)** | **BLOCKED** | Sourcing only `.env.production` (registry via `MCP_CONSUMER_REGISTRY_FILE`, empty inline `MCP_CONSUMER_REGISTRY`) fails harness preflight until `HARNESS_CONSUMER_TOKEN` + inline registry JSON are supplied to the test driver |
+| **L1–L6 (governed, prod env)** | **3/7 PASS (historical)** | At record time, governed `list_client_domains` failed MCP output-schema validation. On current `main`, unit coverage (`listToolsDomainsStatus` governance ON + `outputSchemaCompliance`) passes envelope `{items,total,count,...}`; re-run live governed L1–L6 to refresh this row |
+| **L1–L6 (harness preflight)** | **PASS (aligned)** | Preflight accepts `MCP_CONSUMER_REGISTRY` **or** `MCP_CONSUMER_REGISTRY_FILE` plus synthetic `HARNESS_CONSUMER_TOKEN` (file presence only — server loads/validates the file) |
 | **Capability probe** | **4/5 supported** | `GetUsers` → `not_authorized` for configured API role; others supported (`node --import tsx scripts/mcp-capability-probe.mjs`; no `npm run mcp:capability-probe` script yet) |
 | **Version family** | **8.13** | `GetConfigurationValue` `Version` → `8.13.6-release.1`; `WhmcsDetails` denied for API credential; `get_capability_matrix` shows `whmcs_version.status=unverified` until details probe succeeds |
 | **Dokploy IP heal smoke** | **PASS (exit 0)** | `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` — API smoke healthy, no heal |
 
-**Blockers before merge:** align production-test harness with
-`MCP_CONSUMER_REGISTRY_FILE` or document operator export of registry + synthetic
-harness token for governed L1–L6 on production hosts.
+**Post-merge follow-up (harness):** production-test harness preflight now treats
+`MCP_CONSUMER_REGISTRY_FILE` as a valid registry source (same env the MCP
+server uses). Operators still supply a synthetic `HARNESS_CONSUMER_TOKEN`
+whose SHA-256 is present in that registry for governed L1–L6.
 
 ### Devbox full QA log (feat/nexus-fast-whmcs-api / PR #103)
 
