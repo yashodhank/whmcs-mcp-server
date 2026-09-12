@@ -575,7 +575,10 @@ function allowlistMeta(): { source: 'file' | 'env' | 'empty'; path?: string } {
   if (typeof filePath === 'string' && filePath.trim() !== '') {
     return { source: 'file', path: filePath.trim() };
   }
-  if ((config.MCP_PROD_WRITE_AUTHORIZED ?? []).length > 0) {
+  const envActions = (config as Record<string, unknown>).MCP_PROD_WRITE_AUTHORIZED as
+    | string[]
+    | undefined;
+  if (envActions !== undefined && envActions.length > 0) {
     return { source: 'env' };
   }
   return { source: 'empty' };
@@ -2638,7 +2641,7 @@ export function registerWriteFlowTools(
             ...(typeof p.paymentmethod === 'string'
               ? { paymentmethod: p.paymentmethod }
               : paymentMethods?.[0]
-                ? { paymentmethod: (paymentMethods[0] as Record<string, unknown>).module }
+                ? { paymentmethod: paymentMethods[0].module }
                 : {}),
           },
         ],
@@ -2646,12 +2649,12 @@ export function registerWriteFlowTools(
           typeof p.paymentmethod === 'string'
             ? p.paymentmethod
             : paymentMethods?.[0]
-              ? String((paymentMethods[0] as Record<string, unknown>).module)
+              ? String(paymentMethods[0].module)
               : 'mailin',
       };
 
       const draftResult = draftWorkflowIntent({
-        auth_token: typeof p.auth_token === 'string' ? (p.auth_token as string) : undefined,
+        auth_token: typeof p.auth_token === 'string' ? p.auth_token : undefined,
         scope,
         params: orderParams,
         naturalKey: `domain-order:${domain}`,
@@ -2659,7 +2662,8 @@ export function registerWriteFlowTools(
       });
       if (!draftResult.ok) return err(`draft failed: ${draftResult.reason}`);
 
-      const intent = store.get(draftResult.intent_id)!;
+      const intent = store.get(draftResult.intent_id);
+      if (!intent) return err('draft intent not found after creation', { intent_id: draftResult.intent_id });
       const validation = validateIntent(intent, await validationContextFor(whmcs));
       const next = store.transition(
         intent.intent_id,
