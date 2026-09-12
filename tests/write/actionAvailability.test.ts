@@ -3,8 +3,6 @@ import {
   WRITE_ACTION_CATALOG,
   buildAvailabilityMatrix,
   resolveAvailability,
-  type ApiSurface,
-  type AvailabilityStatus,
   type WriteActionMeta,
 } from '../../src/write/actionAvailability.js';
 import {
@@ -13,7 +11,6 @@ import {
   SCOPE_RISK,
   DB_DIRECT_ACTION,
   CREDIT_TRANSFER_ACTION,
-  type WriteScope,
 } from '../../src/write/types.js';
 import type { WhmcsVersionFamily } from '../../src/whmcs/versionProfile.js';
 

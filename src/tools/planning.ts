@@ -452,18 +452,16 @@ export function registerPlanningTools(
           ) {
             const scope = stored.governance.scope as WriteScope;
             const meta = WRITE_ACTION_CATALOG[scope];
-            if (meta !== undefined) {
-              const avail = resolveAvailability(meta, versionFamily);
-              base.write_availability = {
-                scope,
-                api_surface: meta.api_surface,
-                whmcs_api_exists: meta.whmcs_api_exists,
-                availability: avail.availability,
-                executable: avail.executable,
-                reason: avail.reason,
-                note: meta.note || undefined,
-              };
-            }
+            const avail = resolveAvailability(meta, versionFamily);
+            base.write_availability = {
+              scope,
+              api_surface: meta.api_surface,
+              whmcs_api_exists: meta.whmcs_api_exists,
+              availability: avail.availability,
+              executable: avail.executable,
+              reason: avail.reason,
+              note: meta.note || undefined,
+            };
           }
           return base;
         });
