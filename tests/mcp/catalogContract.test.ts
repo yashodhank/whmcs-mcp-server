@@ -94,8 +94,16 @@ describe('public MCP catalog v1 contract', () => {
     expect(payload).toMatchObject({
       schema_version: 2,
       catalog_version: 4,
-      operations: [{ id: 'capabilities.matrix.read', name: 'get_capability_matrix' }],
     });
+    expect(payload.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'capabilities.matrix.read', name: 'get_capability_matrix' }),
+        expect.objectContaining({
+          id: 'capabilities.write_scope_availability.read',
+          name: 'list_write_scope_availability',
+        }),
+      ])
+    );
     expect(payload.etag).toMatch(/^sha256-[a-f0-9]{64}$/);
     expect(harness.whmcsCalls).toEqual([]);
   });

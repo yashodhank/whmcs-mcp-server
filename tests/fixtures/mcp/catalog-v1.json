@@ -1328,8 +1328,6 @@
               "client:create",
               "client:update",
               "service:change_package",
-              "service:product:set",
-              "service:customfields:update",
               "service:upgrade",
               "domain:idprotect:toggle",
               "domain:lock:toggle",
@@ -3183,6 +3181,41 @@
             },
             "required": [
               "status"
+            ],
+            "type": "object"
+          },
+          "write_scope_availability_summary": {
+            "additionalProperties": false,
+            "properties": {
+              "executable": {
+                "type": "number"
+              },
+              "missing_api": {
+                "type": "number"
+              },
+              "needs_infra": {
+                "type": "number"
+              },
+              "non_executable_scopes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "total": {
+                "type": "number"
+              },
+              "version_gated": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "total",
+              "executable",
+              "missing_api",
+              "version_gated",
+              "needs_infra",
+              "non_executable_scopes"
             ],
             "type": "object"
           }
@@ -8309,7 +8342,7 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
-      "description": "Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS, staff allow-lists, Grok write posture (sealed scopes, package/CF, order accept, merge, DSN).",
+      "description": "Read-only listing of all declared write scopes with their dynamic availability on the current WHMCS install. Shows which granted scopes are actually executable, which are missing from the WHMCS API, which are version-gated, and which need infrastructure (DB DSN / custom executor). Never removes scopes from grants — informational only. Filters to consumer-granted scopes by default.",
       "execution": {
         "taskSupport": "forbidden"
       },
@@ -8319,105 +8352,145 @@
           "auth_token": {
             "description": "MCP auth token",
             "type": "string"
+          },
+          "show_all": {
+            "description": "When true, list all declared scopes (not just consumer-granted). Default false.",
+            "type": "boolean"
           }
         },
         "type": "object"
       },
-      "name": "mcp_doctor",
+      "name": "list_write_scope_availability",
       "outputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": {},
+        "additionalProperties": false,
         "properties": {
           "error": {
-            "type": "string"
-          },
-          "family": {
             "type": "string"
           },
           "isError": {
             "type": "boolean"
           },
-          "ok": {
-            "type": "boolean"
-          }
-        },
-        "type": "object"
-      }
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true,
-        "readOnlyHint": true
-      },
-      "description": "Staff-first WHMCS 8.13.7 jobs (morning digest, overdue, ticket inbox, billing card, GDPR export). Audience comes from the staff consumer/OIDC allow-lists, not the prompt. Customer door is OIDC link/handoff until a user-delegated API is proven.",
-      "execution": {
-        "taskSupport": "forbidden"
-      },
-      "inputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "properties": {
-          "auth_token": {
-            "description": "MCP auth token",
-            "type": "string"
+          "scopes": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "api_surface": {
+                  "type": "string"
+                },
+                "availability": {
+                  "type": "string"
+                },
+                "executable": {
+                  "type": "boolean"
+                },
+                "grant_status": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "risk": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "whmcs_api_exists": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "scope",
+                "action",
+                "risk",
+                "api_surface",
+                "whmcs_api_exists",
+                "grant_status",
+                "availability",
+                "executable",
+                "reason",
+                "note"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
-          "clientid": {
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991,
-            "type": "integer"
-          },
-          "contract": {
-            "type": "string"
-          },
-          "email": {
-            "format": "email",
-            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
-            "type": "string"
-          },
-          "job": {
-            "enum": [
-              "morning_digest",
-              "overdue_digest",
-              "ticket_inbox",
-              "next_best_action",
-              "close_pack",
-              "system_health",
-              "draft_work",
-              "billing_card",
-              "gdpr_export_pack",
-              "renewal_digest",
-              "ticket_status",
-              "handoff_pack",
-              "credit_notes"
+          "summary": {
+            "additionalProperties": false,
+            "properties": {
+              "executable": {
+                "type": "number"
+              },
+              "granted": {
+                "type": "number"
+              },
+              "missing_api": {
+                "type": "number"
+              },
+              "needs_infra": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "version_gated": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "total",
+              "granted",
+              "executable",
+              "missing_api",
+              "version_gated",
+              "needs_infra"
             ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "job"
-        ],
-        "type": "object"
-      },
-      "name": "ops_ask",
-      "outputSchema": {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": {},
-        "properties": {
-          "audience": {
-            "type": "string"
+            "type": "object"
           },
-          "error": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "job": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
+          "whmcs_version": {
+            "additionalProperties": false,
+            "properties": {
+              "family": {
+                "type": "string"
+              },
+              "probed_at": {
+                "type": "string"
+              },
+              "release": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "family",
+              "version",
+              "release",
+              "probed_at"
+            ],
+            "type": "object"
           }
         },
         "type": "object"
@@ -10464,8 +10537,6 @@
               "client:create",
               "client:update",
               "service:change_package",
-              "service:product:set",
-              "service:customfields:update",
               "service:upgrade",
               "domain:idprotect:toggle",
               "domain:lock:toggle",
