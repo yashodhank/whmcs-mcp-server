@@ -116,6 +116,41 @@ Raw example tokens (DO NOT USE IN PROD): `EXAMPLE-<id>-SYNTHETIC-DO-NOT-USE-IN-P
     "allowedWriteScopes": ["billing:invoice:create", "billing:credit:add"],
     "envRestrictions": [],
     "anonymous": false
+  },
+  {
+    "id": "operator-reconcile",
+    "token_sha256": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    "allowedScopes": ["read"],
+    "defaultContract": "ops_operator",
+    "allowedContracts": ["ops_operator", "billing_reconciliation"],
+    "allowedActions": [
+      "search_clients",
+      "get_client_details",
+      "list_client_invoices",
+      "list_invoices",
+      "get_invoice",
+      "list_services",
+      "list_client_services",
+      "list_client_products",
+      "list_client_domains",
+      "get_currencies",
+      "get_whmcs_details",
+      "get_capability_matrix",
+      "list_tickets",
+      "get_ticket",
+      "get_ticket_thread",
+      "list_support_departments",
+      "get_billing_snapshot",
+      "get_account_360",
+      "list_activity_log",
+      "list_orders",
+      "list_payment_methods",
+      "get_stats",
+      "list_client_transactions"
+    ],
+    "writeCapability": "false",
+    "envRestrictions": [],
+    "anonymous": false
   }
 ]
 ```
@@ -173,3 +208,45 @@ export MCP_CONSUMER_REGISTRY='[{"id":"ops_operator","token_sha256":"<real sha256
 ```
 
 `writeCapability` is modeled but **inert** — no production write path exists.
+
+## operator-reconcile — Grok Bot / Business WhatsApp reads
+
+The `operator-reconcile` consumer (example above) is designed for trusted stdio
+consumers such as Grok Bot (Business WhatsApp integration). Key design points:
+
+- **Read-only** (`writeCapability: "false"`) — no write scopes, no mutation.
+- **Broad read surface**: tickets, invoices, services, currencies, client details,
+  account 360, billing snapshot, capability matrix — the actions Grok Bot needs
+  to answer customer queries about overdue invoices, renewals, and service status.
+- **ops_operator contract** — includes operational fields but NOT raw
+  credentials or PII beyond what is needed for reconciliation.
+
+### Trusted stdio default consumer
+
+When the MCP is started as a **stdio** child process (Cursor, Grok Bot), the
+caller is the spawning process — there is no network trust boundary. For these
+deployments, configure `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` (or `_FILE`) with the
+raw bearer token for `operator-reconcile`. This auto-injects the token when
+`auth_token` is omitted, so Grok Bot can call governed tools without manually
+passing it on every call.
+
+```sh
+# In your .env.production or deployment env:
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN=<raw-bearer-token-for-operator-reconcile>
+# OR: reference a file (owner-only permissions required):
+MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE=~/.config/whmcs-mcp/default-consumer-token
+```
+
+Safety: the default is NEVER applied for HTTP transport clients.
+
+### Merging into your live registry
+
+If your production registry is at
+`~/.config/whmcs-mcp/consumer-registry.production.json`, add the
+`operator-reconcile` entry with:
+- A real `token_sha256` (hash of a new random token)
+- The `allowedActions` list from the example above
+- `"writeCapability": "false"` — no write access
+
+The live file can be updated without restarting the MCP (the registry cache
+TTL is 60 s by default).
