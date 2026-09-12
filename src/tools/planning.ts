@@ -36,7 +36,9 @@ import { fingerprintPlanningPolicy } from '../planning/policyFingerprint.js';
 import { validatePlanValueSafety } from '../planning/validator.js';
 import { draftWorkflowIntent } from './writeFlow.js';
 import { WRITE_SCOPES, type WriteScope } from '../write/types.js';
+import { WRITE_ACTION_CATALOG, resolveAvailability } from '../write/actionAvailability.js';
 import type { WhmcsClient } from '../whmcs/WhmcsClient.js';
+import { getWhmcsVersionProfile } from '../whmcs/versionProfile.js';
 import { validateDraftParams } from '../write/validation.js';
 
 const PREFLIGHT_OPERATION_ALLOWLIST = new Set([
@@ -421,9 +423,11 @@ export function registerPlanningTools(
       operations: z.array(z.record(z.string(), z.unknown())),
       executable: z.literal(false),
     },
-    ((params) => {
+    (async (params) => {
       const resolved = planningContext(params.auth_token as string | undefined, catalog);
       if (!resolved.ok) return fail(resolved.reason);
+      const versionProfile = whmcs !== undefined ? await getWhmcsVersionProfile(whmcs) : undefined;
+      const versionFamily = versionProfile?.family ?? 'unknown';
       const operations = catalog
         .machineView()
         .operations.filter((definition) => {
@@ -437,10 +441,29 @@ export function registerPlanningTools(
           if (stored === undefined) throw new Error('Immutable catalog definition disappeared');
           const { auth_token: _authToken, ...clientInputs } = stored.inputSchema;
           void _authToken;
-          return {
+          const base: Record<string, unknown> = {
             ...definition,
             input_schema: z.toJSONSchema(z.object(clientInputs).strict()),
           };
+          if (
+            (stored.effects === 'draft' || stored.effects === 'write') &&
+            stored.governance.scope !== null &&
+            WRITE_SCOPES.includes(stored.governance.scope as WriteScope)
+          ) {
+            const scope = stored.governance.scope as WriteScope;
+            const meta = WRITE_ACTION_CATALOG[scope];
+            const avail = resolveAvailability(meta, versionFamily);
+            base.write_availability = {
+              scope,
+              api_surface: meta.api_surface,
+              whmcs_api_exists: meta.whmcs_api_exists,
+              availability: avail.availability,
+              executable: avail.executable,
+              reason: avail.reason,
+              note: meta.note || undefined,
+            };
+          }
+          return base;
         });
       return out({ catalog_version: catalog.version, operations, executable: false });
     }) as ToolCallback<z.ZodRawShape>

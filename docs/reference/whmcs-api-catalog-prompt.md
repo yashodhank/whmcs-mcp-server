@@ -43,7 +43,7 @@ The catalog is organized by the standard WHMCS External API categories as publis
 | `DeleteTransaction` | W | Delete a transaction record | `transactionid` | destructive |
 | `GetTransactions` | R | List transactions, filterable by client/invoice/transid | `invoiceid`, `clientid`, `transid` | none |
 | `AddBillableItem` | W | Add a billable item to a client for later invoicing | `clientid`, `description`, `amount`, `invoiceaction`, `recur` | financial |
-| `UpdateBillableItem` | W | Update an existing billable item | `itemid`, `amount`, `description`, `invoiceaction` | financial |
+| `UpdateBillableItem` | W | ⚠️ **NOT A REAL WHMCS API ACTION** — declared in MCP scope map only. The official External API provides `AddBillableItem` but no Update/Get/Delete equivalents. Feature requests remain open. Always returns `Invalid API Action`. | `itemid`, `amount`, `description`, `invoiceaction` | financial |
 | `DeleteBillableItem` | W | Delete a billable item | `billableid` | destructive |
 | `GenInvoices` | W | Run the invoice generation routine (mass-create due invoices) | `clientid`, `noemails` | financial |
 | `GetQuotes` | R | List quotes, filterable by stage/client | `limitstart`, `limitnum` | none |

@@ -56,10 +56,10 @@ const SHELLS: [tool: string, action: string][] = [
 ];
 
 describe('registerCapabilityShellTools', () => {
-  it('registers the 5 capability-shell tools + get_capability_matrix', () => {
+  it('registers the 5 capability-shell tools + get_capability_matrix + list_write_scope_availability', () => {
     const { handlers } = harness();
     expect(Object.keys(handlers).sort()).toEqual(
-      [...SHELLS.map(([t]) => t), 'get_capability_matrix'].sort()
+      [...SHELLS.map(([t]) => t), 'get_capability_matrix', 'list_write_scope_availability'].sort()
     );
   });
 
@@ -136,12 +136,13 @@ describe('registerCapabilityShellTools', () => {
     expect(res.structuredContent).toBeDefined();
   });
 
-  it('get_capability_matrix falls back to GetConfigurationValue when WhmcsDetails is denied', async () => {
+  it('get_capability_matrix falls back to GetConfigurationValue when WhmcsDetails and GetAdminDetails are denied', async () => {
     const { _resetVersionProfileCacheForTests } = await import('../../src/whmcs/versionProfile.js');
     _resetVersionProfileCacheForTests();
     const { handlers, read } = harness();
     read.mockImplementation(async (action: string, _params?: Record<string, unknown>) => {
       if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
+      if (action === 'GetAdminDetails') throw new Error('403 Forbidden');
       if (action === 'GetConfigurationValue') {
         return { result: 'success', value: '8.13.6-release.1' };
       }
