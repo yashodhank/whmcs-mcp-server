@@ -110,7 +110,9 @@ describe('403 sub-classification', () => {
   });
 
   it('classifies string-body Invalid Permissions', () => {
-    const error = make403AxiosError('Invalid Permissions: API action "WhmcsDetails" is not allowed');
+    const error = make403AxiosError(
+      'Invalid Permissions: API action "WhmcsDetails" is not allowed'
+    );
     const classified = classifyWhmcsError(error);
     expect(classified.statusCode).toBe(403);
     expect(classified.forbiddenKind).toBe('invalid_permissions' satisfies ForbiddenKind);

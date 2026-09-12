@@ -189,7 +189,9 @@ async function probeVersionFallback(
       const version = str(whmcsBlock, 'version') ?? null;
       const release = str(whmcsBlock, 'canonicalversion') ?? str(whmcsBlock, 'release') ?? null;
       if (version) {
-        logger.info('get_whmcs_details: used GetAdminDetails fallback (WhmcsDetails permission denied)');
+        logger.info(
+          'get_whmcs_details: used GetAdminDetails fallback (WhmcsDetails permission denied)'
+        );
         return mapToCanonicalWhmcsDetails({ whmcs: { version, canonicalversion: release } });
       }
     }
@@ -205,7 +207,9 @@ async function probeVersionFallback(
     if (value && value.trim() !== '') {
       const release = value.trim();
       const version = release.replace(/-release.*$/i, '') || release;
-      logger.info('get_whmcs_details: used GetConfigurationValue fallback (WhmcsDetails permission denied)');
+      logger.info(
+        'get_whmcs_details: used GetConfigurationValue fallback (WhmcsDetails permission denied)'
+      );
       return mapToCanonicalWhmcsDetails({ whmcs: { version, canonicalversion: release } });
     }
   } catch {

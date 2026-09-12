@@ -327,9 +327,10 @@ export class WhmcsRequestPipeline {
               this.transport.resetConnections();
               continue;
             } else if (classified.whmcsMessage) {
-              healNote = classified.forbiddenKind === 'invalid_permissions'
-                ? `API Credentials role denies action "${action}" — add it to the API credential's allowed-actions list, or use a fallback`
-                : 'not an IP-allowlist rejection (permission/auth) — auto-heal not applicable';
+              healNote =
+                classified.forbiddenKind === 'invalid_permissions'
+                  ? `API Credentials role denies action "${action}" — add it to the API credential's allowed-actions list, or use a fallback`
+                  : 'not an IP-allowlist rejection (permission/auth) — auto-heal not applicable';
               this.logger.warn('WHMCS 403 not auto-healed', {
                 action,
                 message: classified.whmcsMessage,

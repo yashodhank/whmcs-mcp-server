@@ -9,10 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  WhmcsBusinessError,
-  WhmcsTransportError,
-} from '../../src/whmcs/request/errors.js';
+import { WhmcsBusinessError, WhmcsTransportError } from '../../src/whmcs/request/errors.js';
 import { mapToCanonicalWhmcsDetails } from '../../src/canonical/systemRefs.js';
 
 function isPermissionDenied(e: unknown): boolean {
