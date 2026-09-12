@@ -17,6 +17,8 @@ export interface ModernRequestAuth {
   readonly profile: ConsumerProfile;
   readonly scopes: readonly string[];
   readonly authMode: 'registry' | 'oauth';
+  /** WHMCS / federation OIDC `sub` from the verified MCP-aud token. */
+  readonly oidcSub?: string;
 }
 
 export interface ModernHttpAdapter {
@@ -67,6 +69,7 @@ function authInfo(auth: ModernRequestAuth): AuthInfo {
     extra: Object.freeze({
       authMode: auth.authMode,
       capabilityActionGrants: Object.freeze([...auth.profile.allowedActions]),
+      ...(auth.oidcSub === undefined ? {} : { oidcSub: auth.oidcSub }),
     }),
   });
 }

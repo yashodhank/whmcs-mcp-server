@@ -1,8 +1,8 @@
 /**
  * ops_ask — small job surface for Grok / staff ops on WHMCS 8.13.7.
  *
- * Audience comes from MCP_STAFF_CONSUMER_IDS + the authenticated consumer.
- * A caller-supplied `audience` argument is ignored.
+ * Audience comes from MCP_STAFF_CONSUMER_IDS ∪ MCP_STAFF_OIDC_SUBS + the
+ * authenticated principal. A caller-supplied `audience` argument is ignored.
  */
 
 import { z } from 'zod';
@@ -16,11 +16,14 @@ import { READ_ONLY_ANNOTATIONS } from './listTools.js';
 import { getConsumerRegistry, governanceEnabled } from '../governance/pipeline.js';
 import { resolveStdioDefaultToken } from '../auth/trustedStdioDefault.js';
 import { resolveConsumer } from '../governance/consumers.js';
-import { audienceForConsumer, parseStaffConsumerIds } from '../auth/audience.js';
+import { audienceForPrincipal, parseStaffConsumerIds } from '../auth/audience.js';
+import { originFromApiUrl } from '../auth/whmcsIssuer.js';
 import { actionDeniedMessage, isActionAllowed } from '../governance/allowedActions.js';
 import { ALL_JOBS, jobAllowedForAudience, jobDeniedMessage, isOpsJob } from '../jobs/catalog.js';
 import { customerDoorResult, runStaffJob } from '../jobs/opsAsk.js';
 import { getReadAuditLog } from '../audit/readAudit.js';
+import { getEffectLedger } from '../audit/effectLedger.js';
+import { getCurrentRequestContext } from '../mcp/requestContext.js';
 import { listWriteIntentsForConsumer } from './writeFlow.js';
 
 const OPS_ASK_OUTPUT = z
@@ -87,13 +90,25 @@ export function registerOpsAskTools(
       }
 
       const staffIds = parseStaffConsumerIds(config.MCP_STAFF_CONSUMER_IDS);
-      const audience = audienceForConsumer(resolution.profile.id, staffIds);
+      const staffOidc = parseStaffConsumerIds(config.MCP_STAFF_OIDC_SUBS);
+      const oidcSub = getCurrentRequestContext()?.identity.oidcSub;
+      const audience = audienceForPrincipal(
+        { consumerId: resolution.profile.id, oidcSub },
+        staffIds,
+        staffOidc
+      );
       if (governanceEnabled() && !isActionAllowed(resolution.profile, 'ops_ask')) {
         const payload = {
           isError: true,
           status: 'action_denied',
           error: actionDeniedMessage('ops_ask', resolution.profile.id),
         };
+        getEffectLedger(config.MCP_EFFECT_LEDGER_PATH).append({
+          at: new Date().toISOString(),
+          consumer_id: resolution.profile.id,
+          job: jobRaw,
+          effect: `${audience}:action_denied`,
+        });
         return {
           content: [{ type: 'text', text: JSON.stringify(payload) }],
           structuredContent: payload,
@@ -109,6 +124,12 @@ export function registerOpsAskTools(
           audience,
           job: jobRaw,
         };
+        getEffectLedger(config.MCP_EFFECT_LEDGER_PATH).append({
+          at: new Date().toISOString(),
+          consumer_id: resolution.profile.id,
+          job: jobRaw,
+          effect: `${audience}:job_denied`,
+        });
         return {
           content: [{ type: 'text', text: JSON.stringify(payload) }],
           structuredContent: payload,
@@ -126,16 +147,21 @@ export function registerOpsAskTools(
       );
 
       const clientid = typeof params.clientid === 'number' ? params.clientid : undefined;
+      const at = new Date().toISOString();
       getReadAuditLog(config.MCP_READ_AUDIT_PATH).append({
-        at: new Date().toISOString(),
+        at,
         consumer_id: resolution.profile.id,
         job: jobRaw,
         ...(clientid === undefined ? {} : { clientid }),
       });
 
+      const origin =
+        typeof config.WHMCS_API_URL === 'string' && config.WHMCS_API_URL.trim() !== ''
+          ? originFromApiUrl(config.WHMCS_API_URL)
+          : undefined;
       const payload =
         audience === 'customer'
-          ? customerDoorResult(jobRaw)
+          ? customerDoorResult(jobRaw, { origin })
           : await runStaffJob({
               job: jobRaw,
               whmcs,
@@ -149,6 +175,14 @@ export function registerOpsAskTools(
         audience,
         ...payload,
       };
+      const effectStatus = typeof payload.status === 'string' ? payload.status : 'ok';
+      getEffectLedger(config.MCP_EFFECT_LEDGER_PATH).append({
+        at,
+        consumer_id: resolution.profile.id,
+        job: jobRaw,
+        ...(clientid === undefined ? {} : { clientid }),
+        effect: `${audience}:${effectStatus}`,
+      });
       log.logToolResult('ops_ask', true, Date.now() - t0);
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
@@ -176,7 +210,7 @@ export function registerOpsAskTools(
     'ops_ask',
     {
       description:
-        'Staff-first WHMCS 8.13.7 jobs (morning digest, overdue, ticket inbox, billing card, GDPR export). Audience comes from the consumer allow-list, not the prompt. Customer door is link/handoff until a user-delegated API is proven.',
+        'Staff-first WHMCS 8.13.7 jobs (morning digest, overdue, ticket inbox, billing card, GDPR export). Audience comes from the staff consumer/OIDC allow-lists, not the prompt. Customer door is OIDC link/handoff until a user-delegated API is proven.',
       inputSchema: { ...schema.shape, ...AUTH_SHAPE },
       outputSchema: OPS_ASK_OUTPUT,
       annotations: READ_ONLY_ANNOTATIONS,

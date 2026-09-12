@@ -7,8 +7,11 @@ vi.mock('../../src/config.js', () => ({
     MCP_GOVERNANCE_ENABLED: false,
     MCP_TRANSPORT: 'stdio',
     MCP_STAFF_CONSUMER_IDS: 'operator-reconcile',
+    MCP_STAFF_OIDC_SUBS: 'whmcs-user-42',
     MCP_READ_AUDIT_PATH: '',
+    MCP_EFFECT_LEDGER_PATH: '',
     MCP_CUSTOMER_USER_API_PROVEN: false,
+    WHMCS_API_URL: 'https://my.securiace.com',
     MCP_MAX_PAGE_SIZE: 100,
   },
   isToolAllowed: () => true,
@@ -99,16 +102,32 @@ describe('ops_ask tool', () => {
     expect(res.structuredContent.status).toBe('job_denied');
   });
 
-  it('customer billing_card is link_required', async () => {
+  it('staff via OIDC sub allow-list can run morning_digest', async () => {
+    resolveConsumer.mockReturnValue({
+      ok: true,
+      profile: { id: 'whmcs-user-42', allowedActions: [] },
+    });
+    const { handlers, read } = harness();
+    const res = (await handlers.ops_ask({ job: 'morning_digest' })) as {
+      structuredContent: Record<string, unknown>;
+    };
+    expect(res.structuredContent.audience).toBe('staff');
+    expect(res.structuredContent.job).toBe('morning_digest');
+    expect(read).toHaveBeenCalled();
+  });
+
+  it('customer billing_card is link_required and does not call WHMCS', async () => {
     resolveConsumer.mockReturnValue({
       ok: true,
       profile: { id: 'customer-app', allowedActions: [] },
     });
-    const { handlers } = harness();
-    const res = (await handlers.ops_ask({ job: 'billing_card' })) as {
+    const { handlers, read } = harness();
+    const res = (await handlers.ops_ask({ job: 'billing_card', clientid: 42 })) as {
       structuredContent: Record<string, unknown>;
     };
     expect(res.structuredContent.status).toBe('link_required');
     expect(res.structuredContent.capability_unavailable).toBe(true);
+    expect(res.structuredContent.whatsapp_bind).toBe('outside_this_repo');
+    expect(read).not.toHaveBeenCalled();
   });
 });

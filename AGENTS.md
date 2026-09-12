@@ -86,7 +86,10 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `MCP_CONSUMER_REGISTRY`            | JSON array with `token_sha256` — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md).                                                                          |
 | `MCP_CLIENT_CUSTOM_FIELD_LABELS`   | `id:label` pairs for stable custom-field names in client output.                                                                                                                                          |
 | `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. `MCP_PROD_WRITE_AUTHORIZED_FILE` is the live owner-only JSON allowlist; edit it to change approved actions/scopes without restarting the MCP. |
-| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md). |
+| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. Local escape hatch only (ADR-0002.4). See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md). |
+| `MCP_STAFF_CONSUMER_IDS` / `MCP_STAFF_OIDC_SUBS` | Staff `ops_ask` allow-lists (consumer ids ∪ OIDC `sub`). Empty ⇒ nobody is staff. |
+| `MCP_WHMCS_OIDC_ISSUER`           | WHMCS origin rejected as an MCP Bearer issuer (defaults to `WHMCS_API_URL` origin). |
+| `MCP_EFFECT_LEDGER_PATH`          | JSONL `{at,consumer_id,job,clientid,effect}` — no payloads or tokens. |
 | `WHMCS_HEAL_EXTRA_IPS`            | Comma-separated extra IPs (e.g. Grok Bot egress) always included in IP allowlist heal. |
 
 ## Scripts & verification

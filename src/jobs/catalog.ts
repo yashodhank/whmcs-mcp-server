@@ -1,7 +1,7 @@
 /**
  * ops_ask job catalog for WHMCS 8.13.7.
  *
- * Audience is derived from the consumer allow-list, never from the model.
+ * Audience is derived from the staff consumer/OIDC allow-lists, never from the model.
  * Customer jobs stay link/handoff until a user-delegated API is proven.
  */
 

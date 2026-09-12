@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + CI merge gate)
+Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / RS)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -30,7 +30,9 @@ governance layer; it is not a second CRM, billing database, or source of truth.
 **Production WHMCS baseline is 8.13.7.** Jobs, OIDC, and the Admin External API
 are designed for 8.13. Do not require 9.x credit/debit notes, invoice
 immutability, or Buy Flow REST. See
-[docs/design/adr/0001-whmcs-8137-mcp-baseline.md](design/adr/0001-whmcs-8137-mcp-baseline.md).
+[docs/design/adr/0001-whmcs-8137-mcp-baseline.md](design/adr/0001-whmcs-8137-mcp-baseline.md)
+and
+[docs/design/adr/0002-mcp-rs-whmcs-oidc.md](design/adr/0002-mcp-rs-whmcs-oidc.md).
 
 ## What it does and why it exists
 
@@ -114,10 +116,16 @@ Interactive OAuth and role probes stay `PENDING` with an owner.
 | OIDC discovery `/oauth/openid-configuration.php` | **200** — issuer `https://my.securiace.com`; authorize/token/userinfo/jwks; scopes `openid email profile`; `id_token_signing_alg` `RS256`; claims `iss aud exp sub` | verified this run |
 | `/.well-known/openid-configuration` | **404** | verified this run (rewrite not installed) |
 | JWKS `/oauth/certs.php` | `{ "keys": [] }` | verified this run — **PENDING** operator to publish signing keys |
-| ID token `aud` | WHMCS OAuth client id (official 8.13 docs), not `MCP_OAUTH_RESOURCE` | forces federation / RFC 8693 |
+| ID token `aud` | WHMCS OAuth client id (official 8.13 docs), not `MCP_OAUTH_RESOURCE` | forces federation (chosen) / RFC 8693 (alternate) |
+| Access token type (JWT vs opaque) | not captured (no auth-code + PKCE in this environment) | **PENDING** — operator + throwaway OpenID app; do not guess in code |
+| ID token vs access token | Official 8.13 docs: code exchange returns access token + ID token (JWT, RS256). Live claims (`sub`, `aud`, `email`) not captured | ID token shape accepted as documented; live claims **PENDING** PKCE |
+| `clientarea:*` | Official 8.13 **SSO Client Area destinations** (profile/invoices/tickets/sso/…). Not proven as External API grants | accepted; customer door stays link/handoff |
 | Auth-code + PKCE / userinfo-with-token | not run (no throwaway OpenID app) | **PENDING** — operator + human login |
-| `tbloauthserver_scopes` / user token vs admin `api.php` | not run | **PENDING** — go/no-go for customer door |
+| `tbloauthserver_scopes` / user token vs admin `api.php` | not run | **PENDING** — go/no-go for customer door; do not treat a user token as an Admin API credential |
 | User-delegated invoice/ticket API | unproven | customer `ops_ask` jobs stay link/handoff |
+| Federation vs RFC 8693 | **Federation chosen** (operator-run AS mints `aud`=`MCP_OAUTH_RESOURCE`). RFC 8693 is the documented alternate. Raw WHMCS Bearer on MCP is rejected (`whmcs_token_not_mcp_audience`) | accepted ADR-0002.3 |
+| Staff without an OIDC user | Admin API machine credential + `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS` | accepted |
+| CIMD vs pre-registered Grok client | CIMD remains future (`oauth.md` phase 4); pre-register Grok at the federation AS | accepted until probe |
 | Buy Flow REST | not on 8.13.7 | do not probe |
 | Writes (`UpdateInvoice`, `MergeTicket`) | not executed | do not execute on prod |
 
@@ -128,18 +136,27 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
 
 - `ops_ask` — staff jobs (`morning_digest`, `overdue_digest`, `ticket_inbox`,
   `next_best_action`, `close_pack`, `system_health`, `draft_work`,
-  `billing_card`, `gdpr_export_pack`). Audience from `MCP_STAFF_CONSUMER_IDS`,
-  never from the model. Ticket inbox does **not** use `GetTickets`+`clientid`.
-- Customer jobs return `link_required` until Phase 0 proves a user-delegated API
-  (`MCP_CUSTOMER_USER_API_PROVEN` stays false).
+  `billing_card`, `gdpr_export_pack`). Audience from
+  `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS`, never from the model.
+  Ticket inbox does **not** use `GetTickets`+`clientid`. Staff `billing_card`
+  / `gdpr_export_pack` include GST/TDS **identity** fields (`tax_id`, country);
+  amounts are not computed.
+- Customer jobs return `link_required` plus OIDC authorize/PKCE instructions
+  and the official `clientarea:*` vocabulary until Phase 0 proves a
+  user-delegated API (`MCP_CUSTOMER_USER_API_PROVEN` stays false).
 - `mcp_doctor` — version family, OIDC discovery, API-role probes, OAuth RS
-  config, empty `allowedActions`, staff allow-list.
+  config, empty `allowedActions`, staff consumer/OIDC allow-lists, federation
+  required, WHMCS-origin issuer warning.
 - `grok_channel_safe` contract — WhatsApp-safe projection.
 - Non-empty `allowedActions` are enforced on governed lists/aggregators and
   `ops_ask`. Empty list remains unrestricted (legacy); doctor warns.
 - Production `logToolCall` logs tool + business ids only.
 - `MCP_READ_AUDIT_PATH` JSONL `{at, consumer_id, job, clientid}` — no payload.
+- `MCP_EFFECT_LEDGER_PATH` JSONL `{at, consumer_id, job, clientid, effect}` —
+  no payload.
 - `MCP_WRITE_INTENT_STORE_PATH` optional durable intent snapshot.
+- WhatsApp bind/refresh lives **outside** this repo
+  ([whatsapp-bind-outside-mcp.md](runbooks/whatsapp-bind-outside-mcp.md)).
 - Credit-note reads stay unverified / 9.x-only.
 
 ### NEXUS-Sprint operator model (2026-09)
@@ -568,6 +585,7 @@ gap from memory.
 - [`docs/design/architecture.md`](design/architecture.md) — implementation architecture.
 - [`docs/design/governance.md`](design/governance.md) — consumer projection and contracts.
 - [`docs/design/adr/0001-whmcs-8137-mcp-baseline.md`](design/adr/0001-whmcs-8137-mcp-baseline.md) — 8.13.7 job/OIDC ADRs.
+- [`docs/design/adr/0002-mcp-rs-whmcs-oidc.md`](design/adr/0002-mcp-rs-whmcs-oidc.md) — MCP HTTP=RS, federation, staff allow-list, no ValidateLogin.
 - [`docs/design/capability-catalog.md`](design/capability-catalog.md) — typed catalog, evidence, discovery, and migration rules.
 - [`docs/design/controlled-writes-phase-f.md`](design/controlled-writes-phase-f.md) — write-flow design.
 - [`docs/runbooks/ai-agent-local.md`](runbooks/ai-agent-local.md) — local operator troubleshooting.

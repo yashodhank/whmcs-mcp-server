@@ -34,10 +34,13 @@ executionGate,idempotency,audit,intents}.ts` + `src/tools/writeFlow.ts`.
   (auto-approve low/med; high routes to the explicit ceremony). PCI PAN input
   guard (`assertNoPAN`) + optional MCP Elicitation inline-confirm (medium) in
   the write-flow wrapper.
-- **8.13.7 jobs**: `ops_ask` (staff Admin API jobs; customer door is
-  link/handoff) and `mcp_doctor`. Audience from `MCP_STAFF_CONSUMER_IDS`, never
-  the model. Ledger is invoices + transactions + client credit — not 9.x notes.
-  Identity uses `GetClients` / `GetClientsDetails`, never `GetUsers`.
+- **8.13.7 jobs**: `ops_ask` (staff Admin API jobs; customer door is OIDC
+  link/handoff + `clientarea:*` vocabulary) and `mcp_doctor`. Audience from
+  `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS`, never the model. Ledger is
+  invoices + transactions + client credit — not 9.x notes. Identity uses
+  `GetClients` / `GetClientsDetails`, never `GetUsers`. WHMCS tokens are not
+  MCP Bearers (federation AS; ADR-0002). Effect ledger:
+  `MCP_EFFECT_LEDGER_PATH`.
 - **MCP surface extras**: Prompts (`src/prompts/whmcsPrompts.ts`), resource
   templates + arg completions (`src/resources/`), logging utility
   (`src/mcpLogging.ts`), progress notifications on heavy aggregators.

@@ -13,6 +13,8 @@ import {
   type PrincipalResolution,
 } from '../identity/resolvePrincipal.js';
 import type { OpsJob } from './catalog.js';
+import { clientareaScopeCatalog, OIDC_SCOPES } from '../identity/clientareaScopes.js';
+import { taxFieldsFromClientDetails } from './taxFields.js';
 
 export const TICKET_INBOX_NOTE =
   'Global inbox uses GetTickets without clientid (status Awaiting Reply / All Active Tickets). GetTickets+clientid misses admin-created tickets; use get_ticket_thread for a known tid.';
@@ -129,7 +131,28 @@ async function fetchTransactions(
   return rows(raw.transactions, 'transaction').map(mapTransaction);
 }
 
-export function customerDoorResult(job: OpsJob): Record<string, unknown> {
+export interface CustomerDoorOpts {
+  readonly origin?: string;
+}
+
+function oidcLinkBlock(origin?: string): Record<string, unknown> {
+  const base =
+    origin !== undefined && origin.trim() !== '' ? origin.replace(/\/+$/, '') : undefined;
+  return {
+    discovery:
+      base === undefined
+        ? '/oauth/openid-configuration.php'
+        : `${base}/oauth/openid-configuration.php`,
+    authorize: base === undefined ? '/oauth/authorize.php' : `${base}/oauth/authorize.php`,
+    scopes: [...OIDC_SCOPES],
+    response_type: 'code',
+    pkce: 'required',
+    user_agent: 'browser_not_whatsapp',
+    note: 'WHMCS tokens are not MCP Bearer tokens. A federation AS must mint aud=MCP_OAUTH_RESOURCE (ADR-0002.3).',
+  };
+}
+
+export function customerDoorResult(job: OpsJob, opts?: CustomerDoorOpts): Record<string, unknown> {
   return {
     job,
     audience: 'customer',
@@ -138,10 +161,13 @@ export function customerDoorResult(job: OpsJob): Record<string, unknown> {
     action: 'user_delegated_api',
     reason: 'user_delegated_api_unproven_on_8_13_7',
     guidance: CUSTOMER_DOOR_UNPROVEN,
+    oidc_link: oidcLinkBlock(opts?.origin),
+    clientarea_scopes: clientareaScopeCatalog(),
+    whatsapp_bind: 'outside_this_repo',
     next_step:
       job === 'handoff_pack'
-        ? 'Open the WHMCS Client Area in a browser to complete OpenID link (openid profile email). Staff can finish the request via ops_ask staff jobs.'
-        : 'Complete WHMCS OIDC link in the browser, or ask staff to run the equivalent staff job.',
+        ? 'Open the WHMCS Client Area in a browser to complete OpenID link (openid profile email + PKCE). Staff can finish the request via ops_ask staff jobs.'
+        : 'Complete WHMCS OIDC link in the browser (authorization code + PKCE), or ask staff to run the equivalent staff job.',
   };
 }
 
@@ -294,6 +320,7 @@ export async function runStaffJob(args: {
       recent_transactions: transactions,
       recent_credits: credits,
       ledger: 'invoices_transactions_client_credit',
+      tax: taxFieldsFromClientDetails(details),
       credit_notes: CREDIT_NOTE_NOTE,
       partial_errors: errs,
     };
@@ -434,6 +461,7 @@ export async function runStaffJob(args: {
         company: str(details, 'companyname'),
         status: str(details, 'status'),
       },
+      tax: taxFieldsFromClientDetails(details),
       invoices,
       tickets: { items: tickets, note: TICKET_INBOX_NOTE },
       activity_count: activity.length,

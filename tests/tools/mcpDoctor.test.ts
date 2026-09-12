@@ -8,7 +8,10 @@ vi.mock('../../src/config.js', () => ({
     MCP_OAUTH_RESOURCE: undefined,
     MCP_OAUTH_ISSUERS: [],
     MCP_STAFF_CONSUMER_IDS: '',
+    MCP_STAFF_OIDC_SUBS: '',
+    MCP_WHMCS_OIDC_ISSUER: undefined,
     MCP_READ_AUDIT_PATH: '',
+    MCP_EFFECT_LEDGER_PATH: '',
     MCP_WRITE_INTENT_STORE_PATH: '',
     MCP_CUSTOMER_USER_API_PROVEN: false,
   },
@@ -107,6 +110,8 @@ describe('mcp_doctor', () => {
     expect((sc.oidc as { jwks: { key_count: number } }).jwks.key_count).toBe(0);
     expect((sc.warnings as string[]).some((w) => w.includes('JWKS'))).toBe(true);
     expect((sc.warnings as string[]).some((w) => w.includes('MCP_STAFF_CONSUMER_IDS'))).toBe(true);
+    expect((sc.oauth_rs as { federation: string }).federation).toBe('required');
+    expect((sc.oauth_rs as { whmcs_issuer_rejected: boolean }).whmcs_issuer_rejected).toBe(true);
     expect(sc.empty_allowed_actions).toEqual(['wide']);
   });
 });

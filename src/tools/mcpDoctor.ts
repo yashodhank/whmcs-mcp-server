@@ -10,7 +10,7 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { WhmcsClient } from '../whmcs/WhmcsClient.js';
 import { Logger } from '../logging.js';
 import { RateLimiter, RateLimitError } from '../rateLimiter.js';
-import { config, getWhmcsApiEndpoint, isToolAllowed, resolveWhmcsApiEndpoint } from '../config.js';
+import { config, getWhmcsApiEndpoint, isToolAllowed } from '../config.js';
 import { AUTH_SHAPE, ensureToolAuth } from '../security.js';
 import { READ_ONLY_ANNOTATIONS } from './listTools.js';
 import { getWhmcsVersionProfile } from '../whmcs/versionProfile.js';
@@ -18,6 +18,11 @@ import { getCapability } from '../governance/capabilities.js';
 import { getConsumerRegistry } from '../governance/pipeline.js';
 import { hasStdioDefaultToken } from '../auth/trustedStdioDefault.js';
 import { parseStaffConsumerIds } from '../auth/audience.js';
+import {
+  collectForbiddenWhmcsIssuers,
+  oauthIssuersIncludeWhmcs,
+  originFromApiUrl,
+} from '../auth/whmcsIssuer.js';
 
 const DOCTOR_OUTPUT = z
   .object({
@@ -29,7 +34,7 @@ const DOCTOR_OUTPUT = z
   .catchall(z.unknown());
 
 function whmcsOrigin(apiUrl: string): string {
-  return resolveWhmcsApiEndpoint(apiUrl).replace(/\/includes\/api\.php$/i, '');
+  return originFromApiUrl(apiUrl);
 }
 
 async function fetchJson(
@@ -104,6 +109,15 @@ export function registerMcpDoctorTools(
 
       const usersCap = getCapability('GetUsers');
       const staffIds = [...parseStaffConsumerIds(config.MCP_STAFF_CONSUMER_IDS)];
+      const staffOidcSubs = [...parseStaffConsumerIds(config.MCP_STAFF_OIDC_SUBS)];
+      const forbiddenIssuers = collectForbiddenWhmcsIssuers({
+        apiUrl: config.WHMCS_API_URL,
+        oidcIssuer: config.MCP_WHMCS_OIDC_ISSUER,
+      });
+      const issuersIncludeWhmcs = oauthIssuersIncludeWhmcs(
+        config.MCP_OAUTH_ISSUERS,
+        forbiddenIssuers
+      );
       const registry = getConsumerRegistry();
       const emptyAllowedActions = registry
         .filter((c) => !c.anonymous && c.allowedActions.length === 0)
@@ -128,8 +142,15 @@ export function registerMcpDoctorTools(
           'MCP_DEFAULT_CONSUMER_AUTH_TOKEN is set — local stdio escape hatch only, not production Grok identity'
         );
       }
-      if (staffIds.length === 0) {
-        warnings.push('MCP_STAFF_CONSUMER_IDS is empty — no consumer can run staff ops_ask jobs');
+      if (staffIds.length === 0 && staffOidcSubs.length === 0) {
+        warnings.push(
+          'MCP_STAFF_CONSUMER_IDS and MCP_STAFF_OIDC_SUBS are empty — no principal can run staff ops_ask jobs'
+        );
+      }
+      if (issuersIncludeWhmcs) {
+        warnings.push(
+          'MCP_OAUTH_ISSUERS includes the WHMCS origin — WHMCS tokens are not MCP-audience tokens (ADR-0002). Use a federation AS.'
+        );
       }
       if (emptyAllowedActions.length > 0) {
         warnings.push(
@@ -179,12 +200,21 @@ export function registerMcpDoctorTools(
           enabled: config.MCP_OAUTH_ENABLED,
           resource_configured: config.MCP_OAUTH_RESOURCE !== undefined,
           issuer_count: config.MCP_OAUTH_ISSUERS.length,
-          note: 'WHMCS ID token aud is the WHMCS OAuth client id, not MCP_OAUTH_RESOURCE. Federation or RFC 8693 is required.',
+          federation: 'required',
+          whmcs_issuer_rejected: true,
+          issuers_include_whmcs_origin: issuersIncludeWhmcs,
+          note: 'WHMCS ID token aud is the WHMCS OAuth client id, not MCP_OAUTH_RESOURCE. Federation is the chosen pattern (ADR-0002.3); RFC 8693 is the alternate. Raw WHMCS Bearer tokens are rejected.',
         },
         staff_consumer_ids: staffIds,
+        staff_oidc_subs: staffOidcSubs,
         customer_user_api_proven: config.MCP_CUSTOMER_USER_API_PROVEN,
         stdio_default_token: hasStdioDefaultToken(),
-        read_audit_configured: config.MCP_READ_AUDIT_PATH.trim() !== '',
+        read_audit_configured:
+          typeof config.MCP_READ_AUDIT_PATH === 'string' &&
+          config.MCP_READ_AUDIT_PATH.trim() !== '',
+        effect_ledger_configured:
+          typeof config.MCP_EFFECT_LEDGER_PATH === 'string' &&
+          config.MCP_EFFECT_LEDGER_PATH.trim() !== '',
         intent_store_configured: config.MCP_WRITE_INTENT_STORE_PATH.trim() !== '',
         empty_allowed_actions: emptyAllowedActions,
         warnings,
@@ -217,7 +247,7 @@ export function registerMcpDoctorTools(
     'mcp_doctor',
     {
       description:
-        'Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS config, staff allow-list, allowedActions gaps.',
+        'Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS config, staff consumer/OIDC allow-lists, allowedActions gaps.',
       inputSchema: { ...z.object({}).shape, ...AUTH_SHAPE },
       outputSchema: DOCTOR_OUTPUT,
       annotations: READ_ONLY_ANNOTATIONS,

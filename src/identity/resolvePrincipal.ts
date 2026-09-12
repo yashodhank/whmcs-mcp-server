@@ -68,6 +68,11 @@ export async function resolvePrincipal(
   whmcs: WhmcsClient,
   input: { email?: string; clientid?: number }
 ): Promise<PrincipalResolution> {
+  const email = input.email?.trim();
+  if (email !== undefined && email !== '') {
+    return resolveByEmail(whmcs, email);
+  }
+
   if (input.clientid !== undefined) {
     const details = asRecord(
       await whmcs.read('GetClientsDetails', { clientid: input.clientid, stats: false })
@@ -76,7 +81,7 @@ export async function resolvePrincipal(
     const fromUsers = clientsFromDetailsUsers(details);
     const clients = fromUsers.length > 0 ? fromUsers : mapped !== undefined ? [mapped] : [];
     return {
-      email: input.email ?? str(details, 'email'),
+      email: str(details, 'email'),
       source: 'clientid',
       clients,
       picker_required: clients.length !== 1,
@@ -85,17 +90,16 @@ export async function resolvePrincipal(
     };
   }
 
-  const email = input.email?.trim();
-  if (email === undefined || email === '') {
-    return {
-      source: 'get_clients_search',
-      clients: [],
-      picker_required: true,
-      get_users: 'not_used',
-      note: GET_USERS_NOTE,
-    };
-  }
+  return {
+    source: 'get_clients_search',
+    clients: [],
+    picker_required: true,
+    get_users: 'not_used',
+    note: GET_USERS_NOTE,
+  };
+}
 
+async function resolveByEmail(whmcs: WhmcsClient, email: string): Promise<PrincipalResolution> {
   try {
     const details = asRecord(await whmcs.read('GetClientsDetails', { email, stats: false }));
     const fromUsers = clientsFromDetailsUsers(details);

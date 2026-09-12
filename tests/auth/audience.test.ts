@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { audienceForConsumer, parseStaffConsumerIds } from '../../src/auth/audience.js';
+import {
+  audienceForConsumer,
+  audienceForPrincipal,
+  parseStaffConsumerIds,
+} from '../../src/auth/audience.js';
 
 describe('audienceForConsumer', () => {
   it('fail-closed: empty allow-list is never staff', () => {
@@ -11,5 +15,24 @@ describe('audienceForConsumer', () => {
     const ids = parseStaffConsumerIds('operator-reconcile, billing_app');
     expect(audienceForConsumer('operator-reconcile', ids)).toBe('staff');
     expect(audienceForConsumer('llm_chat', ids)).toBe('customer');
+  });
+});
+
+describe('audienceForPrincipal', () => {
+  it('staff via OIDC sub even when consumer id is not listed', () => {
+    const consumers = parseStaffConsumerIds('');
+    const subs = parseStaffConsumerIds('whmcs-user-42');
+    expect(
+      audienceForPrincipal({ consumerId: 'grok-client', oidcSub: 'whmcs-user-42' }, consumers, subs)
+    ).toBe('staff');
+    expect(
+      audienceForPrincipal({ consumerId: 'grok-client', oidcSub: 'other' }, consumers, subs)
+    ).toBe('customer');
+  });
+
+  it('never takes audience from a caller-supplied field — only listed ids/subs', () => {
+    expect(
+      audienceForPrincipal({ consumerId: 'staff', oidcSub: 'staff' }, new Set(), new Set())
+    ).toBe('customer');
   });
 });

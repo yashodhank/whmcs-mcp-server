@@ -31,6 +31,10 @@ on this install. Grok/WhatsApp identity must not be a shared stdio token.
    production Grok identity.
 10. Credit-note reads stay unverified and 9.x-only.
 
+Token, transport, and door rules are frozen in
+[ADR-0002](0002-mcp-rs-whmcs-oidc.md) (MCP HTTP=RS, federation chosen, staff
+allow-list, no `ValidateLogin`).
+
 ## Consequences
 
 - `ops_ask` staff jobs use invoices + transactions + client credit.

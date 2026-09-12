@@ -236,4 +236,19 @@ describe('createTokenVerifier', () => {
       createTokenVerifier({ issuers: [ISSUER], audience: '', jwksResolver: localResolver })
     ).toThrow(/audience/);
   });
+
+  it('rejects a WHMCS-issuer token even when that issuer is listed as allowed', async () => {
+    const whmcsIss = 'https://my.securiace.com';
+    const verifier = makeVerifier({
+      issuers: [whmcsIss],
+      forbiddenIssuers: [whmcsIss],
+    });
+    const token = await sign({ iss: whmcsIss, aud: AUDIENCE });
+
+    const res = await verifier.verify(token);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('whmcs_token_not_mcp_audience');
+    expect(res.reason).not.toContain(token);
+  });
 });

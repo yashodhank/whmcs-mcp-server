@@ -48,6 +48,7 @@ import {
   wwwAuthenticateValue,
 } from '../auth/protectedResourceMetadata.js';
 import { createTokenVerifier, type TokenVerifier } from '../auth/tokenVerifier.js';
+import { collectForbiddenWhmcsIssuers } from '../auth/whmcsIssuer.js';
 import { consumerFromClaims, consumerScopes } from '../auth/consumerBridge.js';
 import {
   requiredScopeForRead,
@@ -195,7 +196,14 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
         'MCP_OAUTH_ENABLED requires MCP_OAUTH_RESOURCE, MCP_OAUTH_AUDIENCE (or RESOURCE), and MCP_OAUTH_ISSUERS'
       );
     }
-    verifier = createTokenVerifier({ issuers, audience });
+    verifier = createTokenVerifier({
+      issuers,
+      audience,
+      forbiddenIssuers: collectForbiddenWhmcsIssuers({
+        apiUrl: config.WHMCS_API_URL,
+        oidcIssuer: config.MCP_WHMCS_OIDC_ISSUER,
+      }),
+    });
     prmUrl = `${resource.replace(/\/+$/, '')}${PRM_PATH}`;
     prmConfig = {
       resource,
@@ -280,6 +288,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
     const token = extractBearerToken(req.headers.authorization);
     let profile: ConsumerProfile;
     let grantedScopes: string[] = [];
+    let oidcSub: string | undefined;
     if (oauthEnabled) {
       if (token === undefined) {
         writeJsonRpcError(res, 401, -32001, 'Unauthorized', {
@@ -306,6 +315,9 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
       }
       profile = mapped;
       grantedScopes = consumerScopes(vr.claims);
+      if (typeof vr.claims.sub === 'string' && vr.claims.sub.length > 0) {
+        oidcSub = vr.claims.sub;
+      }
     } else {
       const decision = resolveConsumer(token, env, registry, { allowAnon: false });
       if (!decision.ok) {
@@ -350,6 +362,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
         profile,
         scopes: grantedScopes,
         authMode: oauthEnabled ? 'oauth' : 'registry',
+        ...(oidcSub === undefined ? {} : { oidcSub }),
       }))
     ) {
       return;

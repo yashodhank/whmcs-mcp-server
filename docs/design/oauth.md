@@ -83,8 +83,11 @@ header token; this swaps the resolution source.
 2. ✅ PRM endpoint + JWKS token validation + `aud` check + `WWW-Authenticate`
    (HTTP OAuth mode). A WHMCS access/ID token **MUST NOT** be presented as the
    MCP Bearer: 8.13 ID token `aud` is the WHMCS OAuth client id, `iss` is the
-   WHMCS System URL. Federation or RFC 8693 is required so MCP tokens have
-   `aud` = `MCP_OAUTH_RESOURCE`.
+   WHMCS System URL. **Federation is the chosen pattern** (ADR-0002.3): an
+   operator-run AS mints `aud` = `MCP_OAUTH_RESOURCE`. RFC 8693 is the
+   documented alternate. The verifier rejects WHMCS-origin `iss`
+   (`whmcs_token_not_mcp_audience`) even if that origin is listed in
+   `MCP_OAUTH_ISSUERS`.
 3. Scope vocabulary + per-tool scope enforcement at the gate (coarse
    `whmcs:read` / write tiers exist; field-class mapping is still in-house).
 4. CIMD + incremental consent + step-up for high-risk writes.

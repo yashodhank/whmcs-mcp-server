@@ -159,8 +159,26 @@ describe('MCP v2 stateless dual-era runtime', () => {
       capabilityActionGrants: [],
       authMode: 'oauth',
     });
+    expect(context.identity.oidcSub).toBeUndefined();
     controller.abort();
     expect(context.signal.aborted).toBe(true);
+  });
+
+  it('surfaces OIDC sub from transport extra (never from the tool body)', () => {
+    const controller = new AbortController();
+    const context = createRequestContext({
+      era: 'modern',
+      requestInfo: new Request('http://localhost/mcp', { signal: controller.signal }),
+      authInfo: {
+        token: 'not-logged',
+        clientId: 'grok-client',
+        scopes: ['whmcs:read'],
+        extra: { authMode: 'oauth', oidcSub: 'whmcs-user-42' },
+      },
+    });
+    expect(context.identity.oidcSub).toBe('whmcs-user-42');
+    expect(context.identity.consumerId).toBe('grok-client');
+    controller.abort();
   });
 
   // prettier-ignore

@@ -163,11 +163,13 @@ current production. Version-family fork stays in `versionProfile` /
 `GetClientsDetails` (GetUsers stays off the read allowlist). Never guess
 `clientid` when multiple clients match.
 
-**Audience:** Staff is `MCP_STAFF_CONSUMER_IDS`. Customer OIDC must not grant
-staff jobs. `clientarea:*` SSO destinations are not proven API grants on this
-install.
+**Audience:** Staff is `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS`.
+Customer OIDC must not grant staff jobs. `clientarea:*` SSO destinations are
+not proven API grants on this install.
 
 **Tokens:** WHMCS tokens are minted for WHMCS, not `MCP_OAUTH_RESOURCE`.
-Federation or RFC 8693 is required for HTTP Grok.
+**Federation is the chosen pattern** (ADR-0002.3); RFC 8693 is the alternate.
+Raw WHMCS Bearer tokens on MCP are rejected (`whmcs_token_not_mcp_audience`).
 
-**Files:** `docs/design/adr/0001-whmcs-8137-mcp-baseline.md`.
+**Files:** `docs/design/adr/0001-whmcs-8137-mcp-baseline.md`,
+`docs/design/adr/0002-mcp-rs-whmcs-oidc.md`.

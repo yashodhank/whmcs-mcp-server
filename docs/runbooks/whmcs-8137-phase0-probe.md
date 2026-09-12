@@ -34,4 +34,7 @@ Requires `WHMCS_API_URL`, `WHMCS_IDENTIFIER`, `WHMCS_SECRET`. Records version,
 authorization-code login and does not call write actions.
 
 Copy facts into [OPERATIONS-HANDOFF.md](../OPERATIONS-HANDOFF.md). Unknowns stay
-`PENDING` with an owner — do not guess token shape.
+`PENDING` with an owner — do not guess token shape (JWT vs opaque access
+token is still **PENDING**). Federation is the chosen MCP-audience pattern
+([ADR-0002](../design/adr/0002-mcp-rs-whmcs-oidc.md)); do not accept a raw
+WHMCS Bearer on the MCP HTTP resource server.
