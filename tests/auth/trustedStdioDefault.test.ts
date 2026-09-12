@@ -10,7 +10,7 @@
  *  - hasStdioDefaultToken reports accurately
  */
 
-import { writeFileSync, mkdirSync, unlinkSync, chmodSync } from 'node:fs';
+import { writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
