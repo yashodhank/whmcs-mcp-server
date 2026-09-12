@@ -117,6 +117,13 @@ describe('mcp_doctor', () => {
     expect((sc.oauth_rs as { federation: string }).federation).toBe('required');
     expect((sc.oauth_rs as { whmcs_issuer_rejected: boolean }).whmcs_issuer_rejected).toBe(true);
     expect(sc.empty_allowed_actions).toEqual(['wide']);
+    expect(
+      (sc.grok_write as { order_accept: { autosetup_default: boolean } }).order_accept
+        .autosetup_default
+    ).toBe(false);
+    expect(
+      (sc.grok_write as { package_change: { set_local_pid: string } }).package_change.set_local_pid
+    ).toBe('service:product:set');
   });
 
   it('warns when MCP_OAUTH_ISSUERS includes the WHMCS origin', async () => {

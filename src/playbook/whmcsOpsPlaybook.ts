@@ -1,140 +1,98 @@
 /**
  * WHMCS Ops Playbook
  *
- * Provides behavioral guidance for AI agents interacting with WHMCS.
- * Exposed as an MCP resource at whmcs://docs/ops-playbook
+ * Behavioral guidance for Grok / staff agents. Exposed at whmcs://docs/ops-playbook.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Logger } from '../logging.js';
 import { stripAuthFromUri } from '../security.js';
 
-/**
- * The WHMCS Operations Playbook content
- * This is injected into the LLM context to guide proper tool usage
- */
 export const WHMCS_OPS_PLAYBOOK = `
-# WHMCS Operations Playbook
+# WHMCS Operations Playbook (Grok / staff)
 
-This playbook provides guidelines for AI agents administering WHMCS installations.
+This MCP talks to WHMCS **8.13.7**. Prefer jobs over raw tools. Do not invent
+OAuth, WhatsApp, or Admin API impersonation.
 
-## What This MCP Knows
+## First tools
 
-This MCP is connected directly to WHMCS **8.13.7** (billing, clients, services, domains, tickets).
-Prefer \`ops_ask\` jobs for Grok/staff shift work. Use read-only list tools for reports; prefer \`list_invoices\` and \`list_services\` for
-cross-client revenue and paying-client questions.
+1. \`ops_ask\` — staff shift jobs (\`morning_digest\`, \`overdue_digest\`,
+   \`ticket_inbox\`, \`next_best_action\`, \`billing_card\`, \`close_pack\`,
+   \`system_health\`, \`draft_work\`, \`gdpr_export_pack\`). Audience comes from
+   the staff allow-list, never from the prompt.
+2. \`mcp_doctor\` — version, OIDC, API role, OAuth RS, **Grok write posture**.
+3. List tools for reports: \`list_invoices\`, \`list_services\`,
+   \`list_client_tickets\`, \`get_ticket_thread\`.
 
-## Reporting Patterns
+Customer-door jobs stay link/handoff until a user-delegated API is proven.
+Do not present a WHMCS token as the MCP Bearer. No \`ValidateLogin\`, no
+passwords in chat, no \`CreateOAuthCredential\`.
 
-- For revenue / highest-return clients: \`list_invoices\` with \`status='Paid'\`,
-  \`datepaid_from\`/\`datepaid_to\`, a large enough \`scan_limit\`, then group by
-  \`clientid\` and sum \`total\`.
-- For unpaid or overdue billing: \`list_invoices\` with \`status='Unpaid'\` or
-  \`status='Overdue'\` (or \`duedate_to\` on Unpaid).
-- For currently paying clients / active MRR: \`list_services\` with \`status='Active'\`
-  and \`paying_only=true\`; use \`unique_client_count\` for distinct paying clients.
-- Client-scoped lists: \`list_client_invoices\`, \`list_client_services\`, etc.
-- If \`complete_scan=false\`, increase \`scan_limit\` before drawing conclusions.
+## Reporting
 
-## Core Principles
+- Revenue / paid clients: \`list_invoices\` \`status=Paid\` + datepaid range.
+- Unpaid / overdue: \`list_invoices\` \`status=Unpaid|Overdue\`.
+- Paying MRR: \`list_services\` \`status=Active\` \`paying_only=true\`.
+- Tickets: \`list_client_tickets\` + \`get_ticket_thread\`. Staff inbox is
+  \`ops_ask\` \`ticket_inbox\` (do **not** use GetTickets+clientid alone).
 
-### 1. Search Before Creating
-- **Always** use \`search_clients\` before \`create_client\` for the same email
-- This prevents duplicate client accounts
-- Use \`mode: 'reuse_if_exists'\` when appropriate
+## Writes (governed only)
 
-### 2. Fetch Before Modifying
-- Always call \`get_invoice\` before any billing action
-- Verify the current state matches expectations
-- Check invoice status before \`mark_invoice_paid\` or \`record_refund\`
+Use \`draft_write_intent\` → \`validate_write_intent\` → \`approve_write_intent\`
+→ \`execute_write_intent\` (or one-call \`write\` for low/medium). Legacy
+direct tools (\`create_client\`, \`accept_order\`, \`mark_invoice_paid\`,
+\`capture_payment\`, \`suspend_service\`, …) are **retired**.
 
-## Billing Operations
+### Order accept (Grok-safe)
 
-### Refunds
-- Prefer \`record_refund\` with \`refund_type='Credit'\` for most disputes
-- **Important**: This tool ONLY records refunds in WHMCS
-- Gateway refunds (Stripe, PayPal) must be processed manually at the gateway
-- Never refund more than the total paid amount
+\`order:accept\` sends \`autosetup=false\` and \`sendemail=false\` unless you
+explicitly pass \`true\`. Default = accept without ModuleCreate / Welcome Email.
 
-### Payment Capture
-- Only use \`capture_payment\` when:
-  - Invoice status is 'Unpaid'
-  - Balance is greater than 0
-  - User or admin has explicitly requested a charge
-- Avoid repeated capture attempts on the same invoice
+### Package / product / CFs
 
-## Service Operations
+- \`service:product:set\` \`{serviceid, pid}\` — set local product id.
+- \`service:change_package\` \`{serviceid}\` — push current product to the module
+  (cannot pick a package by itself).
+- \`service:customfields:update\` \`{serviceid, customfields:{fieldId:value}}\`
+  — service CFs including a packageId field.
+- \`service:upgrade\` — billed UpgradeProduct (high-risk, distinct approver).
 
-### Suspension vs Termination
-- Prefer governed write-flow scope \`service:suspend\` over \`service:terminate\` when in doubt
-- Direct tools \`suspend_service\` / \`terminate_service\` are **retired**
-- Suspension is reversible; termination is permanent
-- For overdue accounts, suspend first and escalate
+### Ticket merge
 
-### Termination Safety
-- \`service:terminate\` is permanently blocked in the write-flow
-- Check for unpaid invoices before any lifecycle change
-- Consider open support tickets that may relate to billing disputes
+\`ticket:merge\` maps to WHMCS \`MergeTicket\`. Needs API role \`mergeticket\`.
+Do not assume the production role has it — check \`mcp_doctor\`.
 
-## Support Operations
+### Owner transfer / invoice reassign
 
-### Ticket lists
-- Use \`list_client_tickets\` (not \`list_tickets\`) and \`get_ticket_thread\` (not \`get_ticket\`)
-- \`GetTickets\` + \`clientid\` may miss admin-created tickets; staff inbox is \`ops_ask\` job \`ticket_inbox\` (no clientid)
-- Prefer \`ops_ask\` jobs: \`morning_digest\`, \`overdue_digest\`, \`ticket_inbox\`, \`billing_card\`
+\`service:transfer_owner\` and \`billing:invoice:reassign\` need
+\`MCP_WHMCS_DB_*\` (direct DB). High-risk + distinct approver. No grant-only fix.
 
-### Reply Types
-- Use \`type: 'Client'\` for replies visible to the customer
-- Use \`type: 'AdminNote'\` for internal notes (human review)
-- Use \`type: 'AdminPublic'\` for admin replies visible to client
+## Still sealed (do not unseal from chat)
 
-### Escalation Pattern
-For sensitive operations:
-1. Draft response as \`AdminNote\`
-2. Request human review
-3. Wait for approval before sending \`Client\` reply
+- \`service:terminate\` / ModuleTerminate
+- Domain transfer / release
+- \`client:contact:delete\` / DeleteClient
+- High-risk money: distinct **other** approver, not the drafter
 
-## Dangerous Operations
+Operator backups live **outside git** (local secret dir / env backups). Never
+commit \`.env.production\` or consumer tokens.
 
-### Large Transactions
-- For invoices or refunds above normal thresholds:
-  1. Add an \`AdminNote\` explaining the intended action
-  2. Notify human administrator
-  3. Wait for approval before executing
+## Support notes
 
-### Batch Operations
-- Process one item at a time
-- Verify success before proceeding to next
-- Maintain an audit trail
+- Client-visible reply vs \`AdminNote\`.
+- Escalate money / delete / terminate to a human.
 
-## Error Recovery
+## Anti-patterns
 
-### Rate Limit Exceeded
-- Wait before retrying
-- Consider reducing batch sizes
-- Spread operations over time
-
-### WHMCS Business Errors
-- Log the error details
-- Check if the resource state has changed
-- Provide clear error message to user
-
-## Anti-Patterns (What NOT to Do)
-
-❌ Never bypass confirmation on \`service:terminate\` / retired \`terminate_service\`
-❌ Never assume gateway refund when using \`record_refund\`
-❌ Never create duplicate clients without checking first
-❌ Never modify paid invoices without proper justification
-❌ Never ignore rate limit warnings
+- Do not guess \`clientid\` when a user has several clients.
+- Do not run staff jobs as a customer principal.
+- Do not log tokens, PANs, or raw ticket bodies.
+- Do not treat WhatsApp number as identity.
 `;
 
-/**
- * Register the WHMCS Ops Playbook as an MCP resource
- */
 export function registerPlaybookResource(server: McpServer, logger: Logger): void {
   logger.info('Registering WHMCS Ops Playbook resource');
 
-  // Register the playbook as a static resource
   server.resource('ops-playbook', 'whmcs://docs/ops-playbook', (uri) => {
     logger.debug('Fetching ops-playbook resource');
 

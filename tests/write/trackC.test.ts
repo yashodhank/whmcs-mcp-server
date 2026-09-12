@@ -156,16 +156,20 @@ describe('Track C strict mappers', () => {
     });
   });
 
-  it('order:accept emits ONLY {orderid}, drops fraud/provisioning flags', () => {
+  it('order:accept defaults autosetup/sendemail false and drops fraud flags', () => {
     const out = intentToWhmcsParams('order:accept', {
       orderid: 42,
       fraudbypass: true,
-      autosetup: true,
-      sendemail: true,
       serverid: 3,
     });
-    expect(out).toEqual({ orderid: 42 });
+    expect(out).toEqual({ orderid: 42, autosetup: false, sendemail: false });
     expect(out).not.toHaveProperty('fraudbypass');
+  });
+
+  it('order:accept emits true only when the caller explicitly passes true', () => {
+    expect(
+      intentToWhmcsParams('order:accept', { orderid: 42, autosetup: true, sendemail: true })
+    ).toEqual({ orderid: 42, autosetup: true, sendemail: true });
   });
 
   it('client:create passes ONLY allowlisted AddClient fields, drops extras', () => {

@@ -147,6 +147,53 @@ export function assertDomainRenameOutput(out: Record<string, unknown>): void {
   }
 }
 
+class WriteScopeOutputAssertionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WriteScopeOutputAssertionError';
+  }
+}
+
+function assertExactKeys(
+  out: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  required: readonly string[],
+  scope: string
+): void {
+  for (const k of Object.keys(out)) {
+    if (!allowed.has(k)) {
+      throw new WriteScopeOutputAssertionError(
+        `scope-output assertion: unexpected key "${k}" in ${scope} mapper output`
+      );
+    }
+  }
+  for (const k of required) {
+    if (!(k in out)) {
+      throw new WriteScopeOutputAssertionError(
+        `scope-output assertion: missing ${k} in ${scope} mapper output`
+      );
+    }
+  }
+}
+
+export function assertServiceProductSetOutput(out: Record<string, unknown>): void {
+  assertExactKeys(
+    out,
+    new Set(['serviceid', 'pid', 'billingcycle']),
+    ['serviceid', 'pid'],
+    'service:product:set'
+  );
+}
+
+export function assertServiceCustomFieldsOutput(out: Record<string, unknown>): void {
+  assertExactKeys(
+    out,
+    new Set(['serviceid', 'customfields']),
+    ['serviceid', 'customfields'],
+    'service:customfields:update'
+  );
+}
+
 /**
  * Read-only precondition snapshot for `service:domain_rename` (mirrors the
  * price_restore Phase-1 check). Confirms the target service exists, is not
@@ -1932,6 +1979,12 @@ export function registerWriteFlowTools(
       // action: assert the strict mapper leaked no extra field before sending.
       if (intent.scope === 'service:domain_rename') {
         assertDomainRenameOutput(mappedParams);
+      }
+      if (intent.scope === 'service:product:set') {
+        assertServiceProductSetOutput(mappedParams);
+      }
+      if (intent.scope === 'service:customfields:update') {
+        assertServiceCustomFieldsOutput(mappedParams);
       }
       await whmcs.mutate(intent.action, mappedParams);
     } catch (e) {

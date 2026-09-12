@@ -13,7 +13,9 @@ Declared in `src/write/types.ts` (`WRITE_SCOPES` + `SCOPE_ACTION` +
 
 | write scope | WHMCS action | risk | money? | notes |
 |---|---|---|---|---|
-| `service:change_package` | `ModuleChangePackage` | medium | no | re-provisions module package; reversible |
+| `service:change_package` | `ModuleChangePackage` | medium | no | re-provisions **current** module package; cannot pick pid |
+| `service:product:set` | `UpdateClientProduct` | medium | no | set local `pid` (+ optional billingcycle) |
+| `service:customfields:update` | `UpdateClientProduct` | medium | no | service CFs (packageId); base64 PHP-serialize |
 | `service:upgrade` | `UpgradeProduct` | **high** | **yes** | creates upgrade order, charges/prorates — **moves money** |
 | `domain:idprotect:toggle` | `DomainToggleIdProtect` | low | no | reversible privacy flag |
 | `domain:lock:toggle` | `DomainUpdateLockingStatus` | medium | no | unlocking enables outbound transfers (security-relevant) |

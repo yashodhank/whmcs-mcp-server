@@ -1328,6 +1328,8 @@
               "client:create",
               "client:update",
               "service:change_package",
+              "service:product:set",
+              "service:customfields:update",
               "service:upgrade",
               "domain:idprotect:toggle",
               "domain:lock:toggle",
@@ -8307,7 +8309,7 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
-      "description": "Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS config, staff consumer/OIDC allow-lists, allowedActions gaps.",
+      "description": "Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS, staff allow-lists, Grok write posture (sealed scopes, package/CF, order accept, merge, DSN).",
       "execution": {
         "taskSupport": "forbidden"
       },
@@ -10462,6 +10464,8 @@
               "client:create",
               "client:update",
               "service:change_package",
+              "service:product:set",
+              "service:customfields:update",
               "service:upgrade",
               "domain:idprotect:toggle",
               "domain:lock:toggle",

@@ -441,14 +441,19 @@ export function mapDomainRenewParams(params: Record<string, unknown>): Record<st
 }
 
 /**
- * `order:accept` `{orderid}` → WHMCS `AcceptOrder` `{orderid}`. STRICT 1-key
- * output; ALL extras dropped. In particular fraud-bypass / module-control flags
- * (e.g. `fraudbypass`, `sendregistrar`, `autosetup`, `sendemail`) are NEVER
- * auto-sent — accepting an order must not silently override WHMCS's fraud
- * checks or provisioning defaults.
+ * `order:accept` `{orderid}` → WHMCS `AcceptOrder`.
+ *
+ * Grok-safe defaults: always emit `autosetup` and `sendemail`. Both default
+ * **false** so AcceptOrder does not ModuleCreate or send Welcome Email unless
+ * the caller explicitly passes `true`. Fraud-bypass / registrar / serverid
+ * extras are still dropped.
  */
 export function mapOrderAcceptParams(params: Record<string, unknown>): Record<string, unknown> {
-  return { orderid: params.orderid };
+  return {
+    orderid: params.orderid,
+    autosetup: params.autosetup === true,
+    sendemail: params.sendemail === true,
+  };
 }
 
 /**
@@ -576,6 +581,52 @@ export function mapServiceChangePackageParams(
   params: Record<string, unknown>
 ): Record<string, unknown> {
   return { serviceid: params.serviceid };
+}
+
+/**
+ * `service:product:set` `{serviceid, pid, [billingcycle]}` →
+ * `UpdateClientProduct`. STRICT: only the local product id (and optional
+ * billing cycle). Does not call ModuleChangePackage — follow with
+ * `service:change_package` to push the module.
+ */
+export function mapServiceProductSetParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { serviceid: params.serviceid, pid: params.pid };
+  if (typeof params.billingcycle === 'string' && params.billingcycle.trim() !== '') {
+    out.billingcycle = params.billingcycle.trim();
+  }
+  return out;
+}
+
+function encodeServiceCustomFields(fields: Record<string, unknown>): string {
+  const entries = Object.entries(fields).filter(([, v]) => v !== undefined && v !== null);
+  const body = entries
+    .map(([k, v]) => {
+      const key = /^\d+$/.test(k) ? `i:${k};` : phpSerializeString(k);
+      return `${key}${phpSerializeString(String(v))}`;
+    })
+    .join('');
+  return Buffer.from(`a:${String(entries.length)}:{${body}}`, 'utf8').toString('base64');
+}
+
+/**
+ * `service:customfields:update` `{serviceid, customfields}` →
+ * `UpdateClientProduct` `{serviceid, customfields}` where customfields is
+ * WHMCS's base64(PHP-serialize) payload. Input is `{fieldId: value}`.
+ */
+export function mapServiceCustomFieldsParams(
+  params: Record<string, unknown>
+): Record<string, unknown> {
+  const raw = params.customfields;
+  const fields =
+    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  return {
+    serviceid: params.serviceid,
+    customfields: encodeServiceCustomFields(fields),
+  };
 }
 
 /**
@@ -912,6 +963,10 @@ export function intentToWhmcsParams(
       return mapClientUpdateParams(params);
     case 'service:change_package':
       return mapServiceChangePackageParams(params);
+    case 'service:product:set':
+      return mapServiceProductSetParams(params);
+    case 'service:customfields:update':
+      return mapServiceCustomFieldsParams(params);
     case 'service:upgrade':
       return mapServiceUpgradeParams(params);
     case 'domain:idprotect:toggle':

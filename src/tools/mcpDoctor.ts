@@ -19,6 +19,11 @@ import { getConsumerRegistry } from '../governance/pipeline.js';
 import { hasStdioDefaultToken } from '../auth/trustedStdioDefault.js';
 import { parseStaffConsumerIds } from '../auth/audience.js';
 import {
+  DESTRUCTIVE_WRITE_SCOPES,
+  PROD_NEVER_EXECUTABLE,
+  PROD_NEVER_EXECUTABLE_SCOPES,
+} from '../write/types.js';
+import {
   collectForbiddenWhmcsIssuers,
   oauthIssuersIncludeWhmcs,
   originFromApiUrl,
@@ -217,6 +222,41 @@ export function registerMcpDoctorTools(
           config.MCP_EFFECT_LEDGER_PATH.trim() !== '',
         intent_store_configured: config.MCP_WRITE_INTENT_STORE_PATH.trim() !== '',
         empty_allowed_actions: emptyAllowedActions,
+        grok_write: {
+          sealed: {
+            'service:terminate': 'PROD_NEVER_EXECUTABLE_SCOPES + ModuleTerminate',
+            'domain:transfer': 'no scope; DomainTransfer never-executable',
+            'domain:release': 'PROD_NEVER_EXECUTABLE_SCOPES',
+            'client:contact:delete': 'DeleteContact never-executable + destructive phrase',
+          },
+          package_change: {
+            set_local_pid: 'service:product:set',
+            push_module: 'service:change_package',
+            billed_upgrade: 'service:upgrade (high-risk, distinct approver)',
+            customfields: 'service:customfields:update (packageId CF)',
+          },
+          order_accept: {
+            autosetup_default: false,
+            sendemail_default: false,
+            note: 'Pass autosetup=true only when ModuleCreate is intended',
+          },
+          ticket_merge: {
+            scope: 'ticket:merge',
+            action: 'MergeTicket',
+            needs: 'API role mergeticket — unproven on this 8.13.7 role',
+          },
+          transfer_owner: {
+            scopes: ['service:transfer_owner', 'billing:invoice:reassign'],
+            needs: 'MCP_WHMCS_DB_* DSN; high-risk distinct approver',
+            db_dsn_configured:
+              typeof config.MCP_WHMCS_DB_HOST === 'string' &&
+              config.MCP_WHMCS_DB_HOST.trim() !== '',
+          },
+          high_risk_money: 'distinct approver ceremony; do not self-approve',
+          never_executable_actions: [...PROD_NEVER_EXECUTABLE],
+          never_executable_scopes: [...PROD_NEVER_EXECUTABLE_SCOPES],
+          destructive_scopes: [...DESTRUCTIVE_WRITE_SCOPES],
+        },
         warnings,
       };
 
@@ -247,7 +287,7 @@ export function registerMcpDoctorTools(
     'mcp_doctor',
     {
       description:
-        'Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS config, staff consumer/OIDC allow-lists, allowedActions gaps.',
+        'Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS, staff allow-lists, Grok write posture (sealed scopes, package/CF, order accept, merge, DSN).',
       inputSchema: { ...z.object({}).shape, ...AUTH_SHAPE },
       outputSchema: DOCTOR_OUTPUT,
       annotations: READ_ONLY_ANNOTATIONS,

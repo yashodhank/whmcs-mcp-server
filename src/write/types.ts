@@ -76,6 +76,11 @@ export const WRITE_SCOPES = [
   // WHMCS before being enabled in production.
   // Service lifecycle.
   'service:change_package',
+  // Local product id (pid) on the service row. ModuleChangePackage cannot
+  // pick a package; set pid here, then push with service:change_package.
+  'service:product:set',
+  // Service custom fields (including a packageId CF) via UpdateClientProduct.
+  'service:customfields:update',
   'service:upgrade',
   // Domain config toggles.
   'domain:idprotect:toggle',
@@ -143,6 +148,8 @@ export const SCOPE_ACTION: Readonly<Record<WriteScope, string>> = {
   'client:update': 'UpdateClient',
   // Track C2.
   'service:change_package': 'ModuleChangePackage',
+  'service:product:set': 'UpdateClientProduct',
+  'service:customfields:update': 'UpdateClientProduct',
   'service:upgrade': 'UpgradeProduct',
   'domain:idprotect:toggle': 'DomainToggleIdProtect',
   'domain:lock:toggle': 'DomainUpdateLockingStatus',
@@ -231,6 +238,10 @@ export const SCOPE_RISK: Readonly<Record<WriteScope, WriteRisk>> = {
   // Changing a service's module package re-provisions on the server side but
   // moves no money and is reversible (change back) → medium.
   'service:change_package': 'medium',
+  // Setting the local product id (no registrar/module money) → medium.
+  'service:product:set': 'medium',
+  // Service CF update (may include packageId) — no money, reversible → medium.
+  'service:customfields:update': 'medium',
   // Upgrading a product creates an upgrade order + charges/prorates money and
   // provisions a new package → high (full deny-by-default gate: allowlist +
   // human approval + caps).

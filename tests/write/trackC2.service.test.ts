@@ -31,6 +31,15 @@ describe('Track C2 frozen-seam additions', () => {
     expect(SCOPE_RISK['service:change_package']).toBe('medium');
   });
 
+  it('registers service:product:set and service:customfields:update', () => {
+    expect(WRITE_SCOPES as readonly string[]).toContain('service:product:set');
+    expect(SCOPE_ACTION['service:product:set']).toBe('UpdateClientProduct');
+    expect(SCOPE_RISK['service:product:set']).toBe('medium');
+    expect(WRITE_SCOPES as readonly string[]).toContain('service:customfields:update');
+    expect(SCOPE_ACTION['service:customfields:update']).toBe('UpdateClientProduct');
+    expect(SCOPE_RISK['service:customfields:update']).toBe('medium');
+  });
+
   it('registers service:upgrade as UpgradeProduct / high', () => {
     expect(WRITE_SCOPES as readonly string[]).toContain('service:upgrade');
     expect(SCOPE_ACTION['service:upgrade']).toBe('UpgradeProduct');
@@ -43,6 +52,31 @@ describe('Track C2 strict mappers', () => {
     expect(intentToWhmcsParams('service:change_package', { serviceid: 5, evil: 'x' })).toEqual({
       serviceid: 5,
     });
+  });
+
+  it('service:product:set emits serviceid + pid and optional billingcycle', () => {
+    expect(
+      intentToWhmcsParams('service:product:set', { serviceid: 5, pid: 12, evil: 'x' })
+    ).toEqual({
+      serviceid: 5,
+      pid: 12,
+    });
+    expect(
+      intentToWhmcsParams('service:product:set', { serviceid: 5, pid: 12, billingcycle: 'monthly' })
+    ).toEqual({ serviceid: 5, pid: 12, billingcycle: 'monthly' });
+  });
+
+  it('service:customfields:update emits base64 PHP-serialized customfields', () => {
+    const out = intentToWhmcsParams('service:customfields:update', {
+      serviceid: 5,
+      customfields: { '12': 'PKG-1', evilobj: undefined },
+      evil: 'x',
+    });
+    expect(out.serviceid).toBe(5);
+    expect(typeof out.customfields).toBe('string');
+    const decoded = Buffer.from(String(out.customfields), 'base64').toString('utf8');
+    expect(decoded).toContain('PKG-1');
+    expect(out).not.toHaveProperty('evil');
   });
 
   it('service:upgrade forwards allowlisted product fields, drops cost overrides + extras', () => {
@@ -74,6 +108,41 @@ describe('Track C2 validation — service:change_package', () => {
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.code === 'invalid_serviceid')).toBe(true);
     }
+  });
+});
+
+describe('Track C2 validation — service:product:set / customfields', () => {
+  it('accepts pid + serviceid', () => {
+    expect(validateIntent(intent('service:product:set', { serviceid: 5, pid: 12 }), {}).ok).toBe(
+      true
+    );
+  });
+
+  it('rejects missing pid', () => {
+    const r = validateIntent(intent('service:product:set', { serviceid: 5 }), {});
+    expect(r.ok).toBe(false);
+  });
+
+  it('accepts a scalar customfields map', () => {
+    expect(
+      validateIntent(
+        intent('service:customfields:update', { serviceid: 5, customfields: { '3': 'x' } }),
+        {}
+      ).ok
+    ).toBe(true);
+  });
+
+  it('rejects empty or nested customfields', () => {
+    expect(
+      validateIntent(intent('service:customfields:update', { serviceid: 5, customfields: {} }), {})
+        .ok
+    ).toBe(false);
+    expect(
+      validateIntent(
+        intent('service:customfields:update', { serviceid: 5, customfields: { '1': { x: 1 } } }),
+        {}
+      ).ok
+    ).toBe(false);
   });
 });
 

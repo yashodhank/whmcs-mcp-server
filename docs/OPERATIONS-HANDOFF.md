@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / RS)
+Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / Grok write gaps)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -158,6 +158,12 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
 - WhatsApp bind/refresh lives **outside** this repo
   ([whatsapp-bind-outside-mcp.md](runbooks/whatsapp-bind-outside-mcp.md)).
 - Credit-note reads stay unverified / 9.x-only.
+- Grok write gaps: `order:accept` defaults `autosetup=false` /
+  `sendemail=false`; `service:product:set` + `service:customfields:update`
+  for package/CF; `ticket:merge` still needs API role `mergeticket`;
+  owner transfer still needs `MCP_WHMCS_DB_*`. Sealed: terminate, domain
+  transfer/release, contact delete. See
+  [grok-mcp-write-audit.md](runbooks/grok-mcp-write-audit.md).
 
 ### NEXUS-Sprint operator model (2026-09)
 
