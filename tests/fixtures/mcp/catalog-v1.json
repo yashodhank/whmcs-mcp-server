@@ -8307,7 +8307,7 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
-      "description": "Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS config, staff allow-list, allowedActions gaps.",
+      "description": "Read-only MCP + WHMCS 8.13.7 doctor: version family, OIDC discovery, API-role probes, OAuth RS config, staff consumer/OIDC allow-lists, allowedActions gaps.",
       "execution": {
         "taskSupport": "forbidden"
       },
@@ -8349,7 +8349,7 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
-      "description": "Staff-first WHMCS 8.13.7 jobs (morning digest, overdue, ticket inbox, billing card, GDPR export). Audience comes from the consumer allow-list, not the prompt. Customer door is link/handoff until a user-delegated API is proven.",
+      "description": "Staff-first WHMCS 8.13.7 jobs (morning digest, overdue, ticket inbox, billing card, GDPR export). Audience comes from the staff consumer/OIDC allow-lists, not the prompt. Customer door is OIDC link/handoff until a user-delegated API is proven.",
       "execution": {
         "taskSupport": "forbidden"
       },
