@@ -72,8 +72,9 @@ Use artifacts to produce the final readiness memo with:
 
 ## Reliability sprint — preflight & known semantics
 - **Governance preflight (fail-fast):** if `MCP_GOVERNANCE_ENABLED=true` but no
-  `auth_token`/`MCP_CONSUMER_REGISTRY` is available, the harness exits with a
-  `harness_config_error` *before running any case* — blanket
+  `HARNESS_CONSUMER_TOKEN` and no registry source (`MCP_CONSUMER_REGISTRY`
+  inline JSON **or** `MCP_CONSUMER_REGISTRY_FILE`) is available, the harness
+  exits with a `harness_config_error` *before running any case* — blanket
   `consumer denied: no_token` results are no longer mislabeled as product
   failures. Governance OFF runs the legacy path; governance ON requires an
   injected synthetic test consumer token. Tool names are validated against the
