@@ -212,7 +212,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Phase F: record an approval for a validated intent. NO mutation. Requires a consumer whose writeCapability permits approval/execution.",
+      "description": "Phase F: record an approval for a validated intent. NO mutation. Requires a consumer whose writeCapability permits approval/execution. On trusted stdio without auth_token, auto-injects MCP_DEFAULT_APPROVER_CONSUMER_AUTH_TOKEN (distinct approver).",
       "execution": {
         "taskSupport": "forbidden"
       },
@@ -239,6 +239,9 @@
             "type": "string"
           },
           "reason": {
+            "type": "string"
+          },
+          "user_confirmation_ref": {
             "type": "string"
           }
         },
@@ -283,6 +286,61 @@
             },
             "required": [
               "attempted"
+            ],
+            "type": "object"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
             ],
             "type": "object"
           },
@@ -1402,6 +1460,61 @@
             ],
             "type": "object"
           },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
+            ],
+            "type": "object"
+          },
           "idempotency_key": {
             "type": "string"
           },
@@ -1654,6 +1767,61 @@
             },
             "required": [
               "attempted"
+            ],
+            "type": "object"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
             ],
             "type": "object"
           },
@@ -3339,6 +3507,61 @@
             },
             "required": [
               "attempted"
+            ],
+            "type": "object"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
             ],
             "type": "object"
           },
@@ -6932,6 +7155,151 @@
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read-only governance posture snapshot: kill switch, MCP_MODE, live allowlist contents/source, caps, consumer write profile, default executor/approver configured. Never echoes secrets or tokens.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_write_posture",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "allowlist": {
+            "additionalProperties": false,
+            "properties": {
+              "actions": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "path": {
+                "type": "string"
+              },
+              "readable": {
+                "type": "boolean"
+              },
+              "source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "actions"
+            ],
+            "type": "object"
+          },
+          "caps": {
+            "additionalProperties": false,
+            "properties": {
+              "daily": {
+                "type": "number"
+              },
+              "per_action": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "per_action",
+              "daily"
+            ],
+            "type": "object"
+          },
+          "consumer": {
+            "additionalProperties": false,
+            "properties": {
+              "allowed_write_scopes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "write_capability": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "write_capability",
+              "allowed_write_scopes"
+            ],
+            "type": "object"
+          },
+          "default_approver_configured": {
+            "type": "boolean"
+          },
+          "default_executor_configured": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "isError": {
+            "const": true,
+            "type": "boolean"
+          },
+          "kill_switch": {
+            "type": "boolean"
+          },
+          "mcp_env": {
+            "type": "string"
+          },
+          "mcp_mode": {
+            "type": "string"
+          },
+          "require_distinct_approver": {
+            "type": "boolean"
+          },
+          "strict_allowlist": {
+            "type": "boolean"
+          },
+          "strict_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kill_switch",
+          "mcp_mode",
+          "mcp_env",
+          "allowlist",
+          "caps",
+          "default_executor_configured",
+          "default_approver_configured",
+          "strict_allowlist",
+          "strict_scopes",
+          "require_distinct_approver"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": true,
         "readOnlyHint": true
       },
@@ -9104,6 +9472,264 @@
     {
       "annotations": {
         "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read-mostly composite: check domain availability, get TLD pricing, list payment methods, draft+validate an order:create intent, and dry-run the execution preflight. NEVER executes or auto-approves. Returns a proposal + draft intent_id + execution_preflight for agent/human review.",
+      "execution": {
+        "taskSupport": "forbidden"
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "auth_token": {
+            "description": "MCP auth token",
+            "type": "string"
+          },
+          "clientid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "domain": {
+            "minLength": 3,
+            "type": "string"
+          },
+          "paymentmethod": {
+            "type": "string"
+          },
+          "regperiod": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "clientid",
+          "domain"
+        ],
+        "type": "object"
+      },
+      "name": "prepare_domain_order",
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
+            ],
+            "type": "object"
+          },
+          "intent": {
+            "additionalProperties": {},
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "consumer_id": {
+                "type": "string"
+              },
+              "contract": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string"
+              },
+              "idempotency_key": {
+                "type": "string"
+              },
+              "intent_id": {
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "preconditions": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "projected_effect": {
+                "type": "string"
+              },
+              "risk": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent_id",
+              "consumer_id",
+              "scope",
+              "action",
+              "risk",
+              "params",
+              "idempotency_key",
+              "preconditions",
+              "projected_effect",
+              "state",
+              "created_at",
+              "expires_at"
+            ],
+            "type": "object"
+          },
+          "intent_id": {
+            "type": "string"
+          },
+          "isError": {
+            "const": true,
+            "type": "boolean"
+          },
+          "proposal": {
+            "additionalProperties": false,
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "payment_methods": {
+                "items": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "tld_pricing": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "domain"
+            ],
+            "type": "object"
+          },
+          "validation": {
+            "additionalProperties": {},
+            "properties": {
+              "compat_warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "issues": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "severity",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ok",
+              "issues",
+              "compat_warnings"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true,
         "readOnlyHint": true
@@ -9268,6 +9894,61 @@
             },
             "required": [
               "attempted"
+            ],
+            "type": "object"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
             ],
             "type": "object"
           },
@@ -9523,6 +10204,61 @@
             },
             "required": [
               "attempted"
+            ],
+            "type": "object"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
             ],
             "type": "object"
           },
@@ -10535,6 +11271,61 @@
             },
             "required": [
               "attempted"
+            ],
+            "type": "object"
+          },
+          "execution_preflight": {
+            "additionalProperties": false,
+            "properties": {
+              "allowlist_path": {
+                "type": "string"
+              },
+              "allowlist_source": {
+                "enum": [
+                  "file",
+                  "env",
+                  "empty"
+                ],
+                "type": "string"
+              },
+              "blocked_reason": {
+                "type": "string"
+              },
+              "missing_allowlist": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "remediation": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "next_tool": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "would_allow": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "would_allow",
+              "remediation"
             ],
             "type": "object"
           },
