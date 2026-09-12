@@ -254,3 +254,8 @@ Use when credentials leak, staff leave, or routine rotation is due. **Do not** r
 | Date (IST context) | Change |
 |---|---|
 | 2026-09-12 | Initial runbook: three/four-layer clarification, role-audit table for Grok Bot 45-scope pack, rotation checklists. |
+
+
+## Related
+
+- Live probe (2026-09-12): [api-role-audit-live-2026-09-12.md](./api-role-audit-live-2026-09-12.md)
