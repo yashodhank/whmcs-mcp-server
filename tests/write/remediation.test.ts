@@ -2,7 +2,11 @@
  * Tests for the structured remediation module.
  */
 import { describe, it, expect } from 'vitest';
-import { remediationForDeny, buildPreflight, type PreflightContext } from '../../src/write/remediation.js';
+import {
+  remediationForDeny,
+  buildPreflight,
+  type PreflightContext,
+} from '../../src/write/remediation.js';
 
 describe('remediationForDeny', () => {
   it('returns kill_switch remediation', () => {
@@ -123,10 +127,7 @@ describe('buildPreflight', () => {
   });
 
   it('returns would_allow:false with missing_allowlist for prod denial', () => {
-    const pf = buildPreflight(
-      { allowed: false, reason: 'action_not_prod_authorized' },
-      ctx
-    );
+    const pf = buildPreflight({ allowed: false, reason: 'action_not_prod_authorized' }, ctx);
     expect(pf.would_allow).toBe(false);
     expect(pf.blocked_reason).toBe('action_not_prod_authorized');
     expect(pf.missing_allowlist).toBeDefined();
@@ -136,10 +137,7 @@ describe('buildPreflight', () => {
   });
 
   it('does not set missing_allowlist for non-allowlist denials', () => {
-    const pf = buildPreflight(
-      { allowed: false, reason: 'read_only_mode' },
-      ctx
-    );
+    const pf = buildPreflight({ allowed: false, reason: 'read_only_mode' }, ctx);
     expect(pf.missing_allowlist).toBeUndefined();
   });
 });

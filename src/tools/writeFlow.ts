@@ -72,7 +72,11 @@ import {
 } from '../whmcs/WhmcsDb.js';
 import { runServiceMoves, TransferRollback } from '../write/transferCascade.js';
 import { loadLiveProductionAuthorization } from '../write/liveAuthorization.js';
-import { buildPreflight, type ExecutionPreflight, type PreflightContext } from '../write/remediation.js';
+import {
+  buildPreflight,
+  type ExecutionPreflight,
+  type PreflightContext,
+} from '../write/remediation.js';
 import {
   CreditTransferStore,
   executeClientCreditTransfer,
@@ -599,9 +603,10 @@ function preflightCtx(intent: WriteIntent): PreflightContext {
   }
   const capsPerAction = (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0;
   const capsDaily = (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0;
-  const amountCtx = intent.risk === 'high'
-    ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
-    : undefined;
+  const amountCtx =
+    intent.risk === 'high'
+      ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
+      : undefined;
   return {
     allowlistSource: meta.source,
     allowlistPath: meta.path,
@@ -643,7 +648,8 @@ function dryRunExecutionPreflight(
       strictScopes: (cfg.MCP_WRITE_STRICT_SCOPES as readonly string[] | undefined) ?? [],
       requireDistinctApprover:
         (cfg.MCP_WRITE_REQUIRE_DISTINCT_APPROVER as boolean | undefined) ?? true,
-      destructiveConfirmPhrase: (cfg.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE as string | undefined) ?? '',
+      destructiveConfirmPhrase:
+        (cfg.MCP_WRITE_DESTRUCTIVE_CONFIRM_PHRASE as string | undefined) ?? '',
       allowedDestructiveScopes:
         (cfg.MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES as readonly string[] | undefined) ?? [],
       humanApproval: approval,
@@ -2663,12 +2669,10 @@ export function registerWriteFlowTools(
       if (!draftResult.ok) return err(`draft failed: ${draftResult.reason}`);
 
       const intent = store.get(draftResult.intent_id);
-      if (!intent) return err('draft intent not found after creation', { intent_id: draftResult.intent_id });
+      if (!intent)
+        return err('draft intent not found after creation', { intent_id: draftResult.intent_id });
       const validation = validateIntent(intent, await validationContextFor(whmcs));
-      const next = store.transition(
-        intent.intent_id,
-        validation.ok ? 'validated' : 'rejected'
-      );
+      const next = store.transition(intent.intent_id, validation.ok ? 'validated' : 'rejected');
       audit.append(auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next));
 
       const cap = consumerWriteCapability(res.profile);

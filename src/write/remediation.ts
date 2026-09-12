@@ -154,8 +154,7 @@ export function remediationForDeny(
       return [
         {
           code: 'cap_exceeded',
-          message:
-            `The action amount exceeds configured monetary caps${detail}.${zeroNote} An operator must raise MCP_PROD_HIGH_RISK_PER_ACTION_CAP and/or MCP_PROD_HIGH_RISK_DAILY_CAP (restart required).`,
+          message: `The action amount exceeds configured monetary caps${detail}.${zeroNote} An operator must raise MCP_PROD_HIGH_RISK_PER_ACTION_CAP and/or MCP_PROD_HIGH_RISK_DAILY_CAP (restart required).`,
           next_tool: 'get_write_posture',
         },
       ];
