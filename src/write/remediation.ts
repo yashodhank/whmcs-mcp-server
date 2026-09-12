@@ -213,7 +213,10 @@ export function buildPreflight(
       remediation: [],
     };
   }
-  const reason = decision.reason!;
+  if (decision.reason === undefined) {
+    return { would_allow: false, remediation: [] };
+  }
+  const reason = decision.reason;
   const missing =
     reason === 'action_not_prod_authorized' || reason === 'action_not_runtime_authorized'
       ? [ctx.scope, ctx.action].filter((x) => !ctx.prodAuthorizedActions.includes(x))
