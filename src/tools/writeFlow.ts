@@ -34,6 +34,7 @@ import {
   consumerWriteCapability,
 } from '../governance/consumers.js';
 import { getProjectionEnv, getConsumerRegistry } from '../governance/pipeline.js';
+import { resolveStdioDefaultToken } from '../auth/trustedStdioDefault.js';
 import {
   WRITE_SCOPES,
   type WriteScope,
@@ -382,7 +383,8 @@ function out(payload: Record<string, unknown>) {
 
 /** Resolve the calling consumer from the bearer token; deny by default. */
 function resolveWriteConsumer(params: Record<string, unknown>) {
-  const token = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+  const callerToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
+  const token = resolveStdioDefaultToken(config.MCP_TRANSPORT, callerToken) ?? callerToken;
   return resolveConsumer(token, getProjectionEnv(), getConsumerRegistry(), {
     allowAnon: false,
   });

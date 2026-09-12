@@ -6750,7 +6750,7 @@
         "openWorldHint": true,
         "readOnlyHint": true
       },
-      "description": "Get WHMCS system details (read-only): installed version and release string. System info only; no secrets. Version: v1",
+      "description": "Get WHMCS system details (read-only): installed version and release string. Falls back to GetAdminDetails/GetConfigurationValue when WhmcsDetails is not allowed by the API credential role. System info only; no secrets. Version: v1",
       "execution": {
         "taskSupport": "forbidden"
       },

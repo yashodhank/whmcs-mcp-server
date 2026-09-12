@@ -22,6 +22,7 @@ import { loadConsumerRegistryFromSource, resolveConsumer } from './consumers.js'
 import { getContract } from './contracts.js';
 import { project, projectWithTrace } from './projection.js';
 import type { AuditTraceRecord } from './auditTrace.js';
+import { resolveStdioDefaultToken } from '../auth/trustedStdioDefault.js';
 
 /** Map the validated MCP_ENV to a ProjectionEnv (identical union). */
 export function getProjectionEnv(): ProjectionEnv {
@@ -265,6 +266,16 @@ export function governanceEnabled(): boolean {
 }
 
 /**
+ * Resolve the effective auth token for a governance call: if the caller
+ * omitted `auth_token` and the process is trusted stdio, inject the
+ * configured default consumer token. HTTP transports are never defaulted.
+ */
+function effectiveAuthToken(callerToken: string | undefined): string | undefined {
+  if (callerToken !== undefined && callerToken.length > 0) return callerToken;
+  return resolveStdioDefaultToken(config.MCP_TRANSPORT, callerToken);
+}
+
+/**
  * A2 surfacing flag. Read LIVE from `process.env` (NOT frozen config) so it
  * is operationally toggleable and OFF by default. When `'1'`, governed
  * results additionally carry a value-free `__audit_trace`. Any other value
@@ -339,7 +350,7 @@ export function governedToolResult<T>(args: {
   const withTrace = auditTraceEnabled();
   const r = governProjection({
     canonical: args.canonical,
-    authToken: args.authToken,
+    authToken: effectiveAuthToken(args.authToken),
     env: getProjectionEnv(),
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,
@@ -389,7 +400,7 @@ export function governedListResult(args: {
   const r = governListProjection({
     rows: args.rows,
     mapItem: args.mapItem,
-    authToken: args.authToken,
+    authToken: effectiveAuthToken(args.authToken),
     env: getProjectionEnv(),
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,

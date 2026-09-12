@@ -159,7 +159,7 @@ describe('WhmcsClient 403 edge/WAF handling + diagnosability', () => {
       .call('GetCurrencies', {}, { normalize: false })
       .catch((e: unknown) => e);
 
-    expect(String(err.message)).toMatch(/permission\/role/i);
+    expect(String(err.message)).toMatch(/Invalid Permissions/i);
     expect(String(err.message)).toMatch(/api-connectivity-troubleshooting\.md/);
     expect(post).toHaveBeenCalledTimes(1); // no reset retry for a bodied 403
   });

@@ -7,7 +7,7 @@ import {
   type WhmcsTelemetry,
 } from '../../observability/whmcsTelemetry.js';
 import { attemptIpAllowlistHeal } from '../ipAllowlistHeal.js';
-import { classifyWhmcsError, type ClassifiedWhmcsError } from './classifier.js';
+import { classifyWhmcsError, type ClassifiedWhmcsError, type ForbiddenKind } from './classifier.js';
 import { decodeWhmcsResponse } from './decoder.js';
 import { encodeWhmcsRequest } from './encoder.js';
 import { WhmcsBusinessError, WhmcsTransportError } from './errors.js';
@@ -99,6 +99,46 @@ function scopedAbortSignal(
   };
 }
 
+function forbiddenHint(kind: ForbiddenKind | undefined, healNote: string | undefined): string {
+  const suffix =
+    (healNote ? ` Auto-heal: ${healNote}.` : '') +
+    ' See docs/runbooks/api-connectivity-troubleshooting.md';
+  switch (kind) {
+    case 'invalid_ip':
+      return (
+        'HTTP 403 — Invalid IP: caller IP is not in the WHMCS API allowlist (APIAllowedIPs). ' +
+        'The IP auto-heal can fix this if WHMCS_AUTO_IP_HEAL is enabled.' +
+        suffix
+      );
+    case 'invalid_permissions':
+      return (
+        'HTTP 403 — Invalid Permissions: the API credential role does not allow this action. ' +
+        'This is NOT an IP issue. Add the action to the API Credentials allowed-actions list in ' +
+        'WHMCS Setup → Staff Management → API Credentials, or use a fallback.' +
+        suffix
+      );
+    case 'waf_or_empty':
+      return (
+        'HTTP 403 — edge/WAF/proxy block (no WHMCS body). Verify by curling the same endpoint+IP; ' +
+        'if curl works but this client gets 403, it is a WAF/connection block, not an IP or ' +
+        'credential issue.' +
+        suffix
+      );
+    case 'unknown':
+    case undefined:
+      return (
+        'HTTP 403 from WHMCS — one of: (1) caller IP not in APIAllowedIPs; ' +
+        '(2) edge/WAF/proxy block; (3) permission/role ACL on the credential.' +
+        suffix
+      );
+    default: {
+      const _exhaustive: never = kind;
+      void _exhaustive;
+      return 'HTTP 403 from WHMCS.' + suffix;
+    }
+  }
+}
+
 function asTransportError(
   classified: Readonly<ClassifiedWhmcsError>,
   action: string,
@@ -114,14 +154,7 @@ function asTransportError(
       logger.warn('WHMCS HTTP 5xx response', { action, status });
     }
     if (status === 403) {
-      const hint =
-        'HTTP 403 from WHMCS — one of: (1) caller IP not in the WHMCS API allowlist ' +
-        '(APIAllowedIPs); (2) an edge/WAF/proxy block on the client request/connection ' +
-        '(verify by curling the same endpoint+IP — if curl works but this client gets 403, ' +
-        'it is a WAF/connection block, NOT an IP or credential issue); (3) a permission/role ' +
-        'ACL on the credential. ' +
-        (healNote ? `Auto-heal: ${healNote}. ` : '') +
-        'See docs/runbooks/api-connectivity-troubleshooting.md';
+      const hint = forbiddenHint(classified.forbiddenKind, healNote);
       return new WhmcsTransportError(`WHMCS HTTP error: 403 — ${hint}`, 403);
     }
     return new WhmcsTransportError(`WHMCS HTTP error: ${status}`, status);
@@ -259,7 +292,7 @@ export class WhmcsRequestPipeline {
           // Repair may add one immediate read attempt, but never resets or
           // replenishes the independent 429/5xx/network retry budget.
           if (effect === 'read' && classified.statusCode === 403) {
-            const isInvalidIp = Boolean(classified.whmcsMessage?.match(/invalid\s+ip/i));
+            const isInvalidIp = classified.forbiddenKind === 'invalid_ip';
             if (this.config.WHMCS_AUTO_IP_HEAL && !healAttempted && isInvalidIp) {
               healAttempted = true;
               const healed = await this.heal(this.config, this.logger, classified.reportedIp);
@@ -295,7 +328,9 @@ export class WhmcsRequestPipeline {
               continue;
             } else if (classified.whmcsMessage) {
               healNote =
-                'not an IP-allowlist rejection (permission/auth) — auto-heal not applicable';
+                classified.forbiddenKind === 'invalid_permissions'
+                  ? `API Credentials role denies action "${action}" — add it to the API credential's allowed-actions list, or use a fallback`
+                  : 'not an IP-allowlist rejection (permission/auth) — auto-heal not applicable';
               this.logger.warn('WHMCS 403 not auto-healed', {
                 action,
                 message: classified.whmcsMessage,

@@ -165,3 +165,63 @@ long-lived MCP process reused a **flagged keep-alive socket** (Node ≥19 defaul
 did NOT fire (not an `Invalid IP` 403, and the IP was already listed). Fixes:
 the client now resets sockets + retries once on an edge 403, and surfaces a
 classified hint; operationally, reconnect the MCP server to get fresh sockets.
+
+## Admin permissions vs API Credentials allowed-actions (C1 strategy)
+
+WHMCS has **two independent permission layers** that both gate API calls:
+
+1. **Admin role permissions** — the linked admin user's role (`tbladminperms`);
+   ~162 broad admin permissions covering UI + API access. Most production admins
+   have all of these.
+2. **API Credentials allowed-actions** — per-credential "API Roles" in
+   Setup → Staff Management → API Credentials. This is a separate, narrower list
+   of WHMCS action names the credential may invoke. An action not in this list
+   returns `HTTP 403` with body:
+   ```
+   {"result":"error","message":"Invalid Permissions: API action \"<action>\" is not allowed"}
+   ```
+   This is **NOT** an IP issue, **NOT** a credential issue, and auto-heal will
+   not help.
+
+### The MCP now classifies this distinctly
+
+The 403 classifier (`src/whmcs/request/classifier.ts`) sets
+`forbiddenKind: 'invalid_permissions'` for `"Invalid Permissions: …"` messages.
+The pipeline error message says:
+
+> HTTP 403 — Invalid Permissions: the API credential role does not allow this
+> action. Add the action to the API Credentials allowed-actions list in
+> WHMCS Setup → Staff Management → API Credentials, or use a fallback.
+
+### WhmcsDetails — optional; fallback implemented (C1)
+
+`WhmcsDetails` is commonly omitted from the API credential's allowed-actions
+list. Rather than requiring it, `get_whmcs_details` now falls back:
+
+1. Try `WhmcsDetails` (the direct route).
+2. On `Invalid Permissions` → try `GetAdminDetails` → extract `.whmcs.version`.
+3. If that also fails → try `GetConfigurationValue` with `setting=Version`.
+4. If all fail → return `{ version: null, release: null }`.
+
+The same fallback chain is used by `src/whmcs/versionProfile.ts` for internal
+version probing. This means the MCP works without `WhmcsDetails` in the API
+credential's allowed-actions list.
+
+### Recommended minimal API credential actions for MCP read-only
+
+These actions cover the standard MCP read tools and the Grok Bot / Business
+WhatsApp integration:
+
+```
+GetAdminDetails, GetClients, GetClientsDetails, GetClientsProducts,
+GetClientsDomains, GetInvoice, GetInvoices, GetTickets, GetTicket,
+GetSupportDepartments, GetOrders, GetProducts, GetActivityLog,
+GetTransactions, GetStats, GetToDoItems, GetAutomationLog,
+GetContacts, GetPayMethods, GetCredits, GetConfigurationValue,
+GetTicketCounts, GetSupportStatuses, GetQuotes, GetCurrencies,
+GetPaymentMethods, GetServers, GetHealthStatus, GetTLDPricing,
+GetRegistrars
+```
+
+`WhmcsDetails` is optional — include it for direct version info, or leave it off
+and the fallback handles it.
