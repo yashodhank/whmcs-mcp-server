@@ -120,6 +120,31 @@ describe('harness preflight: governance gate', () => {
     }
   });
 
+  it('governance ON + synthetic token + MCP_CONSUMER_REGISTRY_FILE → proceed', () => {
+    const r = governancePreflight({
+      MCP_GOVERNANCE_ENABLED: 'true',
+      MCP_CONSUMER_REGISTRY_FILE: '/tmp/consumer-registry.production.json',
+      HARNESS_CONSUMER_TOKEN: 'SYNTHETIC-DO-NOT-USE',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.governanceEnabled).toBe(true);
+      expect(r.injectToken).toBe('SYNTHETIC-DO-NOT-USE');
+    }
+  });
+
+  it('governance ON + file registry but missing token → still fails fast', () => {
+    const r = governancePreflight({
+      MCP_GOVERNANCE_ENABLED: 'true',
+      MCP_CONSUMER_REGISTRY_FILE: '/tmp/consumer-registry.production.json',
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.kind).toBe('harness_config_error');
+      expect(r.message).toMatch(/HARNESS_CONSUMER_TOKEN/);
+    }
+  });
+
   it('governance ON + registry but missing token → still fails fast', () => {
     const r = governancePreflight({
       MCP_GOVERNANCE_ENABLED: 'true',

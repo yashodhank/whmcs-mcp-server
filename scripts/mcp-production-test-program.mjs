@@ -172,7 +172,8 @@ async function run() {
 
   // --- Governance PREFLIGHT (before spawning the server) ---------------
   // Governance OFF → legacy path. Governance ON without a synthetic
-  // consumer token + registry → fail fast (do NOT run cases and report
+  // consumer token + registry source (inline MCP_CONSUMER_REGISTRY or
+  // MCP_CONSUMER_REGISTRY_FILE) → fail fast (do NOT run cases and report
   // blanket consumer_denied as product failures).
   const gov = governancePreflight(process.env);
   if (!gov.ok) {
