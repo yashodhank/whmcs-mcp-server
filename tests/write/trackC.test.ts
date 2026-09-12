@@ -161,15 +161,73 @@ describe('Track C strict mappers', () => {
       orderid: 42,
       fraudbypass: true,
       serverid: 3,
+      registrar: 'enom',
+      sendregistrar: true,
     });
     expect(out).toEqual({ orderid: 42, autosetup: false, sendemail: false });
-    expect(out).not.toHaveProperty('fraudbypass');
+    for (const k of ['fraudbypass', 'serverid', 'registrar', 'sendregistrar']) {
+      expect(out).not.toHaveProperty(k);
+    }
   });
 
   it('order:accept emits true only when the caller explicitly passes true', () => {
     expect(
       intentToWhmcsParams('order:accept', { orderid: 42, autosetup: true, sendemail: true })
     ).toEqual({ orderid: 42, autosetup: true, sendemail: true });
+  });
+
+  it('order:accept still emits false when caller passes explicit false', () => {
+    expect(
+      intentToWhmcsParams('order:accept', { orderid: 99, autosetup: false, sendemail: false })
+    ).toEqual({ orderid: 99, autosetup: false, sendemail: false });
+  });
+
+  it('order:accept mixed flags still default the omitted one to false', () => {
+    expect(intentToWhmcsParams('order:accept', { orderid: 99, autosetup: true })).toEqual({
+      orderid: 99,
+      autosetup: true,
+      sendemail: false,
+    });
+    expect(intentToWhmcsParams('order:accept', { orderid: 99, sendemail: false })).toEqual({
+      orderid: 99,
+      autosetup: false,
+      sendemail: false,
+    });
+  });
+
+  it('order:accept omit still emits false (Grok-safe; not WHMCS default true)', () => {
+    expect(intentToWhmcsParams('order:accept', { orderid: 42 })).toEqual({
+      orderid: 42,
+      autosetup: false,
+      sendemail: false,
+    });
+  });
+
+  it('order:accept coerces non-boolean autosetup/sendemail to false', () => {
+    expect(
+      intentToWhmcsParams('order:accept', {
+        orderid: 42,
+        autosetup: 'false',
+        sendemail: 0,
+      })
+    ).toEqual({ orderid: 42, autosetup: false, sendemail: false });
+  });
+
+  it('order:accept still drops dangerous extras alongside valid booleans', () => {
+    const out = intentToWhmcsParams('order:accept', {
+      orderid: 42,
+      autosetup: false,
+      sendemail: false,
+      fraudbypass: true,
+      serverid: 3,
+      registrar: 'enom',
+      sendregistrar: true,
+      evil: true,
+    });
+    expect(out).toEqual({ orderid: 42, autosetup: false, sendemail: false });
+    for (const k of ['fraudbypass', 'serverid', 'registrar', 'sendregistrar', 'evil']) {
+      expect(out).not.toHaveProperty(k);
+    }
   });
 
   it('client:create passes ONLY allowlisted AddClient fields, drops extras', () => {
@@ -386,6 +444,34 @@ describe('Track C validation', () => {
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.code === 'invalid_orderid')).toBe(true);
     }
+  });
+
+  it('order:accept validates optional autosetup/sendemail as booleans', () => {
+    expect(validateIntent(intent('order:accept', { orderid: 1, autosetup: false }), {}).ok).toBe(
+      true
+    );
+    expect(validateIntent(intent('order:accept', { orderid: 1, sendemail: false }), {}).ok).toBe(
+      true
+    );
+    expect(
+      validateIntent(intent('order:accept', { orderid: 1, autosetup: false, sendemail: false }), {})
+        .ok
+    ).toBe(true);
+    // non-boolean values rejected
+    for (const bad of ['false', 0, 1, 'true', null]) {
+      const r = validateIntent(intent('order:accept', { orderid: 1, autosetup: bad }), {});
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.code === 'invalid_autosetup')).toBe(true);
+    }
+    for (const bad of ['false', 0, 1, 'true', null]) {
+      const r = validateIntent(intent('order:accept', { orderid: 1, sendemail: bad }), {});
+      expect(r.ok).toBe(false);
+      expect(r.issues.some((i) => i.code === 'invalid_sendemail')).toBe(true);
+    }
+    // undefined is fine (omitted maps to false in the mapper)
+    expect(
+      validateIntent(intent('order:accept', { orderid: 1, autosetup: undefined }), {}).ok
+    ).toBe(true);
   });
 
   it('client:create requires firstname/lastname/email with valid email shape', () => {

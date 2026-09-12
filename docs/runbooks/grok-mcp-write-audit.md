@@ -44,6 +44,8 @@ HTTP: federation AS mints `aud=MCP_OAUTH_RESOURCE`. WHMCS Bearer is rejected.
 
 ## Related PRs
 
-- #108 — standards RS + 8.13.7 jobs (this branch).
-- #109 — optional `order:accept` flags (omit = WHMCS default **true**). Prefer
-  the Grok-safe default-false mapper on this branch.
+- #108 — standards RS + 8.13.7 jobs + Grok-safe writes (canonical; absorbs #107).
+- #109 — merged to `main` (optional flags). Reconciled here: keep default-false
+  mapper; keep #109 boolean-validation + fraud-flag drop tests.
+- #107 — subset of #108; close as superseded after #108 merges.
+- #104 — `fast-uri` 3.1.5 → 3.1.7 lockfile bump (folded into #108).

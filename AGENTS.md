@@ -92,6 +92,10 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `MCP_EFFECT_LEDGER_PATH`          | JSONL `{at,consumer_id,job,clientid,effect}` — no payloads or tokens. |
 | `WHMCS_HEAL_EXTRA_IPS`            | Comma-separated extra IPs (e.g. Grok Bot egress) always included in IP allowlist heal. |
 
+### Auth layers (do not confuse)
+
+Before proposing “WHMCS OAuth for MCP,” read [docs/runbooks/auth-layers-whmcs-vs-mcp.md](docs/runbooks/auth-layers-whmcs-vs-mcp.md). Admin ops use **API identifier/secret** + MCP consumer tokens; WHMCS OpenID is client-area/SSO; MCP OAuth 2.1 RS is HTTP-roadmap only.
+
 ## Scripts & verification
 
 | Script                                | Purpose                                                      |
@@ -137,6 +141,7 @@ Pre-push CI parity (matches GitHub `build-test` / related jobs): [docs/runbooks/
 | [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                     |
 | [docs/runbooks/simple-writes.md](docs/runbooks/simple-writes.md)                     | Default write model (governance off, destructive phrase)     |
 | [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                               | Product boundary, ownership, runtime, release, and handoff checklist |
+| [docs/runbooks/auth-layers-whmcs-vs-mcp.md](docs/runbooks/auth-layers-whmcs-vs-mcp.md) | WHMCS Admin API vs OpenID/OAuth vs MCP auth — read before "use OAuth for MCP" |
 | [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md)        | Grok Bot / Business WhatsApp stdio access setup              |
 
 ## Cursor / rules

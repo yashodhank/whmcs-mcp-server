@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / Grok write gaps)
+Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / Grok write gaps; #108 reconciling #107/#109/#104 onto `main`)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -164,6 +164,13 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
   owner transfer still needs `MCP_WHMCS_DB_*`. Sealed: terminate, domain
   transfer/release, contact delete. See
   [grok-mcp-write-audit.md](runbooks/grok-mcp-write-audit.md).
+- Open-PR reconciliation (2026-09-12): `main` already contains #105, #106,
+  #109. #108 merges `main` and keeps the Grok-safe `order:accept` mapper
+  (always emit false unless explicit `true`) while absorbing #109's
+  boolean-validation and fraud-flag drop tests plus the live auth-layer
+  runbooks. #107 is a strict subset of #108. #104 (`fast-uri` 3.1.7) is
+  folded into #108. Merge #108 first when CI is green; then close #107 and
+  #104 as superseded.
 
 ### NEXUS-Sprint operator model (2026-09)
 
@@ -595,6 +602,8 @@ gap from memory.
 - [`docs/design/capability-catalog.md`](design/capability-catalog.md) — typed catalog, evidence, discovery, and migration rules.
 - [`docs/design/controlled-writes-phase-f.md`](design/controlled-writes-phase-f.md) — write-flow design.
 - [`docs/runbooks/ai-agent-local.md`](runbooks/ai-agent-local.md) — local operator troubleshooting.
+- [`docs/runbooks/auth-layers-whmcs-vs-mcp.md`](runbooks/auth-layers-whmcs-vs-mcp.md) — Admin API vs OpenID vs MCP OAuth.
+- [`docs/runbooks/api-role-audit-live-2026-09-12.md`](runbooks/api-role-audit-live-2026-09-12.md) — live Admin API role probe vs write scopes.
 - [`docs/runbooks/production-test-program.md`](runbooks/production-test-program.md) — production validation.
 - [`docs/runbooks/production-governed-writes.md`](runbooks/production-governed-writes.md) — host-neutral production write ceremony and revocation.
 - [`docs/reference/agent-context.md`](reference/agent-context.md) — current technical context.

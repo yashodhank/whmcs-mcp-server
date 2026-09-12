@@ -883,6 +883,8 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
 
   // Track C — order:accept: orderid must be a positive integer. Optional
   // autosetup/sendemail booleans default false in the mapper (Grok-safe).
+  // Non-boolean values are rejected so a string "false" or number 0 never
+  // leaks through as an implicit true/false.
   if (intent.scope === 'order:accept') {
     const oid = intent.params.orderid;
     if (typeof oid !== 'number' || !Number.isInteger(oid) || oid <= 0) {

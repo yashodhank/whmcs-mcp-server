@@ -443,10 +443,14 @@ export function mapDomainRenewParams(params: Record<string, unknown>): Record<st
 /**
  * `order:accept` `{orderid}` → WHMCS `AcceptOrder`.
  *
- * Grok-safe defaults: always emit `autosetup` and `sendemail`. Both default
- * **false** so AcceptOrder does not ModuleCreate or send Welcome Email unless
- * the caller explicitly passes `true`. Fraud-bypass / registrar / serverid
- * extras are still dropped.
+ * Always emit `autosetup` and `sendemail`. Both default **false** so AcceptOrder
+ * does not ModuleCreate or send Welcome Email unless the caller explicitly
+ * passes `true` (Grok-safe; Grok often omits flags and WHMCS then autosetups).
+ * #109's omit-to-WHMCS-default path is absorbed only as explicit-boolean
+ * coverage — omit still maps to false here.
+ *
+ * Fraud-bypass / registrar / server overrides (`fraudbypass`, `sendregistrar`,
+ * `serverid`, `registrar`) are NEVER forwarded.
  */
 export function mapOrderAcceptParams(params: Record<string, unknown>): Record<string, unknown> {
   return {
