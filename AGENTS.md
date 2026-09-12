@@ -86,7 +86,12 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `MCP_CONSUMER_REGISTRY`            | JSON array with `token_sha256` — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md).                                                                          |
 | `MCP_CLIENT_CUSTOM_FIELD_LABELS`   | `id:label` pairs for stable custom-field names in client output.                                                                                                                                          |
 | `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. `MCP_PROD_WRITE_AUTHORIZED_FILE` is the live owner-only JSON allowlist; edit it to change approved actions/scopes without restarting the MCP. |
-| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md). |
+| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md).
+
+### Auth layers (do not confuse)
+
+Before proposing “WHMCS OAuth for MCP,” read [docs/runbooks/auth-layers-whmcs-vs-mcp.md](docs/runbooks/auth-layers-whmcs-vs-mcp.md). Admin ops use **API identifier/secret** + MCP consumer tokens; WHMCS OpenID is client-area/SSO; MCP OAuth 2.1 RS is HTTP-roadmap only.
+. |
 | `WHMCS_HEAL_EXTRA_IPS`            | Comma-separated extra IPs (e.g. Grok Bot egress) always included in IP allowlist heal. |
 
 ## Scripts & verification
@@ -133,6 +138,7 @@ Pre-push CI parity (matches GitHub `build-test` / related jobs): [docs/runbooks/
 | [examples/README.md](examples/README.md)                                             | `structuredContent` integration patterns                     |
 | [docs/runbooks/simple-writes.md](docs/runbooks/simple-writes.md)                     | Default write model (governance off, destructive phrase)     |
 | [docs/OPERATIONS-HANDOFF.md](docs/OPERATIONS-HANDOFF.md)                               | Product boundary, ownership, runtime, release, and handoff checklist |
+| [docs/runbooks/auth-layers-whmcs-vs-mcp.md](docs/runbooks/auth-layers-whmcs-vs-mcp.md) | WHMCS Admin API vs OpenID/OAuth vs MCP auth — read before "use OAuth for MCP" |
 | [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md)        | Grok Bot / Business WhatsApp stdio access setup              |
 
 ## Cursor / rules

@@ -41,6 +41,7 @@ Step-by-step operational guides for setup, testing, and capability probing.
 | Document | Description |
 |---|---|
 | [runbooks/ai-agent-local.md](runbooks/ai-agent-local.md) | Operator troubleshooting guide for AI agents running the server locally |
+| [auth-layers-whmcs-vs-mcp.md](runbooks/auth-layers-whmcs-vs-mcp.md) | **WHMCS Admin API vs OpenID/OAuth vs MCP OAuth** — key differences for agents; role-audit + secret-rotation checklists |
 | [runbooks/capability-probe.md](runbooks/capability-probe.md) | How to run capability probes and promote verified read actions |
 | [runbooks/write-capability-probe.md](runbooks/write-capability-probe.md) | Write-scope capability probe: pre-flight checks before ungating any write action |
 | [runbooks/local-whmcs-testing.md](runbooks/local-whmcs-testing.md) | Bring up the dual WHMCS (8.13 + 9.x) local dev stack with Docker |
