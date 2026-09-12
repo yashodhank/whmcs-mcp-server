@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / Grok write gaps; #108 reconciling #107/#109/#104 onto `main`)
+Status: current as of 2026-09-12 (`main` has #108; npm security patches pending — vitest 4.1.11 not 5)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -164,13 +164,15 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
   owner transfer still needs `MCP_WHMCS_DB_*`. Sealed: terminate, domain
   transfer/release, contact delete. See
   [grok-mcp-write-audit.md](runbooks/grok-mcp-write-audit.md).
-- Open-PR reconciliation (2026-09-12): `main` already contains #105, #106,
-  #109. #108 merges `main` and keeps the Grok-safe `order:accept` mapper
-  (always emit false unless explicit `true`) while absorbing #109's
-  boolean-validation and fraud-flag drop tests plus the live auth-layer
-  runbooks. #107 is a strict subset of #108. #104 (`fast-uri` 3.1.7) is
-  folded into #108. Merge #108 first when CI is green; then close #107 and
-  #104 as superseded.
+- Open-PR reconciliation (2026-09-12): `main` now contains #105, #106, #108,
+  and #109. #108 kept the Grok-safe `order:accept` mapper (always emit false
+  unless explicit `true`) and absorbed #109's boolean-validation / fraud-flag
+  tests plus the live auth-layer runbooks. #107 and #104 were closed as
+  superseded (subset / folded lockfile). Dependabot #111 tried `vitest@5`
+  while leaving `@vitest/coverage-v8@4` and broke `npm ci`; the follow-up
+  security PR takes `mysql2@3.23.1`, `vitest@4.1.11` (advisory-fixed 4.x),
+  and patched transitives (`hono`, `js-yaml`, `qs`, `@humanfs/node`,
+  `nanoid`) instead of a Vitest 5 major.
 
 ### NEXUS-Sprint operator model (2026-09)
 
