@@ -441,14 +441,29 @@ export function mapDomainRenewParams(params: Record<string, unknown>): Record<st
 }
 
 /**
- * `order:accept` `{orderid}` → WHMCS `AcceptOrder` `{orderid}`. STRICT 1-key
- * output; ALL extras dropped. In particular fraud-bypass / module-control flags
- * (e.g. `fraudbypass`, `sendregistrar`, `autosetup`, `sendemail`) are NEVER
- * auto-sent — accepting an order must not silently override WHMCS's fraud
- * checks or provisioning defaults.
+ * STRICT allowlist of optional WHMCS `AcceptOrder` fields `order:accept` may
+ * forward beyond the required `orderid`. Only boolean opt-out flags are
+ * admitted (autosetup, sendemail); fraud-bypass / registrar / server overrides
+ * (`fraudbypass`, `sendregistrar`, `serverid`, `registrar`) are NEVER
+ * forwarded — accepting an order must not silently override WHMCS's fraud
+ * checks, server selection, or registrar defaults.
+ *
+ * Callers pass `autosetup: false` to disable module provisioning (e.g.
+ * link-existing / StackCP flow where the hosting package already exists)
+ * and `sendemail: false` to suppress the Welcome Email. When omitted the
+ * fields are NOT sent, preserving WHMCS's own defaults (which are typically
+ * autosetup=true, sendemail=true).
  */
+const ORDER_ACCEPT_OPTIONAL_BOOLEANS: readonly string[] = ['autosetup', 'sendemail'];
+
 export function mapOrderAcceptParams(params: Record<string, unknown>): Record<string, unknown> {
-  return { orderid: params.orderid };
+  const out: Record<string, unknown> = { orderid: params.orderid };
+  for (const key of ORDER_ACCEPT_OPTIONAL_BOOLEANS) {
+    if (typeof params[key] === 'boolean') {
+      out[key] = params[key];
+    }
+  }
+  return out;
 }
 
 /**
