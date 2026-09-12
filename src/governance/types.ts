@@ -77,6 +77,8 @@ export const CONTRACT_NAMES = [
   'admin_full_trusted',
   'debug_local',
   'none_local_only',
+  // WhatsApp / Grok channel: identifiers + amounts only; no staff notes, no raw ticket bodies.
+  'grok_channel_safe',
 ] as const;
 
 export type ContractName = (typeof CONTRACT_NAMES)[number];

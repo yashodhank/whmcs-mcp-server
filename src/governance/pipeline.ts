@@ -23,6 +23,7 @@ import { getContract } from './contracts.js';
 import { project, projectWithTrace } from './projection.js';
 import type { AuditTraceRecord } from './auditTrace.js';
 import { resolveStdioDefaultToken } from '../auth/trustedStdioDefault.js';
+import { actionDeniedMessage, isActionAllowed } from './allowedActions.js';
 
 /** Map the validated MCP_ENV to a ProjectionEnv (identical union). */
 export function getProjectionEnv(): ProjectionEnv {
@@ -44,7 +45,11 @@ export function pickContract(profile: ConsumerProfile, requested?: string): Cont
   return profile.defaultContract;
 }
 
-export type GovernStatus = 'projected' | 'consumer_denied' | 'contract_env_forbidden';
+export type GovernStatus =
+  | 'projected'
+  | 'consumer_denied'
+  | 'contract_env_forbidden'
+  | 'action_denied';
 
 export interface GovernResult {
   readonly ok: boolean;
@@ -70,6 +75,8 @@ export function governProjection<T>(args: {
   registry: ConsumerProfile[];
   allowAnon: boolean;
   requestedContract?: string;
+  /** Capability / tool / WHMCS action to enforce against `allowedActions`. */
+  requiredAction?: string;
   /** A2: also compute the value-free authoritative projection trace. */
   withTrace?: boolean;
 }): GovernResult {
@@ -85,6 +92,15 @@ export function governProjection<T>(args: {
   }
 
   const profile = resolution.profile;
+  if (!isActionAllowed(profile, args.requiredAction)) {
+    const required = args.requiredAction ?? '';
+    return {
+      ok: false,
+      status: 'action_denied',
+      error: actionDeniedMessage(required, profile.id),
+      consumer_id: profile.id,
+    };
+  }
   const contractName = pickContract(profile, args.requestedContract);
   const contract = getContract(contractName);
 
@@ -155,6 +171,7 @@ export function governListProjection(args: {
   registry: ConsumerProfile[];
   allowAnon: boolean;
   requestedContract?: string;
+  requiredAction?: string;
   /** A2: also compute the value-free authoritative per-row trace. */
   withTrace?: boolean;
 }): GovernListResult {
@@ -170,6 +187,15 @@ export function governListProjection(args: {
   }
 
   const profile = resolution.profile;
+  if (!isActionAllowed(profile, args.requiredAction)) {
+    const required = args.requiredAction ?? '';
+    return {
+      ok: false,
+      status: 'action_denied',
+      error: actionDeniedMessage(required, profile.id),
+      consumer_id: profile.id,
+    };
+  }
   const contractName = pickContract(profile, args.requestedContract);
   const contract = getContract(contractName);
 
@@ -346,6 +372,7 @@ export function governedToolResult<T>(args: {
   canonical: Canonical<T>;
   authToken: string | undefined;
   requestedContract?: string;
+  requiredAction?: string;
 }): GovernedToolResult {
   const withTrace = auditTraceEnabled();
   const r = governProjection({
@@ -355,6 +382,7 @@ export function governedToolResult<T>(args: {
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,
     requestedContract: args.requestedContract,
+    requiredAction: args.requiredAction,
     withTrace,
   });
 
@@ -395,6 +423,7 @@ export function governedListResult(args: {
   envelope: Record<string, unknown>;
   authToken: string | undefined;
   requestedContract?: string;
+  requiredAction?: string;
 }): GovernedToolResult {
   const withTrace = auditTraceEnabled();
   const r = governListProjection({
@@ -405,6 +434,7 @@ export function governedListResult(args: {
     registry: getConsumerRegistry(),
     allowAnon: config.MCP_ALLOW_ANON_LLM,
     requestedContract: args.requestedContract,
+    requiredAction: args.requiredAction,
     withTrace,
   });
 

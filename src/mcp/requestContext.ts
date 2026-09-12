@@ -13,6 +13,8 @@ export interface TransportIdentity {
   /** Transport-authenticated capability or WHMCS-action grants. */
   readonly capabilityActionGrants: readonly string[];
   readonly authMode: 'registry' | 'oauth' | 'stdio';
+  /** OIDC `sub` from a verified MCP-aud token (HTTP OAuth only). */
+  readonly oidcSub?: string;
 }
 
 export interface RequestContext {
@@ -53,11 +55,14 @@ function freezeIdentity(authInfo: AuthInfo | undefined): TransportIdentity {
   const extra = authInfo.extra;
   const authMode =
     extra?.authMode === 'oauth' || extra?.authMode === 'stdio' ? extra.authMode : 'registry';
+  const oidcSub =
+    typeof extra?.oidcSub === 'string' && extra.oidcSub.length > 0 ? extra.oidcSub : undefined;
   return Object.freeze({
     consumerId: authInfo.clientId,
     scopes: Object.freeze([...authInfo.scopes]),
     capabilityActionGrants: boundedGrants(extra?.capabilityActionGrants),
     authMode,
+    ...(oidcSub === undefined ? {} : { oidcSub }),
   });
 }
 

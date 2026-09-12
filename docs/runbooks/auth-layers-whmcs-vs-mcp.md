@@ -106,7 +106,7 @@ Both are required for production governed ops. Layer C never replaces Layer A.
 
 - **~45 write scopes** granted on `operator-reconcile` + `operator-approver`, mirrored into `MCP_PROD_WRITE_AUTHORIZED`.
 - **Still sealed:** `service:terminate`, domain transfer/release, `client:contact:delete` (and other `PROD_NEVER_*` actions).
-- **`order:accept`:** optional booleans `autosetup` / `sendemail` (PR #109 on `main`). Policy: use `autosetup: false` **only** for already-provisioned / migrate+manual cases; normal new orders omit `autosetup` (ModuleCreate).
+- **`order:accept`:** mapper always sends `autosetup` + `sendemail`, default **false** (Grok-safe; #109 omit-to-WHMCS-default was absorbed then superseded). Pass `autosetup: true` / `sendemail: true` only when ModuleCreate / Welcome Email are intended.
 
 ---
 

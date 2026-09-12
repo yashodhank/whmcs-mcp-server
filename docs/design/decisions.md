@@ -151,3 +151,25 @@ or stdio respawn restores the pre-v2 transport path without changing business
 or write semantics. Keep v1 until an official modern conformance runner is
 green, rollback is rehearsed, and production telemetry shows 30 consecutive
 days with no legacy or unknown client traffic.
+
+## 2026-09-12 — Production baseline is WHMCS 8.13.7
+
+**Decision:** Design jobs, OIDC, and Admin API for **WHMCS 8.13.7**. Do not
+require 9.x credit/debit notes, invoice immutability, or Buy Flow REST for
+current production. Version-family fork stays in `versionProfile` /
+`write/validation.ts`; 9.x behaviors apply only when probed family is `9.x`.
+
+**Identity:** OIDC `sub` is a User. Map to clients via `GetClients` /
+`GetClientsDetails` (GetUsers stays off the read allowlist). Never guess
+`clientid` when multiple clients match.
+
+**Audience:** Staff is `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS`.
+Customer OIDC must not grant staff jobs. `clientarea:*` SSO destinations are
+not proven API grants on this install.
+
+**Tokens:** WHMCS tokens are minted for WHMCS, not `MCP_OAUTH_RESOURCE`.
+**Federation is the chosen pattern** (ADR-0002.3); RFC 8693 is the alternate.
+Raw WHMCS Bearer tokens on MCP are rejected (`whmcs_token_not_mcp_audience`).
+
+**Files:** `docs/design/adr/0001-whmcs-8137-mcp-baseline.md`,
+`docs/design/adr/0002-mcp-rs-whmcs-oidc.md`.

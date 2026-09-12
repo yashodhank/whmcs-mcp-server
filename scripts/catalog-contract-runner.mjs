@@ -26,7 +26,26 @@ try {
     }
   );
   if (result.error !== undefined) throw result.error;
-  process.exitCode = result.status ?? 1;
+  if ((result.status ?? 1) !== 0) {
+    process.exitCode = result.status ?? 1;
+  } else if (mode === '--write') {
+    const mcp = spawnSync(
+      process.execPath,
+      [
+        resolve(repositoryRoot, 'node_modules/tsx/dist/cli.mjs'),
+        resolve(repositoryRoot, 'scripts/write-mcp-catalog-fixture.ts'),
+      ],
+      {
+        cwd: repositoryRoot,
+        env: createMcpTestEnvironment(process.env, temporaryHome),
+        stdio: 'inherit',
+      }
+    );
+    if (mcp.error !== undefined) throw mcp.error;
+    process.exitCode = mcp.status ?? 1;
+  } else {
+    process.exitCode = 0;
+  }
 } finally {
   rmSync(temporaryHome, { recursive: true, force: true });
 }

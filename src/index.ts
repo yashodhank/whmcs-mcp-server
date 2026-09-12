@@ -41,6 +41,8 @@ import { registerCapabilityShellTools } from './tools/capabilityShellTools.js';
 import { registerWriteFlowTools } from './tools/writeFlow.js';
 import { registerWorkflowTools } from './tools/workflows.js';
 import { registerPlanningTools } from './tools/planning.js';
+import { registerOpsAskTools } from './tools/opsAsk.js';
+import { registerMcpDoctorTools } from './tools/mcpDoctor.js';
 
 // Resource registrations
 import { registerResources } from './resources/index.js';
@@ -104,6 +106,8 @@ export function buildServer(deps: {
   registerExtendedReadTools(server, whmcsClient, logger, rateLimiter);
   registerTicketThreadTool(server, whmcsClient, logger, rateLimiter);
   registerAggregatorTools(server, whmcsClient, logger, rateLimiter);
+  registerOpsAskTools(server, whmcsClient, logger, rateLimiter);
+  registerMcpDoctorTools(server, whmcsClient, logger, rateLimiter);
   const capabilityCatalog = registerCapabilityShellTools(server, whmcsClient, logger, rateLimiter);
   registerWriteFlowTools(server, whmcsClient, logger, rateLimiter);
   registerWorkflowTools(server, whmcsClient, logger, rateLimiter);

@@ -31,6 +31,7 @@ import {
   type JWTVerifyGetKey,
   errors as joseErrors,
 } from 'jose';
+import { issuerIsForbidden } from './whmcsIssuer.js';
 
 /** A resolver returns the JWKS key-getter for a given (trusted-after-verify) issuer. */
 export type JwksResolver = (issuer: string) => JWTVerifyGetKey;
@@ -50,6 +51,11 @@ export interface TokenVerifierConfig {
    * INSTEAD of `createRemoteJWKSet`. Production code omits this.
    */
   jwksResolver?: JwksResolver;
+  /**
+   * WHMCS (or other foreign) issuers that must never be accepted as MCP
+   * access-token issuers, even if they also appear in `issuers` (ADR-0002.3).
+   */
+  forbiddenIssuers?: string[];
 }
 
 /** Normalized claims surfaced to callers after a successful verification. */
@@ -164,7 +170,16 @@ export function createTokenVerifier(cfg: TokenVerifierConfig): TokenVerifier {
       return { ok: false, reason: 'malformed_token' };
     }
 
-    if (typeof untrustedIss !== 'string' || !allowedIssuers.has(untrustedIss)) {
+    if (typeof untrustedIss !== 'string') {
+      return { ok: false, reason: 'issuer_not_allowed' };
+    }
+
+    // ADR-0002.3: a WHMCS-issued token is not an MCP-audience token.
+    if (issuerIsForbidden(untrustedIss, cfg.forbiddenIssuers)) {
+      return { ok: false, reason: 'whmcs_token_not_mcp_audience' };
+    }
+
+    if (!allowedIssuers.has(untrustedIss)) {
       // No point fetching a JWKS for an issuer we'd reject anyway.
       return { ok: false, reason: 'issuer_not_allowed' };
     }

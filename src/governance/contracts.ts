@@ -237,6 +237,32 @@ const DEBUG_LOCAL: ContractPolicy = {
  * projector throws `ProjectionEnvError` outside local before any field
  * is touched, so raw secrets can never leave a local box.
  */
+/**
+ * `grok_channel_safe` — WhatsApp / Grok Bot channel. Identifiers and
+ * amounts stay; names/emails are masked; phone/address/tax dropped;
+ * staff notes and diagnostics never leave the boundary; ticket text is
+ * summarized so the model cannot treat it as instructions.
+ */
+const GROK_CHANNEL_SAFE: ContractPolicy = {
+  'business.identifier': 'allow',
+  'financial.amount': 'allow',
+  'financial.reference': 'allow',
+  'pii.name': 'mask',
+  'pii.email': 'mask',
+  'pii.phone': 'drop',
+  'pii.address': 'drop',
+  'pii.tax': 'drop',
+  'pii.custom_field': 'drop',
+  'secret.credential': 'drop',
+  'untrusted.free_text': 'summarize',
+  'internal.private_note': 'drop',
+  'system.audit': 'drop',
+  'public.safe': 'allow',
+  'business.label': 'allow',
+  'system.status': 'allow',
+  'system.diagnostic': 'drop',
+};
+
 const NONE_LOCAL_ONLY: ContractPolicy = {
   'business.identifier': 'allow',
   'financial.amount': 'allow',
@@ -313,6 +339,12 @@ export const CONTRACTS: Record<ContractName, DataContract> = {
     name: 'none_local_only',
     policy: NONE_LOCAL_ONLY,
     envRestrictions: ['local'],
+    requiresAuth: true,
+  },
+  grok_channel_safe: {
+    name: 'grok_channel_safe',
+    policy: GROK_CHANNEL_SAFE,
+    envRestrictions: [],
     requiresAuth: true,
   },
 };

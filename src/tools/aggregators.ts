@@ -672,6 +672,7 @@ function register(
             canonical: aggregateCanonical(name, payload as Record<string, unknown>),
             authToken,
             requestedContract,
+            requiredAction: name,
           }),
       });
     } catch (e) {

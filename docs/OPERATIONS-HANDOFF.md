@@ -1,6 +1,6 @@
 # WHMCS MCP Server — Product, Ownership, and Operations Handoff
 
-Status: current as of 2026-09-02 (NEXUS-Sprint: fast path, version probe, broad reads/writes)
+Status: current as of 2026-09-12 (WHMCS 8.13.7 MCP brief + standards ADRs / Grok write gaps; #108 reconciling #107/#109/#104 onto `main`)
 Canonical code: [`yashodhank/whmcs-mcp-server`](https://github.com/yashodhank/whmcs-mcp-server)
 Canonical branch: `main`
 
@@ -26,6 +26,13 @@ owned product.
 The WHMCS installation remains the system of record for customer, billing,
 service, domain, ticket, and invoice data. This server is an access and
 governance layer; it is not a second CRM, billing database, or source of truth.
+
+**Production WHMCS baseline is 8.13.7.** Jobs, OIDC, and the Admin External API
+are designed for 8.13. Do not require 9.x credit/debit notes, invoice
+immutability, or Buy Flow REST. See
+[docs/design/adr/0001-whmcs-8137-mcp-baseline.md](design/adr/0001-whmcs-8137-mcp-baseline.md)
+and
+[docs/design/adr/0002-mcp-rs-whmcs-oidc.md](design/adr/0002-mcp-rs-whmcs-oidc.md).
 
 ## What it does and why it exists
 
@@ -93,6 +100,77 @@ records or intent IDs durable. A restart removes pending in-memory intents and
 approvals; operators must draft and validate a new intent, then obtain a new
 approval. Durable audit, idempotency, and daily-cap paths must be configured
 separately.
+
+### WHMCS 8.13.7 Phase 0 evidence (2026-09-12)
+
+Recorded from this agent environment against the public origin
+`https://my.securiace.com` (no Admin API identifier/secret present here).
+Interactive OAuth and role probes stay `PENDING` with an owner.
+
+| Fact | Value | Status |
+|---|---|---|
+| Operator baseline | WHMCS **8.13.7** (LTS; 2026-09-03 security-only vs 8.13.x) | accepted |
+| Last Admin API `Version` | `8.13.6-release.1` (2026-09-02 PR #103) | **PENDING** re-read via `GetConfigurationValue` / `GetAdminDetails.whmcs` |
+| `WhmcsDetails` | HTTP 403 `invalid_permissions` | last recorded; do not add to the API role |
+| `GetUsers` | `not_authorized` for the configured API role | last recorded; identity uses `GetClients` / `GetClientsDetails` |
+| OIDC discovery `/oauth/openid-configuration.php` | **200** — issuer `https://my.securiace.com`; authorize/token/userinfo/jwks; scopes `openid email profile`; `id_token_signing_alg` `RS256`; claims `iss aud exp sub` | verified this run |
+| `/.well-known/openid-configuration` | **404** | verified this run (rewrite not installed) |
+| JWKS `/oauth/certs.php` | `{ "keys": [] }` | verified this run — **PENDING** operator to publish signing keys |
+| ID token `aud` | WHMCS OAuth client id (official 8.13 docs), not `MCP_OAUTH_RESOURCE` | forces federation (chosen) / RFC 8693 (alternate) |
+| Access token type (JWT vs opaque) | not captured (no auth-code + PKCE in this environment) | **PENDING** — operator + throwaway OpenID app; do not guess in code |
+| ID token vs access token | Official 8.13 docs: code exchange returns access token + ID token (JWT, RS256). Live claims (`sub`, `aud`, `email`) not captured | ID token shape accepted as documented; live claims **PENDING** PKCE |
+| `clientarea:*` | Official 8.13 **SSO Client Area destinations** (profile/invoices/tickets/sso/…). Not proven as External API grants | accepted; customer door stays link/handoff |
+| Auth-code + PKCE / userinfo-with-token | not run (no throwaway OpenID app) | **PENDING** — operator + human login |
+| `tbloauthserver_scopes` / user token vs admin `api.php` | not run | **PENDING** — go/no-go for customer door; do not treat a user token as an Admin API credential |
+| User-delegated invoice/ticket API | unproven | customer `ops_ask` jobs stay link/handoff |
+| Federation vs RFC 8693 | **Federation chosen** (operator-run AS mints `aud`=`MCP_OAUTH_RESOURCE`). RFC 8693 is the documented alternate. Raw WHMCS Bearer on MCP is rejected (`whmcs_token_not_mcp_audience`) | accepted ADR-0002.3 |
+| Staff without an OIDC user | Admin API machine credential + `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS` | accepted |
+| CIMD vs pre-registered Grok client | CIMD remains future (`oauth.md` phase 4); pre-register Grok at the federation AS | accepted until probe |
+| Buy Flow REST | not on 8.13.7 | do not probe |
+| Writes (`UpdateInvoice`, `MergeTicket`) | not executed | do not execute on prod |
+
+Re-run `node scripts/mcp-whmcs-8137-phase0-probe.mjs` when credentials exist.
+See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.md).
+
+### 8.13.7 MCP job surface
+
+- `ops_ask` — staff jobs (`morning_digest`, `overdue_digest`, `ticket_inbox`,
+  `next_best_action`, `close_pack`, `system_health`, `draft_work`,
+  `billing_card`, `gdpr_export_pack`). Audience from
+  `MCP_STAFF_CONSUMER_IDS` ∪ `MCP_STAFF_OIDC_SUBS`, never from the model.
+  Ticket inbox does **not** use `GetTickets`+`clientid`. Staff `billing_card`
+  / `gdpr_export_pack` include GST/TDS **identity** fields (`tax_id`, country);
+  amounts are not computed.
+- Customer jobs return `link_required` plus OIDC authorize/PKCE instructions
+  and the official `clientarea:*` vocabulary until Phase 0 proves a
+  user-delegated API (`MCP_CUSTOMER_USER_API_PROVEN` stays false).
+- `mcp_doctor` — version family, OIDC discovery, API-role probes, OAuth RS
+  config, empty `allowedActions`, staff consumer/OIDC allow-lists, federation
+  required, WHMCS-origin issuer warning.
+- `grok_channel_safe` contract — WhatsApp-safe projection.
+- Non-empty `allowedActions` are enforced on governed lists/aggregators and
+  `ops_ask`. Empty list remains unrestricted (legacy); doctor warns.
+- Production `logToolCall` logs tool + business ids only.
+- `MCP_READ_AUDIT_PATH` JSONL `{at, consumer_id, job, clientid}` — no payload.
+- `MCP_EFFECT_LEDGER_PATH` JSONL `{at, consumer_id, job, clientid, effect}` —
+  no payload.
+- `MCP_WRITE_INTENT_STORE_PATH` optional durable intent snapshot.
+- WhatsApp bind/refresh lives **outside** this repo
+  ([whatsapp-bind-outside-mcp.md](runbooks/whatsapp-bind-outside-mcp.md)).
+- Credit-note reads stay unverified / 9.x-only.
+- Grok write gaps: `order:accept` defaults `autosetup=false` /
+  `sendemail=false`; `service:product:set` + `service:customfields:update`
+  for package/CF; `ticket:merge` still needs API role `mergeticket`;
+  owner transfer still needs `MCP_WHMCS_DB_*`. Sealed: terminate, domain
+  transfer/release, contact delete. See
+  [grok-mcp-write-audit.md](runbooks/grok-mcp-write-audit.md).
+- Open-PR reconciliation (2026-09-12): `main` already contains #105, #106,
+  #109. #108 merges `main` and keeps the Grok-safe `order:accept` mapper
+  (always emit false unless explicit `true`) while absorbing #109's
+  boolean-validation and fraud-flag drop tests plus the live auth-layer
+  runbooks. #107 is a strict subset of #108. #104 (`fast-uri` 3.1.7) is
+  folded into #108. Merge #108 first when CI is green; then close #107 and
+  #104 as superseded.
 
 ### NEXUS-Sprint operator model (2026-09)
 
@@ -246,11 +324,19 @@ Every code, configuration, governance, or operational behavior change must:
    added after a PR was closed or merged; and
 7. merge only after required GitHub checks are green.
 
-The CI gate currently runs Node build, typecheck, lint, the full Vitest suite,
-Python tests for the optional IP updater, and PHP syntax checks. No release
-tagging or image-digest policy is currently declared; establish those before
-production deployment rather than treating a mutable image tag as release
-identity.
+The CI gate (`.github/workflows/ci.yml`) runs on every pull request and every
+push to `main`. `build-test` is build, typecheck, lint with `--max-warnings 0`,
+format, the full Vitest suite (`npm run test:ci`), MCP catalog/transport
+contracts, and the capability catalog check. `mcp-conformance` and
+`python-php-check` are required siblings. The `ci-ok` job fails unless all
+three succeed — require `ci-ok` in branch protection so a green subset cannot
+merge. Local parity: `npm run ci:node` (see
+[local-ci-parity-before-push.md](runbooks/local-ci-parity-before-push.md)).
+Catalog count drift is closed by generating `tests/fixtures/mcp/catalog-v1.json`
+via `npm run catalog:update` and having the hermetic sentinel read those
+counts. No release tagging or image-digest policy is currently declared;
+establish those before production deployment rather than treating a mutable
+image tag as release identity.
 
 ## Operational rules
 
@@ -404,7 +490,7 @@ self-consistent caller-rehashed plan. Multi-step drafting stops on the first
 denial and reports partial results explicitly; already-created records remain
 drafts only.
 
-The current public catalog is 61 tools, 10 prompts, 5 concrete resources, and
+The current public catalog is 79 tools, 10 prompts, 5 concrete resources, and
 9 resource templates. The additive Plan 003/005 surfaces are
 `whmcs://capabilities/v2`, `whmcs://planning/planir/v1`, four planning tools,
 and the `plan_whmcs_operation` prompt.
@@ -511,9 +597,13 @@ gap from memory.
 - [`README.md`](../README.md) — installation, configuration, and tool catalog.
 - [`docs/design/architecture.md`](design/architecture.md) — implementation architecture.
 - [`docs/design/governance.md`](design/governance.md) — consumer projection and contracts.
+- [`docs/design/adr/0001-whmcs-8137-mcp-baseline.md`](design/adr/0001-whmcs-8137-mcp-baseline.md) — 8.13.7 job/OIDC ADRs.
+- [`docs/design/adr/0002-mcp-rs-whmcs-oidc.md`](design/adr/0002-mcp-rs-whmcs-oidc.md) — MCP HTTP=RS, federation, staff allow-list, no ValidateLogin.
 - [`docs/design/capability-catalog.md`](design/capability-catalog.md) — typed catalog, evidence, discovery, and migration rules.
 - [`docs/design/controlled-writes-phase-f.md`](design/controlled-writes-phase-f.md) — write-flow design.
 - [`docs/runbooks/ai-agent-local.md`](runbooks/ai-agent-local.md) — local operator troubleshooting.
+- [`docs/runbooks/auth-layers-whmcs-vs-mcp.md`](runbooks/auth-layers-whmcs-vs-mcp.md) — Admin API vs OpenID vs MCP OAuth.
+- [`docs/runbooks/api-role-audit-live-2026-09-12.md`](runbooks/api-role-audit-live-2026-09-12.md) — live Admin API role probe vs write scopes.
 - [`docs/runbooks/production-test-program.md`](runbooks/production-test-program.md) — production validation.
 - [`docs/runbooks/production-governed-writes.md`](runbooks/production-governed-writes.md) — host-neutral production write ceremony and revocation.
 - [`docs/reference/agent-context.md`](reference/agent-context.md) — current technical context.

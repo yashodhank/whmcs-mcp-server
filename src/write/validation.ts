@@ -93,6 +93,8 @@ const REQUIRED_PARAMS: Readonly<Record<WriteScope, readonly string[]>> = {
   'client:update': ['clientid'],
   // ── Track C2 ────────────────────────────────────────────────────────────
   'service:change_package': ['serviceid'],
+  'service:product:set': ['serviceid', 'pid'],
+  'service:customfields:update': ['serviceid', 'customfields'],
   // service:upgrade — serviceid + type always; the per-type required field
   // (newproductid / configoptions / addonid) is enforced in a custom block.
   'service:upgrade': ['serviceid', 'type'],
@@ -880,8 +882,9 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
   }
 
   // Track C — order:accept: orderid must be a positive integer. Optional
-  // boolean flags (autosetup, sendemail) are validated when present; non-boolean
-  // values are rejected so a string "false" or number 0 never leaks through.
+  // autosetup/sendemail booleans default false in the mapper (Grok-safe).
+  // Non-boolean values are rejected so a string "false" or number 0 never
+  // leaks through as an implicit true/false.
   if (intent.scope === 'order:accept') {
     const oid = intent.params.orderid;
     if (typeof oid !== 'number' || !Number.isInteger(oid) || oid <= 0) {
@@ -891,13 +894,13 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
         message: 'order:accept `orderid` must be a positive integer',
       });
     }
-    for (const key of ['autosetup', 'sendemail'] as const) {
-      const v = intent.params[key];
+    for (const flag of ['autosetup', 'sendemail'] as const) {
+      const v = intent.params[flag];
       if (v !== undefined && typeof v !== 'boolean') {
         issues.push({
-          code: `invalid_${key}`,
+          code: `invalid_${flag}`,
           severity: 'error',
-          message: `order:accept \`${key}\` must be a boolean when provided`,
+          message: `order:accept \`${flag}\` must be a boolean when provided`,
         });
       }
     }
@@ -1028,6 +1031,49 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
   // service:change_package — serviceid positive int (mapper emits only serviceid).
   if (intent.scope === 'service:change_package') {
     requirePosInt('serviceid', 'invalid_serviceid', 'service:change_package `serviceid`');
+  }
+
+  if (intent.scope === 'service:product:set') {
+    requirePosInt('serviceid', 'invalid_serviceid', 'service:product:set `serviceid`');
+    requirePosInt('pid', 'invalid_pid', 'service:product:set `pid`');
+    const cycle = intent.params.billingcycle;
+    if (cycle !== undefined && (typeof cycle !== 'string' || cycle.trim() === '')) {
+      issues.push({
+        code: 'invalid_billingcycle',
+        severity: 'error',
+        message: 'service:product:set `billingcycle` must be a non-empty string when provided',
+      });
+    }
+  }
+
+  if (intent.scope === 'service:customfields:update') {
+    requirePosInt('serviceid', 'invalid_serviceid', 'service:customfields:update `serviceid`');
+    const cfs = intent.params.customfields;
+    if (cfs === null || typeof cfs !== 'object' || Array.isArray(cfs)) {
+      issues.push({
+        code: 'invalid_customfields',
+        severity: 'error',
+        message: 'service:customfields:update `customfields` must be an object of fieldId → value',
+      });
+    } else {
+      const keys = Object.keys(cfs);
+      if (keys.length === 0) {
+        issues.push({
+          code: 'invalid_customfields',
+          severity: 'error',
+          message: 'service:customfields:update `customfields` must have at least one field',
+        });
+      }
+      for (const [k, v] of Object.entries(cfs)) {
+        if (v !== null && typeof v === 'object') {
+          issues.push({
+            code: 'invalid_customfields',
+            severity: 'error',
+            message: `service:customfields:update customfields[${k}] must be a scalar`,
+          });
+        }
+      }
+    }
   }
 
   // service:upgrade — serviceid positive int; type ∈ enum; per-type required field.

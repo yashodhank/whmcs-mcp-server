@@ -11,7 +11,7 @@ every substantive change.
 
 - **Transport:** MCP over **stdio** (Cursor, Claude Desktop, Kilo, etc.). Logs go to **stderr** only; never write to stdout except JSON-RPC.
 - **Backend:** WHMCS External API via `WhmcsClient` (`src/whmcs/`).
-- **Surface:** 61 tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow and non-executing planning) plus **9 resource endpoints/templates**.
+- **Surface:** 79 catalog tools (legacy WHMCS actions, list/reporting, aggregators, capability probes, controlled write-flow, planning, `ops_ask`, `mcp_doctor`) plus **9 resource endpoints/templates**. Production WHMCS baseline is **8.13.7**.
 
 ## Architecture (current)
 
@@ -86,19 +86,22 @@ Copy [.env.example](.env.example). Required: `WHMCS_API_URL`, `WHMCS_IDENTIFIER`
 | `MCP_CONSUMER_REGISTRY`            | JSON array with `token_sha256` — see [docs/reference/consumer-registry.example.md](docs/reference/consumer-registry.example.md).                                                                          |
 | `MCP_CLIENT_CUSTOM_FIELD_LABELS`   | `id:label` pairs for stable custom-field names in client output.                                                                                                                                          |
 | `MCP_PROD_WRITE_*` / `MCP_WRITE_*` | Production write authorizer, caps, audit/idempotency paths. `MCP_PROD_WRITE_AUTHORIZED_FILE` is the live owner-only JSON allowlist; edit it to change approved actions/scopes without restarting the MCP. |
-| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md).
+| `MCP_DEFAULT_CONSUMER_AUTH_TOKEN` | Raw bearer token auto-injected for trusted stdio when `auth_token` is omitted. Never applied for HTTP. Local escape hatch only (ADR-0002.4). See [docs/runbooks/grokbot-stdio-access.md](docs/runbooks/grokbot-stdio-access.md). |
+| `MCP_STAFF_CONSUMER_IDS` / `MCP_STAFF_OIDC_SUBS` | Staff `ops_ask` allow-lists (consumer ids ∪ OIDC `sub`). Empty ⇒ nobody is staff. |
+| `MCP_WHMCS_OIDC_ISSUER`           | WHMCS origin rejected as an MCP Bearer issuer (defaults to `WHMCS_API_URL` origin). |
+| `MCP_EFFECT_LEDGER_PATH`          | JSONL `{at,consumer_id,job,clientid,effect}` — no payloads or tokens. |
+| `WHMCS_HEAL_EXTRA_IPS`            | Comma-separated extra IPs (e.g. Grok Bot egress) always included in IP allowlist heal. |
 
 ### Auth layers (do not confuse)
 
 Before proposing “WHMCS OAuth for MCP,” read [docs/runbooks/auth-layers-whmcs-vs-mcp.md](docs/runbooks/auth-layers-whmcs-vs-mcp.md). Admin ops use **API identifier/secret** + MCP consumer tokens; WHMCS OpenID is client-area/SSO; MCP OAuth 2.1 RS is HTTP-roadmap only.
-. |
-| `WHMCS_HEAL_EXTRA_IPS`            | Comma-separated extra IPs (e.g. Grok Bot egress) always included in IP allowlist heal. |
 
 ## Scripts & verification
 
 | Script                                | Purpose                                                      |
 | ------------------------------------- | ------------------------------------------------------------ |
 | `npm run build`                       | Produce `dist/index.js` (required before MCP hosts connect). |
+| `npm run ci:node`                     | Local parity with GitHub `build-test` (lint/format/tests/catalog). |
 | `npm test`                            | Vitest unit/integration suite.                               |
 | `npm run mcp:test:production-program` | L0–L6 production test program.                               |
 | `scripts/mcp-governed-smoke.mjs`      | Governed read smoke.                                         |
@@ -115,7 +118,7 @@ Pre-push CI parity (matches GitHub `build-test` / related jobs): [docs/runbooks/
 1. **No secrets in git** — credentials, registry tokens, `.env.local`, prod seeds.
 2. **Preserve stdio contract** — no `console.log` on stdout; use `Logger` → stderr.
 3. **Minimal diffs** — match existing patterns in the tool module you touch.
-4. **Tests** — add/adjust Vitest for behavior changes; run `npm run typecheck && npm test` before PR.
+4. **Tests** — add/adjust Vitest for behavior changes; run `npm run ci:node` before PR (lint `--max-warnings 0`, format, tests, catalog contracts).
 5. **WHMCS 9** — invoice immutability and credit/debit notes: read [docs/reference/whmcs9-credit-debit-notes.md](docs/reference/whmcs9-credit-debit-notes.md) before billing/write changes.
 6. **Do not commit** `.cursor/hooks/state/` or other IDE-local paths.
 7. **Keep the handoff current** — every code, governance, deployment, approval,

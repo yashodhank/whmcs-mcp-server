@@ -156,7 +156,7 @@ describe('Track C strict mappers', () => {
     });
   });
 
-  it('order:accept emits {orderid} and drops fraud/provisioning flags when booleans not explicit', () => {
+  it('order:accept defaults autosetup/sendemail false and drops fraud flags', () => {
     const out = intentToWhmcsParams('order:accept', {
       orderid: 42,
       fraudbypass: true,
@@ -164,59 +164,53 @@ describe('Track C strict mappers', () => {
       registrar: 'enom',
       sendregistrar: true,
     });
-    expect(out).toEqual({ orderid: 42 });
+    expect(out).toEqual({ orderid: 42, autosetup: false, sendemail: false });
     for (const k of ['fraudbypass', 'serverid', 'registrar', 'sendregistrar']) {
       expect(out).not.toHaveProperty(k);
     }
   });
 
-  it('order:accept forwards autosetup:false to disable module provisioning', () => {
-    const out = intentToWhmcsParams('order:accept', {
-      orderid: 99,
-      autosetup: false,
-    });
-    expect(out).toEqual({ orderid: 99, autosetup: false });
+  it('order:accept emits true only when the caller explicitly passes true', () => {
+    expect(
+      intentToWhmcsParams('order:accept', { orderid: 42, autosetup: true, sendemail: true })
+    ).toEqual({ orderid: 42, autosetup: true, sendemail: true });
   });
 
-  it('order:accept forwards autosetup:true explicitly', () => {
-    const out = intentToWhmcsParams('order:accept', {
+  it('order:accept still emits false when caller passes explicit false', () => {
+    expect(
+      intentToWhmcsParams('order:accept', { orderid: 99, autosetup: false, sendemail: false })
+    ).toEqual({ orderid: 99, autosetup: false, sendemail: false });
+  });
+
+  it('order:accept mixed flags still default the omitted one to false', () => {
+    expect(intentToWhmcsParams('order:accept', { orderid: 99, autosetup: true })).toEqual({
       orderid: 99,
       autosetup: true,
-    });
-    expect(out).toEqual({ orderid: 99, autosetup: true });
-  });
-
-  it('order:accept forwards sendemail:false to suppress welcome email', () => {
-    const out = intentToWhmcsParams('order:accept', {
-      orderid: 99,
       sendemail: false,
     });
-    expect(out).toEqual({ orderid: 99, sendemail: false });
-  });
-
-  it('order:accept forwards both autosetup + sendemail booleans together', () => {
-    const out = intentToWhmcsParams('order:accept', {
-      orderid: 7,
+    expect(intentToWhmcsParams('order:accept', { orderid: 99, sendemail: false })).toEqual({
+      orderid: 99,
       autosetup: false,
       sendemail: false,
     });
-    expect(out).toEqual({ orderid: 7, autosetup: false, sendemail: false });
   });
 
-  it('order:accept omits autosetup/sendemail when not provided (preserves WHMCS defaults)', () => {
-    const out = intentToWhmcsParams('order:accept', { orderid: 42 });
-    expect(out).toEqual({ orderid: 42 });
-    expect(out).not.toHaveProperty('autosetup');
-    expect(out).not.toHaveProperty('sendemail');
-  });
-
-  it('order:accept drops non-boolean autosetup/sendemail values (string, number)', () => {
-    const out = intentToWhmcsParams('order:accept', {
+  it('order:accept omit still emits false (Grok-safe; not WHMCS default true)', () => {
+    expect(intentToWhmcsParams('order:accept', { orderid: 42 })).toEqual({
       orderid: 42,
-      autosetup: 'false',
-      sendemail: 0,
+      autosetup: false,
+      sendemail: false,
     });
-    expect(out).toEqual({ orderid: 42 });
+  });
+
+  it('order:accept coerces non-boolean autosetup/sendemail to false', () => {
+    expect(
+      intentToWhmcsParams('order:accept', {
+        orderid: 42,
+        autosetup: 'false',
+        sendemail: 0,
+      })
+    ).toEqual({ orderid: 42, autosetup: false, sendemail: false });
   });
 
   it('order:accept still drops dangerous extras alongside valid booleans', () => {
@@ -474,7 +468,7 @@ describe('Track C validation', () => {
       expect(r.ok).toBe(false);
       expect(r.issues.some((i) => i.code === 'invalid_sendemail')).toBe(true);
     }
-    // undefined is fine (omitted = WHMCS defaults)
+    // undefined is fine (omitted maps to false in the mapper)
     expect(
       validateIntent(intent('order:accept', { orderid: 1, autosetup: undefined }), {}).ok
     ).toBe(true);

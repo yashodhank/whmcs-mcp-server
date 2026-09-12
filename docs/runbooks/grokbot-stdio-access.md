@@ -30,8 +30,11 @@ WHMCS_SECRET=<api-credential-secret>
 MCP_GOVERNANCE_ENABLED=true
 MCP_CONSUMER_REGISTRY_FILE=~/.config/whmcs-mcp/consumer-registry.production.json
 
-# Trusted stdio default consumer (the raw bearer token for operator-reconcile)
+# Trusted stdio default consumer (local Cursor escape hatch ONLY — not production Grok identity)
 MCP_DEFAULT_CONSUMER_AUTH_TOKEN=<raw-bearer-token>
+# Staff ops_ask allow-list (consumer ids and/or OIDC subs). Empty ⇒ no staff jobs.
+MCP_STAFF_CONSUMER_IDS=operator-reconcile
+# MCP_STAFF_OIDC_SUBS=
 # OR: MCP_DEFAULT_CONSUMER_AUTH_TOKEN_FILE=~/.config/whmcs-mcp/default-consumer-token
 
 # IP allowlist auto-heal (Dokploy mode)
@@ -64,15 +67,16 @@ for the full example. Key fields for the operator-reconcile entry:
 {
   "id": "operator-reconcile",
   "token_sha256": "<sha256-of-the-raw-token>",
-  "defaultContract": "ops_operator",
-  "allowedContracts": ["ops_operator"],
+  "defaultContract": "grok_channel_safe",
+  "allowedContracts": ["grok_channel_safe", "ops_operator"],
   "allowedActions": [
     "search_clients", "get_client_details", "list_client_invoices",
     "list_invoices", "get_invoice", "list_services",
     "list_client_services", "get_currencies", "get_whmcs_details",
-    "get_capability_matrix", "list_tickets", "get_ticket",
+    "get_capability_matrix", "list_client_tickets",
     "get_ticket_thread", "list_support_departments",
-    "get_billing_snapshot", "get_account_360"
+    "get_billing_snapshot", "get_account_360",
+    "ops_ask", "mcp_doctor"
   ],
   "writeCapability": "false"
 }
@@ -118,3 +122,11 @@ The MCP now classifies WHMCS 403 responses:
 
 Only `invalid_ip` triggers the auto-heal. `invalid_permissions` produces a clear
 error message directing the operator to the API Credentials settings.
+
+## Production Grok is not this path
+
+This stdio default token is a **local Cursor escape hatch** (ADR-0002.4).
+Production Grok **MUST** use HTTP + MCP-audience tokens from a federation AS.
+WhatsApp bind and refresh storage live **outside** this repository — see
+[whatsapp-bind-outside-mcp.md](whatsapp-bind-outside-mcp.md). Do not present a
+WHMCS access or ID token as the MCP Bearer.

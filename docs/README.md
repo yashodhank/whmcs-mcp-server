@@ -21,6 +21,8 @@ Architecture decisions, governance contracts, and phase-based design records.
 | [design/controlled-writes-phase-f.md](design/controlled-writes-phase-f.md) | Phase F–G+ controlled-write engine design and implementation record (sealed by default) |
 | [design/controlled-writes-phase-i.md](design/controlled-writes-phase-i.md) | Phase I recommendation: GO/NO-GO analysis for first production write ungating |
 | [design/oauth.md](design/oauth.md) | OAuth 2.1 / PRM resource-server design (components 1–4) |
+| [design/adr/0001-whmcs-8137-mcp-baseline.md](design/adr/0001-whmcs-8137-mcp-baseline.md) | Frozen ADRs: 8.13.7 jobs/OIDC/Admin API; no 9.x notes/REST in current prod |
+| [design/adr/0002-mcp-rs-whmcs-oidc.md](design/adr/0002-mcp-rs-whmcs-oidc.md) | MCP HTTP=RS, WHMCS is IdP, federation chosen, staff allow-list, no ValidateLogin |
 | [design/mcp-adoption.md](design/mcp-adoption.md) | MCP protocol adoption notes, open items, and HTTP-transport follow-ups |
 | [design/capability-catalog.md](design/capability-catalog.md) | Typed operation catalog, invariants, capability evidence, discovery, and incremental domain-pack migration |
 | [design/whmcs-request-pipeline.md](design/whmcs-request-pipeline.md) | Typed WHMCS request stages, bounded/coalesced read acceleration, deadlines, telemetry, and rollout controls |
@@ -41,14 +43,19 @@ Step-by-step operational guides for setup, testing, and capability probing.
 | Document | Description |
 |---|---|
 | [runbooks/ai-agent-local.md](runbooks/ai-agent-local.md) | Operator troubleshooting guide for AI agents running the server locally |
-| [auth-layers-whmcs-vs-mcp.md](runbooks/auth-layers-whmcs-vs-mcp.md)
-- [api-role-audit-live-2026-09-12.md](runbooks/api-role-audit-live-2026-09-12.md) — live Admin API role probe vs 45 MCP write scopes | **WHMCS Admin API vs OpenID/OAuth vs MCP OAuth** — key differences for agents; role-audit + secret-rotation checklists |
+| [runbooks/auth-layers-whmcs-vs-mcp.md](runbooks/auth-layers-whmcs-vs-mcp.md) | WHMCS Admin API vs OpenID/OAuth vs MCP OAuth — key differences for agents |
+| [runbooks/api-role-audit-live-2026-09-12.md](runbooks/api-role-audit-live-2026-09-12.md) | Live Admin API role probe vs MCP write scopes + secret-rotation checklist |
 | [runbooks/capability-probe.md](runbooks/capability-probe.md) | How to run capability probes and promote verified read actions |
 | [runbooks/write-capability-probe.md](runbooks/write-capability-probe.md) | Write-scope capability probe: pre-flight checks before ungating any write action |
 | [runbooks/local-whmcs-testing.md](runbooks/local-whmcs-testing.md) | Bring up the dual WHMCS (8.13 + 9.x) local dev stack with Docker |
 | [runbooks/production-test-program.md](runbooks/production-test-program.md) | L0–L6 reliability and RCA test program for production validation |
 | [runbooks/testing-readonly.md](runbooks/testing-readonly.md) | Verifying read-only posture in Cursor and integration test harness |
 | [runbooks/production-governed-writes.md](runbooks/production-governed-writes.md) | Host-neutral production write authorization, approval, read-back, revocation, and restart procedure |
+| [runbooks/grokbot-stdio-access.md](runbooks/grokbot-stdio-access.md) | Grok Bot / Business WhatsApp stdio access (local escape hatch) |
+| [runbooks/whatsapp-bind-outside-mcp.md](runbooks/whatsapp-bind-outside-mcp.md) | WhatsApp bind/refresh lives outside this repository (ADR-0002.7) |
+| [runbooks/grok-mcp-write-audit.md](runbooks/grok-mcp-write-audit.md) | Grok write/ops audit: sealed scopes, package/CF, accept, merge, DSN |
+| [runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.md) | Phase 0 evidence: OIDC discovery, JWKS, GetUsers, version on prod 8.13.7 |
+| [runbooks/local-ci-parity-before-push.md](runbooks/local-ci-parity-before-push.md) | `npm run ci:node` — local parity with GitHub `build-test` + `ci-ok` |
 
 ---
 

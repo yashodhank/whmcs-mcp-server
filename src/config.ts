@@ -414,6 +414,34 @@ const configSchema = z
     ),
     MCP_OAUTH_RESOURCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
     MCP_OAUTH_AUDIENCE: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    // Staff ops_ask allow-list (consumer ids). Empty ⇒ nobody is staff.
+    MCP_STAFF_CONSUMER_IDS: z.preprocess(preprocessCommaSeparatedString, z.string().default('')),
+    // Staff OIDC `sub` allow-list (WHMCS user ids from the federation token).
+    // Unioned with MCP_STAFF_CONSUMER_IDS. Empty ⇒ no extra staff principals.
+    MCP_STAFF_OIDC_SUBS: z.preprocess(preprocessCommaSeparatedString, z.string().default('')),
+    // Optional explicit WHMCS OIDC issuer (defaults to WHMCS_API_URL origin).
+    // Tokens with this `iss` are rejected as MCP Bearers (ADR-0002.3).
+    MCP_WHMCS_OIDC_ISSUER: z.preprocess(preprocessOptionalEnvString, z.string().optional()),
+    // Read-side job audit JSONL. Empty ⇒ disabled.
+    MCP_READ_AUDIT_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // Effect ledger JSONL ({at,consumer_id,job,clientid,effect}). Empty ⇒ off.
+    MCP_EFFECT_LEDGER_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // Durable write-intent snapshot. Empty ⇒ in-memory (lost on restart).
+    MCP_WRITE_INTENT_STORE_PATH: z.preprocess(
+      (val) => (typeof val === 'string' ? val : ''),
+      z.string().default('')
+    ),
+    // Customer user-delegated API proven on this 8.13.7 install. Default false.
+    MCP_CUSTOMER_USER_API_PROVEN: z.preprocess(
+      (val) => val === 'true' || val === '1',
+      z.boolean().default(false)
+    ),
     MCP_OAUTH_ISSUERS: z.preprocess((val) => {
       const raw = preprocessCommaSeparatedString(val);
       if (raw === '') return [];

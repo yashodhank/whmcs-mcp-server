@@ -80,11 +80,36 @@ header token; this swaps the resolution source.
 
 ## Phased rollout
 1. ✅ Baseline: Streamable HTTP + consumer-registry bearer bridge (this batch).
-2. PRM endpoint + JWKS token validation + `aud` check + `WWW-Authenticate`.
-3. Scope vocabulary + per-tool scope enforcement at the gate.
+2. ✅ PRM endpoint + JWKS token validation + `aud` check + `WWW-Authenticate`
+   (HTTP OAuth mode). A WHMCS access/ID token **MUST NOT** be presented as the
+   MCP Bearer: 8.13 ID token `aud` is the WHMCS OAuth client id, `iss` is the
+   WHMCS System URL. **Federation is the chosen pattern** (ADR-0002.3): an
+   operator-run AS mints `aud` = `MCP_OAUTH_RESOURCE`. RFC 8693 is the
+   documented alternate. The verifier rejects WHMCS-origin `iss`
+   (`whmcs_token_not_mcp_audience`) even if that origin is listed in
+   `MCP_OAUTH_ISSUERS`.
+3. Scope vocabulary + per-tool scope enforcement at the gate (coarse
+   `whmcs:read` / write tiers exist; field-class mapping is still in-house).
 4. CIMD + incremental consent + step-up for high-risk writes.
 5. Deprecate the registry-token bridge for HTTP once OAuth is the norm (keep for
    stdio).
+
+## Production WHMCS 8.13.7 (Phase 0 facts)
+
+- Discovery: `GET {origin}/oauth/openid-configuration.php` works on
+  `https://my.securiace.com`. `/.well-known/openid-configuration` is **404**
+  (rewrite not installed).
+- Documented OIDC scope: `openid profile email`. Discovery
+  `scopes_supported`: `openid`, `email`, `profile`.
+- `id_token_signing_alg_values_supported`: `RS256`.
+- `claims_supported`: `iss`, `aud`, `exp`, `sub` (email is a userinfo/claim
+  request, not an ID-token claim in this document).
+- `jwks_uri` `/oauth/certs.php` currently returns `{ "keys": [] }` —
+  **PENDING** operator: ID token verification cannot succeed until keys are
+  published.
+- Auth-code + PKCE / userinfo-with-token / user-delegated invoice-ticket APIs:
+  **PENDING** (no throwaway OpenID app in this environment). Customer door
+  stays link/handoff until proven.
 
 ## SDK references
 `@modelcontextprotocol/sdk` `server/auth/*` (resource-server middleware,

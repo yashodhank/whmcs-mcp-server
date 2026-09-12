@@ -321,6 +321,7 @@ export function registerReportingListTools(
               envelope,
               authToken,
               requestedContract,
+              requiredAction: 'list_invoices',
             }),
         });
       } catch (e) {
@@ -490,6 +491,7 @@ export function registerReportingListTools(
               envelope,
               authToken,
               requestedContract,
+              requiredAction: 'list_services',
             }),
         });
       } catch (e) {

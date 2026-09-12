@@ -497,6 +497,7 @@ export function registerListTool<T>(
             envelope,
             authToken,
             requestedContract,
+            requiredAction: c.name,
           }),
       });
     } catch (e) {
