@@ -1,8 +1,10 @@
 /**
- * Lazy WHMCS version probe via WhmcsDetails with GetConfigurationValue fallback.
+ * Lazy WHMCS version probe via WhmcsDetails with GetAdminDetails and
+ * GetConfigurationValue fallbacks.
  *
  * Many production API roles deny `WhmcsDetails` but permit
- * `GetConfigurationValue` for setting `Version` (e.g. `8.13.6-release.1`).
+ * `GetAdminDetails` (which embeds `whmcs.version` in its response)
+ * or `GetConfigurationValue` for setting `Version` (e.g. `8.13.6-release.1`).
  * Classifies the install as 8.13.x, other 8.x, or 9.x+. Cached in-process
  * for 15 minutes; used by write validation advisories and the capability matrix.
  * Does not block startup unless the caller opts into strict healthcheck elsewhere.
@@ -71,6 +73,16 @@ async function probeVersion(
     }
   } catch {
     /* role may deny WhmcsDetails — fall through */
+  }
+
+  try {
+    const raw = await client.read<Record<string, unknown>>('GetAdminDetails', {});
+    const fromAdmin = extractVersion(raw);
+    if (fromAdmin.version !== null && fromAdmin.version.trim() !== '') {
+      return fromAdmin;
+    }
+  } catch {
+    /* GetAdminDetails may also fail — fall through */
   }
 
   try {

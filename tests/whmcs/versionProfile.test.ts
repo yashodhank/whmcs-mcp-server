@@ -52,6 +52,7 @@ describe('versionProfile', () => {
   it('falls back to GetConfigurationValue when WhmcsDetails is denied', async () => {
     const read = vi.fn(async (action: string) => {
       if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
+      if (action === 'GetAdminDetails') throw new Error('403 Forbidden');
       if (action === 'GetConfigurationValue') {
         return { result: 'success', value: '8.13.6-release.1' };
       }
@@ -64,9 +65,45 @@ describe('versionProfile', () => {
     expect(profile.release).toBe('8.13.6-release.1');
   });
 
+  it('falls back to GetAdminDetails when WhmcsDetails is denied', async () => {
+    const read = vi.fn(async (action: string) => {
+      if (action === 'WhmcsDetails') throw new Error('403 Forbidden');
+      if (action === 'GetAdminDetails') {
+        return {
+          result: 'success',
+          whmcs: { version: '8.13.7', canonicalversion: '8.13.7-release.1' },
+        };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const profile = await getWhmcsVersionProfile({ read } as never);
+    expect(read).toHaveBeenCalledWith('GetAdminDetails', {});
+    expect(profile.family).toBe('8.13');
+    expect(profile.version).toBe('8.13.7');
+    expect(profile.release).toBe('8.13.7-release.1');
+  });
+
+  it('skips GetAdminDetails and falls to GetConfigurationValue when all deny', async () => {
+    const callOrder: string[] = [];
+    const read = vi.fn(async (action: string) => {
+      callOrder.push(action);
+      if (action === 'WhmcsDetails') throw new Error('denied');
+      if (action === 'GetAdminDetails') throw new Error('denied');
+      if (action === 'GetConfigurationValue') {
+        return { result: 'success', value: '9.0.2-release.1' };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const profile = await getWhmcsVersionProfile({ read } as never);
+    expect(callOrder).toEqual(['WhmcsDetails', 'GetAdminDetails', 'GetConfigurationValue']);
+    expect(profile.family).toBe('9.x');
+    expect(profile.version).toBe('9.0.2');
+  });
+
   it('falls back when WhmcsDetails succeeds but carries no version', async () => {
     const read = vi.fn(async (action: string) => {
       if (action === 'WhmcsDetails') return { result: 'success', whmcs: {} };
+      if (action === 'GetAdminDetails') return { result: 'success', whmcs: {} };
       if (action === 'GetConfigurationValue') {
         return { result: 'success', value: '9.0.1-release.1' };
       }
