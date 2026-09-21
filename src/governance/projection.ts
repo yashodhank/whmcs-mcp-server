@@ -151,13 +151,40 @@ function maskAddress(value: string): string {
   return firstToken;
 }
 
+/**
+ * Known secret-token shapes that must never survive into a `summarize()`
+ * output. `summarize` is used for untrusted free text reaching LLM /
+ * automation consumers (`llm_safe_summary`, `grok_channel_safe`, etc.) —
+ * a client pasting a live credential into a ticket/message body must not
+ * have it echoed back out through the "summary" the model sees.
+ */
+const SECRET_TOKEN_PATTERNS: RegExp[] = [
+  /\bsk_(live|test)_[A-Za-z0-9]{8,}\b/g,
+  /\bpk_(live|test)_[A-Za-z0-9]{8,}\b/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\bgh[oprsu]_[A-Za-z0-9]{20,}\b/g,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
+  /\bBearer\s+[A-Za-z0-9._-]{20,}/gi,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+];
+
+/** Replace any recognizable embedded secret token with a redaction marker. */
+function redactSecrets(value: string): string {
+  let out = value;
+  for (const pattern of SECRET_TOKEN_PATTERNS) {
+    out = out.replace(pattern, '[redacted:secret]');
+  }
+  return out;
+}
+
 function summarize(value: unknown): unknown {
   if (typeof value !== 'string') {
     // non-strings cannot be safely summarized → drop (signalled by symbol)
     return DROP;
   }
-  const len = value.length;
-  const head = value.slice(0, SUMMARY_CAP);
+  const redacted = redactSecrets(value);
+  const len = redacted.length;
+  const head = redacted.slice(0, SUMMARY_CAP);
   const truncated = len > SUMMARY_CAP;
   return {
     summary: truncated ? `${head}…` : head,

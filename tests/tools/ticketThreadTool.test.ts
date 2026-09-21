@@ -208,9 +208,18 @@ describe('registerTicketThreadTool — governed path', () => {
     // subject is untrusted.free_text → summarized, not raw passthrough as a top-level string
     expect(data.subject).not.toBe('Cannot log in');
     expect(data.subject).toMatchObject({ summary: expect.any(String) });
-    // replies array is untrusted.free_text (non-string) → dropped, raw bodies never leak
+    // reply bodies are untrusted.free_text → summarized like `subject`, and
+    // any embedded secret token is redacted — the raw secret text never
+    // leaks verbatim, even wrapped in a summary.
     expect(blob).not.toContain('Reset my password sk_live_TOPSECRET please');
-    expect(blob).not.toContain('Looking into your account now');
+    expect(blob).not.toContain('sk_live_TOPSECRET');
+    const replies = data.replies as Record<string, unknown>[];
+    expect(replies[0].message).toMatchObject({
+      summary: 'Reset my password [redacted:secret] please',
+    });
+    // a benign reply (no embedded secret) is still wrapped/summarized, not
+    // dropped outright — consistent with how `subject` is handled above.
+    expect(replies[1].message).toMatchObject({ summary: 'Looking into your account now' });
     // internal.private_note dropped for llm
     expect(blob).not.toContain('internal: escalate to L2');
     expect(data).not.toHaveProperty('notes');
