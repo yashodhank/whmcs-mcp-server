@@ -55,6 +55,12 @@ export function mapToCanonicalTicket(raw: unknown): Canonical<CanonicalTicket> {
     message: str(r, 'message') ?? null,
     date: str(r, 'date') ?? null,
   }));
+  // WHMCS does not always populate a top-level `message` (e.g. tickets
+  // opened from an inbound email reply): fall back to the first reply's
+  // text rather than reporting a real opening post as null. `replies`
+  // itself is left as the full raw list — some tickets DO carry a real
+  // top-level message distinct from every reply.
+  const initialMessage = str(src, 'message') || (replies.length > 0 ? replies[0].message : null);
 
   const notes: CanonicalTicketNote[] = listOf(src.notes, 'note').map((n) => ({
     noteId: num(n, 'noteid') ?? num(n, 'id') ?? null,
@@ -75,7 +81,7 @@ export function mapToCanonicalTicket(raw: unknown): Canonical<CanonicalTicket> {
     subject: str(src, 'subject') ?? null,
     status: str(src, 'status') ?? null,
     priority: str(src, 'priority') ?? null,
-    message: str(src, 'message') ?? null,
+    message: initialMessage,
     date: str(src, 'date') ?? null,
     lastReply: str(src, 'lastreply') ?? null,
     service: str(src, 'service') ?? null,
@@ -97,7 +103,14 @@ export function mapToCanonicalTicket(raw: unknown): Canonical<CanonicalTicket> {
     .many(['status', 'priority', 'date', 'lastReply'], 'public.safe')
     .set('subject', 'untrusted.free_text')
     .set('message', 'untrusted.free_text')
-    .set('replies', 'untrusted.free_text')
+    // `replies` itself is `public.safe` — `allow` in every contract — so the
+    // container gate never collapses the whole array (that would silently
+    // drop every reply under a contract where `untrusted.free_text` isn't
+    // `allow`, e.g. `wrap_untrusted` for ops_operator). This also satisfies
+    // assertClassmapComplete's empty-array fallback path (matches the same
+    // pattern as `customFields` in client.ts). Real sensitivity is enforced
+    // per-element below (`replies[].message` etc.), not at the container.
+    .set('replies', 'public.safe')
     .set('replies[].replyId', 'business.identifier')
     .set('replies[].name', 'pii.name')
     .set('replies[].email', 'pii.email')
