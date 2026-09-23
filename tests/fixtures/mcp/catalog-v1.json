@@ -3470,6 +3470,9 @@
                   }
                 ]
               },
+              "source": {
+                "type": "string"
+              },
               "status": {
                 "type": "string"
               },
@@ -9067,6 +9070,9 @@
                   }
                 ]
               },
+              "source": {
+                "type": "string"
+              },
               "version": {
                 "anyOf": [
                   {
@@ -9082,6 +9088,7 @@
               "family",
               "version",
               "release",
+              "source",
               "probed_at"
             ],
             "type": "object"
