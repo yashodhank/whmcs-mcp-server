@@ -28,7 +28,7 @@
 set -uo pipefail
 
 ENV_FILE="${WHMCS_ENV_FILE:-$HOME/Projects/whmcs-mcp-server/.env.production}"
-SSH_TARGET="${WHMCS_HEAL_SSH_TARGET:-sat-de-prod01}"   # ~/.ssh/config alias -> root@195.7.4.219
+SSH_TARGET="${WHMCS_HEAL_SSH_TARGET:-ded1-securiace-com}"   # ~/.ssh/config alias -> root@195.7.4.219
 SERVER_RUNNER="/root/whmcs-healer/server-run-healer.sh"
 LOG_TAG="[dokploy-ip-heal]"
 
