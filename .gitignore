@@ -92,3 +92,6 @@ graphify-out/
 /plans/019-executable-workflow-tools.md
 /plans/020-docs-revamp.md
 /plans/021-code-comment-deep-pass.md
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
