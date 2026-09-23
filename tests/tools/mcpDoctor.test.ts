@@ -156,7 +156,7 @@ describe('mcp_doctor', () => {
       required: false,
       fallback_source: 'GetAdminDetails',
     });
-    expect(role.GetAdminDetails).toMatchObject({ status: 'allowed', required: true });
+    expect(role.GetAdminDetails).toMatchObject({ status: 'allowed', required: false });
   });
 
   it('warns when MCP_OAUTH_ISSUERS includes the WHMCS origin', async () => {

@@ -157,8 +157,8 @@ export function registerMcpDoctorTools(
         : fallbackSource ?? 'unavailable';
       const role = {
         WhmcsDetails: roleProbe(rawRole.WhmcsDetails, false, fallbackSource),
-        GetAdminDetails: roleProbe(rawRole.GetAdminDetails, true),
-        GetConfigurationValue: roleProbe(rawRole.GetConfigurationValue, true),
+        GetAdminDetails: roleProbe(rawRole.GetAdminDetails, false),
+        GetConfigurationValue: roleProbe(rawRole.GetConfigurationValue, false),
       };
 
       const usersCap = getCapability('GetUsers');
