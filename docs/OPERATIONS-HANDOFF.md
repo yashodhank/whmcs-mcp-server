@@ -179,7 +179,10 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
 - **Governance optional:** default `MCP_GOVERNANCE_ENABLED=false`; consumer registry not required for writes.
 - **Version auto-detect:** lazy `WhmcsDetails` probe with `GetConfigurationValue`
   `Version` fallback (`src/whmcs/versionProfile.ts`, 15 min cache) feeds validation
-  advisories and `get_capability_matrix`.
+  advisories and `get_capability_matrix`. Probe output records the successful
+  source. A role-denied optional `WhmcsDetails` action with a successful
+  `GetAdminDetails` or `GetConfigurationValue` fallback is healthy, not degraded,
+  and must not trigger API-role expansion.
 - **Destructive writes:** typed `confirmation` phrase only — no distinct approver, caps, or allowlist when scope is in `MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES`.
 - **Dokploy IP heal:** `WHMCS_HEAL_MODE=dokploy` runs `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` (see [api-connectivity-troubleshooting.md](runbooks/api-connectivity-troubleshooting.md)).
 - **Simple writes runbook:** [docs/runbooks/simple-writes.md](runbooks/simple-writes.md).

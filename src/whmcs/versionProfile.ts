@@ -14,11 +14,17 @@ import type { WhmcsClient } from './WhmcsClient.js';
 import { asRecord, str } from '../canonical/_shared.js';
 
 export type WhmcsVersionFamily = '8.13' | '8.x' | '9.x' | 'unknown';
+export type WhmcsVersionSource =
+  | 'WhmcsDetails'
+  | 'GetAdminDetails'
+  | 'GetConfigurationValue'
+  | 'unavailable';
 
 export interface WhmcsVersionProfile {
   readonly family: WhmcsVersionFamily;
   readonly version: string | null;
   readonly release: string | null;
+  readonly source: WhmcsVersionSource;
   readonly probedAt: string;
 }
 
@@ -62,14 +68,16 @@ function extractConfigurationVersion(raw: unknown): {
   return { version, release };
 }
 
-async function probeVersion(
-  client: WhmcsClient
-): Promise<{ version: string | null; release: string | null }> {
+async function probeVersion(client: WhmcsClient): Promise<{
+  version: string | null;
+  release: string | null;
+  source: WhmcsVersionSource;
+}> {
   try {
     const raw = await client.read<Record<string, unknown>>('WhmcsDetails', {});
     const fromDetails = extractVersion(raw);
     if (fromDetails.version !== null && fromDetails.version.trim() !== '') {
-      return fromDetails;
+      return { ...fromDetails, source: 'WhmcsDetails' };
     }
   } catch {
     /* role may deny WhmcsDetails — fall through */
@@ -79,7 +87,7 @@ async function probeVersion(
     const raw = await client.read<Record<string, unknown>>('GetAdminDetails', {});
     const fromAdmin = extractVersion(raw);
     if (fromAdmin.version !== null && fromAdmin.version.trim() !== '') {
-      return fromAdmin;
+      return { ...fromAdmin, source: 'GetAdminDetails' };
     }
   } catch {
     /* GetAdminDetails may also fail — fall through */
@@ -89,9 +97,14 @@ async function probeVersion(
     const raw = await client.read<Record<string, unknown>>('GetConfigurationValue', {
       setting: 'Version',
     });
-    return extractConfigurationVersion(raw);
+    const fromConfiguration = extractConfigurationVersion(raw);
+    return {
+      ...fromConfiguration,
+      source:
+        fromConfiguration.version === null ? 'unavailable' : ('GetConfigurationValue' as const),
+    };
   } catch {
-    return { version: null, release: null };
+    return { version: null, release: null, source: 'unavailable' };
   }
 }
 
@@ -113,12 +126,13 @@ export async function getWhmcsVersionProfile(
     return cached.profile;
   }
 
-  const { version, release } = await probeVersion(client);
+  const { version, release, source } = await probeVersion(client);
 
   const profile: WhmcsVersionProfile = {
     family: parseFamily(version),
     version,
     release,
+    source,
     probedAt: new Date(t).toISOString(),
   };
   cached = { profile, expiresAtMs: t + CACHE_TTL_MS };

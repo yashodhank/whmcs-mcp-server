@@ -63,17 +63,52 @@ async function fetchJson(
   }
 }
 
+interface ActionProbe {
+  readonly action: string;
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
 async function probeAction(
   whmcs: WhmcsClient,
   action: string,
   params: Record<string, unknown>
-): Promise<{ action: string; ok: boolean; error?: string }> {
+): Promise<ActionProbe> {
   try {
     await whmcs.read(action, params);
     return { action, ok: true };
   } catch (e) {
     return { action, ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+function isInvalidPermissions(probe: ActionProbe): boolean {
+  return !probe.ok && /invalid\s+permissions/i.test(probe.error ?? '');
+}
+
+function roleProbe(
+  probe: ActionProbe,
+  required: boolean,
+  fallbackSource?: string
+): ActionProbe & {
+  required: boolean;
+  status: 'allowed' | 'denied' | 'optional_denied_with_fallback' | 'failed';
+  fallback_source?: string;
+} {
+  if (probe.ok) return { ...probe, required, status: 'allowed' };
+  if (!required && isInvalidPermissions(probe) && fallbackSource !== undefined) {
+    return {
+      ...probe,
+      required,
+      status: 'optional_denied_with_fallback',
+      fallback_source: fallbackSource,
+    };
+  }
+  return {
+    ...probe,
+    required,
+    status: isInvalidPermissions(probe) ? 'denied' : 'failed',
+  };
 }
 
 export function registerMcpDoctorTools(
@@ -104,12 +139,21 @@ export function registerMcpDoctorTools(
       const jwks = await fetchJson(jwksUri);
       const jwksKeys = Array.isArray(jwks.body?.keys) ? jwks.body.keys : [];
 
-      const role = {
+      const rawRole = {
         WhmcsDetails: await probeAction(whmcs, 'WhmcsDetails', {}),
         GetAdminDetails: await probeAction(whmcs, 'GetAdminDetails', {}),
         GetConfigurationValue: await probeAction(whmcs, 'GetConfigurationValue', {
           setting: 'Version',
         }),
+      };
+      const fallbackSource =
+        profile.source === 'WhmcsDetails' || profile.source === 'unavailable'
+          ? undefined
+          : profile.source;
+      const role = {
+        WhmcsDetails: roleProbe(rawRole.WhmcsDetails, false, fallbackSource),
+        GetAdminDetails: roleProbe(rawRole.GetAdminDetails, true),
+        GetConfigurationValue: roleProbe(rawRole.GetConfigurationValue, true),
       };
 
       const usersCap = getCapability('GetUsers');
@@ -185,6 +229,11 @@ export function registerMcpDoctorTools(
           family: profile.family,
           version: profile.version,
           release: profile.release,
+          source: profile.source,
+        },
+        whmcs_api: {
+          status: profile.source === 'unavailable' ? 'degraded' : 'healthy',
+          version_source: profile.source,
         },
         oidc: {
           discovery_php: {

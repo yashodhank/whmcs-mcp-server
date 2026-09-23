@@ -204,8 +204,15 @@ list. Rather than requiring it, `get_whmcs_details` now falls back:
 4. If all fail → return `{ version: null, release: null }`.
 
 The same fallback chain is used by `src/whmcs/versionProfile.ts` for internal
-version probing. This means the MCP works without `WhmcsDetails` in the API
-credential's allowed-actions list.
+version probing. The resulting profile records `source` as `WhmcsDetails`,
+`GetAdminDetails`, `GetConfigurationValue`, or `unavailable`. `mcp_doctor`
+therefore reports a role-denied direct action as
+`optional_denied_with_fallback` when one of the approved fallback actions
+supplied the version. The effective `whmcs_api.status` remains `healthy`; it is
+`degraded` only when the complete version fallback chain is unavailable. This
+means the MCP works without `WhmcsDetails` in the API credential's
+allowed-actions list and monitoring must not recommend broadening the role for
+this expected denial.
 
 ### Recommended minimal API credential actions for MCP read-only
 
