@@ -113,6 +113,7 @@ describe('mcp_doctor', () => {
     const res = (await handlers.mcp_doctor({})) as { structuredContent: Record<string, unknown> };
     const sc = res.structuredContent;
     expect(sc.whmcs_version).toMatchObject({ family: '8.13', version: '8.13.7' });
+    expect(sc.whmcs_api).toEqual({ status: 'degraded', version_source: 'unavailable' });
     expect((sc.oidc as { jwks: { key_count: number } }).jwks.key_count).toBe(0);
     expect((sc.warnings as string[]).some((w) => w.includes('JWKS'))).toBe(true);
     expect((sc.warnings as string[]).some((w) => w.includes('MCP_STAFF_CONSUMER_IDS'))).toBe(true);

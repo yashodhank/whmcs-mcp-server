@@ -147,9 +147,14 @@ export function registerMcpDoctorTools(
         }),
       };
       const fallbackSource =
-        profile.source === 'WhmcsDetails' || profile.source === 'unavailable'
-          ? undefined
-          : profile.source;
+        profile.source === 'GetAdminDetails' && rawRole.GetAdminDetails.ok
+          ? profile.source
+          : profile.source === 'GetConfigurationValue' && rawRole.GetConfigurationValue.ok
+            ? profile.source
+            : undefined;
+      const liveVersionSource = rawRole.WhmcsDetails.ok
+        ? 'WhmcsDetails'
+        : fallbackSource ?? 'unavailable';
       const role = {
         WhmcsDetails: roleProbe(rawRole.WhmcsDetails, false, fallbackSource),
         GetAdminDetails: roleProbe(rawRole.GetAdminDetails, true),
@@ -232,8 +237,8 @@ export function registerMcpDoctorTools(
           source: profile.source,
         },
         whmcs_api: {
-          status: profile.source === 'unavailable' ? 'degraded' : 'healthy',
-          version_source: profile.source,
+          status: liveVersionSource === 'unavailable' ? 'degraded' : 'healthy',
+          version_source: liveVersionSource,
         },
         oidc: {
           discovery_php: {
