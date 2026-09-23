@@ -154,7 +154,7 @@ export function registerMcpDoctorTools(
             : undefined;
       const liveVersionSource = rawRole.WhmcsDetails.ok
         ? 'WhmcsDetails'
-        : fallbackSource ?? 'unavailable';
+        : (fallbackSource ?? 'unavailable');
       const role = {
         WhmcsDetails: roleProbe(rawRole.WhmcsDetails, false, fallbackSource),
         GetAdminDetails: roleProbe(rawRole.GetAdminDetails, false),
