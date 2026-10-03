@@ -580,8 +580,7 @@ function allowlistMeta(): { source: 'file' | 'env' | 'empty'; path?: string } {
     return { source: 'file', path: filePath.trim() };
   }
   const envActions = (config as Record<string, unknown>).MCP_PROD_WRITE_AUTHORIZED as
-    | string[]
-    | undefined;
+    string[] | undefined;
   if (envActions !== undefined && envActions.length > 0) {
     return { source: 'env' };
   }
@@ -604,9 +603,7 @@ function preflightCtx(intent: WriteIntent): PreflightContext {
   const capsPerAction = (cfg.MCP_PROD_HIGH_RISK_PER_ACTION_CAP as number | undefined) ?? 0;
   const capsDaily = (cfg.MCP_PROD_HIGH_RISK_DAILY_CAP as number | undefined) ?? 0;
   const amountCtx =
-    intent.risk === 'high'
-      ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
-      : undefined;
+    intent.risk === 'high' ? amountContextFor(intent.action, intent.params) : undefined;
   return {
     allowlistSource: meta.source,
     allowlistPath: meta.path,
@@ -632,9 +629,7 @@ function dryRunExecutionPreflight(
 ): ExecutionPreflight {
   const cfg = config as Record<string, unknown>;
   const isHigh = intent.risk === 'high';
-  const amountContext = isHigh
-    ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
-    : undefined;
+  const amountContext = isHigh ? amountContextFor(intent.action, intent.params) : undefined;
   const decision = defaultExecutionAuthorizer(
     {
       intent,
@@ -699,11 +694,9 @@ function toToolResult(
         },
       ];
     } else {
-      whmcsParams = intentToWhmcsParams(
-        intentRec.scope,
-        intentRec.params as Record<string, unknown>,
-        { idempotency_key: intentRec.idempotency_key }
-      );
+      whmcsParams = intentToWhmcsParams(intentRec.scope, intentRec.params, {
+        idempotency_key: intentRec.idempotency_key,
+      });
     }
   } catch {
     whmcsParams = undefined;
@@ -726,8 +719,7 @@ function toToolResult(
     ...extra,
   };
   const blockedReason = (extra.execution as Record<string, unknown> | undefined)?.blocked_reason as
-    | ExecutionDeniedReason
-    | undefined;
+    ExecutionDeniedReason | undefined;
   if (blockedReason) {
     result.execution_preflight = buildPreflight(
       { allowed: false, reason: blockedReason },
@@ -772,8 +764,6 @@ type Handler = ToolCallback<z.ZodRawShape>;
  */
 function panScannableParams(params: Record<string, unknown>): Record<string, unknown> {
   const { auth_token: _authToken, intent_id: _intentId, ...semanticParams } = params;
-  void _authToken;
-  void _intentId;
   return semanticParams;
 }
 
@@ -1099,7 +1089,7 @@ export async function executePriceRestoreBatch(
       const after = vp ? Number(vp[PRICE_RESTORE_RECURRING_FIELD] ?? vp.recurringamount) : NaN;
       verified = Number.isFinite(after) && after === t.new_amount;
     } catch {
-      verified = false;
+      /* verified remains false */
     }
     outcomes.push({
       serviceid: t.serviceid,
@@ -1262,7 +1252,7 @@ export async function executeServiceTransferBatch(
           allowed: false,
           reason: 'precondition_mismatch',
           phase_1: { services, failed, ok: false },
-        } as ServiceTransferBatchResult;
+        };
       }
 
       const selectedServiceIds = new Set(serviceIds);
@@ -1320,7 +1310,7 @@ export async function executeServiceTransferBatch(
           allowed: false,
           reason: 'precondition_mismatch',
           phase_1: { services, invoices_in_scope: invoicesInScope, failed, ok: false },
-        } as ServiceTransferBatchResult;
+        };
       }
 
       if (dryRun) {
@@ -1329,7 +1319,7 @@ export async function executeServiceTransferBatch(
           allowed: true,
           dry_run: true,
           phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
-        } as ServiceTransferBatchResult;
+        };
       }
 
       if (mode === 'all')
@@ -1375,7 +1365,7 @@ export async function executeServiceTransferBatch(
         allowed: true,
         phase_1: { services, invoices_in_scope: invoicesInScope, ok: true },
         phase_2: { committed: true, outcomes },
-      } as ServiceTransferBatchResult;
+      };
     });
   } catch (e) {
     if (e instanceof TransferRollback) {
@@ -1528,7 +1518,7 @@ export function registerWriteFlowTools(
       audit.append(auditEvent(validation.ok ? 'intent.validated' : 'intent.rejected', next));
       const cap = consumerWriteCapability(res.profile);
       const preflight = dryRunExecutionPreflight(
-        { ...next, state: 'approved' } as WriteIntent,
+        { ...next, state: 'approved' },
         res.profile.id,
         cap
       );
@@ -1658,10 +1648,7 @@ export function registerWriteFlowTools(
           config.MCP_CREDIT_TRANSFER_REQUIRE_FINANCE_WHEN_TAX_ENABLED,
       }).finance_required;
       const approval = approvals.get(intent.intent_id);
-      const amountContext = amountContextFor(
-        intent.action,
-        intent.params as Record<string, unknown>
-      );
+      const amountContext = amountContextFor(intent.action, intent.params);
       const decision = defaultExecutionAuthorizer(
         {
           intent,
@@ -2029,9 +2016,7 @@ export function registerWriteFlowTools(
       );
     }
     const isHigh = intent.risk === 'high';
-    const amountContext = isHigh
-      ? amountContextFor(intent.action, intent.params as Record<string, unknown>)
-      : undefined;
+    const amountContext = isHigh ? amountContextFor(intent.action, intent.params) : undefined;
     const decision = defaultExecutionAuthorizer(
       {
         intent,
@@ -2125,11 +2110,9 @@ export function registerWriteFlowTools(
       // working with the semantic intent shape while WHMCS receives the
       // exact field names it requires (e.g. notes/userid, item flattening,
       // amountout-only refund payload — no `amountin`).
-      const mappedParams = intentToWhmcsParams(
-        intent.scope,
-        intent.params as Record<string, unknown>,
-        { idempotency_key: intent.idempotency_key }
-      );
+      const mappedParams = intentToWhmcsParams(intent.scope, intent.params, {
+        idempotency_key: intent.idempotency_key,
+      });
       // Defense-in-depth on the shared, high-impact UpdateClientProduct
       // action: assert the strict mapper leaked no extra field before sending.
       if (intent.scope === 'service:domain_rename') {
@@ -2258,7 +2241,7 @@ export function registerWriteFlowTools(
             ? 'high-risk: call approve_write_intent then execute_write_intent'
             : `writeCapability='${cap}' cannot one-call execute; use approve_write_intent then execute_write_intent`;
         const preflight = dryRunExecutionPreflight(
-          { ...validated, state: 'approved' } as WriteIntent,
+          { ...validated, state: 'approved' },
           res.profile.id,
           cap
         );
@@ -2522,10 +2505,9 @@ export function registerWriteFlowTools(
         extra_allowed_scopes: [...extraScopes],
         default_executor_configured: hasStdioDefaultToken(),
         default_approver_configured: hasApproverDefaultToken(),
-        strict_allowlist: (cfg.MCP_WRITE_STRICT_ALLOWLIST as boolean | undefined) ?? false,
+        strict_allowlist: cfg.MCP_WRITE_STRICT_ALLOWLIST ?? false,
         strict_scopes: [...((cfg.MCP_WRITE_STRICT_SCOPES as string[] | undefined) ?? [])],
-        require_distinct_approver:
-          (cfg.MCP_WRITE_REQUIRE_DISTINCT_APPROVER as boolean | undefined) ?? true,
+        require_distinct_approver: cfg.MCP_WRITE_REQUIRE_DISTINCT_APPROVER ?? true,
       });
     },
     POSTURE_OUTPUT_SHAPE,
@@ -2617,8 +2599,7 @@ export function registerWriteFlowTools(
           if (allPricing) {
             const tldKey = tld.replace(/^\./, '');
             tldPricing = (allPricing[tldKey] ?? allPricing[tld]) as
-              | Record<string, unknown>
-              | undefined;
+              Record<string, unknown> | undefined;
           }
         } catch {
           tldPricing = undefined;
@@ -2677,7 +2658,7 @@ export function registerWriteFlowTools(
 
       const cap = consumerWriteCapability(res.profile);
       const preflight = dryRunExecutionPreflight(
-        { ...next, state: 'approved' } as WriteIntent,
+        { ...next, state: 'approved' },
         res.profile.id,
         cap
       );

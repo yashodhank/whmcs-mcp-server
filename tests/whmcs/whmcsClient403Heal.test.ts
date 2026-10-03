@@ -113,10 +113,7 @@ describe('WhmcsClient 403 auto-heal discrimination', () => {
   it('does NOT heal when WHMCS_AUTO_IP_HEAL is off, even for an Invalid IP 403', async () => {
     post.mockRejectedValue(axios403('Invalid IP 117.217.28.213'));
 
-    const client = new WhmcsClient(
-      cfg({ WHMCS_AUTO_IP_HEAL: false } as Partial<AppConfig>),
-      makeLogger()
-    );
+    const client = new WhmcsClient(cfg({ WHMCS_AUTO_IP_HEAL: false }), makeLogger());
     await expect(client.call('GetCurrencies', {}, { normalize: false })).rejects.toThrow();
 
     expect(attemptIpAllowlistHeal).not.toHaveBeenCalled();

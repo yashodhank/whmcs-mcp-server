@@ -62,12 +62,12 @@ function registerExtendedRead(
     const log = logger.child();
     const t0 = Date.now();
     try {
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
       log.logToolCall(spec.tool, params, false);
       if (!rl.tryConsume()) throw new RateLimitError();
 
-      const apiParams = spec.buildParams(params as Record<string, unknown>);
+      const apiParams = spec.buildParams(params);
       const result = await whmcs.read<Record<string, unknown>>(spec.action, apiParams);
       const canonical = spec.mapper(result);
 

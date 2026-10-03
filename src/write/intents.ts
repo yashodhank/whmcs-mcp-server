@@ -173,7 +173,7 @@ export class IntentStore {
     try {
       const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (typeof raw !== 'object' || raw === null || !('intents' in raw)) return;
-      const intents = (raw as { intents: unknown }).intents;
+      const intents = raw.intents;
       if (!Array.isArray(intents)) return;
       for (const item of intents) {
         if (!isWriteIntentSnapshot(item)) continue;
@@ -190,6 +190,6 @@ function isWriteIntentSnapshot(value: unknown): value is WriteIntent {
     typeof value === 'object' &&
     value !== null &&
     'intent_id' in value &&
-    typeof (value as { intent_id: unknown }).intent_id === 'string'
+    typeof value.intent_id === 'string'
   );
 }

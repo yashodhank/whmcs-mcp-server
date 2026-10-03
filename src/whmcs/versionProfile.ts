@@ -15,10 +15,7 @@ import { asRecord, str } from '../canonical/_shared.js';
 
 export type WhmcsVersionFamily = '8.13' | '8.x' | '9.x' | 'unknown';
 export type WhmcsVersionSource =
-  | 'WhmcsDetails'
-  | 'GetAdminDetails'
-  | 'GetConfigurationValue'
-  | 'unavailable';
+  'WhmcsDetails' | 'GetAdminDetails' | 'GetConfigurationValue' | 'unavailable';
 
 export interface WhmcsVersionProfile {
   readonly family: WhmcsVersionFamily;

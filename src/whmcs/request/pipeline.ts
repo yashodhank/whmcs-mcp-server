@@ -135,8 +135,7 @@ function forbiddenHint(kind: ForbiddenKind | undefined, healNote: string | undef
       );
     default: {
       const _exhaustive: never = kind;
-      void _exhaustive;
-      return 'HTTP 403 from WHMCS.' + runbook;
+      return _exhaustive;
     }
   }
 }
@@ -236,11 +235,7 @@ export class WhmcsRequestPipeline {
       // Match the legacy call-level log cardinality: one record for one logical
       // pipeline execution, regardless of retries. Cache hits and coalesced
       // joiners never enter this boundary.
-      this.logger.logWhmcsCall(
-        action,
-        normalizedParams as Record<string, unknown>,
-        effect === 'write'
-      );
+      this.logger.logWhmcsCall(action, normalizedParams, effect === 'write');
       for (;;) {
         if (context.signal?.aborted) {
           throw context.signal.reason ?? new DOMException('Aborted', 'AbortError');

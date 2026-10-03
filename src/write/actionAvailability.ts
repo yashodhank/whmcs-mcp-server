@@ -55,11 +55,7 @@ export type ApiSurface = 'admin_api' | 'custom' | 'db_direct' | 'none';
  *                      probed; the action may be denied at runtime.
  */
 export type AvailabilityStatus =
-  | 'executable'
-  | 'missing_api'
-  | 'version_gated'
-  | 'needs_infra'
-  | 'role_unknown';
+  'executable' | 'missing_api' | 'version_gated' | 'needs_infra' | 'role_unknown';
 
 /**
  * Static per-scope metadata — server-owned, immutable, not dependent on the

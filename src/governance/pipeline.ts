@@ -46,10 +46,7 @@ export function pickContract(profile: ConsumerProfile, requested?: string): Cont
 }
 
 export type GovernStatus =
-  | 'projected'
-  | 'consumer_denied'
-  | 'contract_env_forbidden'
-  | 'action_denied';
+  'projected' | 'consumer_denied' | 'contract_env_forbidden' | 'action_denied';
 
 export interface GovernResult {
   readonly ok: boolean;
@@ -107,7 +104,7 @@ export function governProjection<T>(args: {
   try {
     if (args.withTrace === true) {
       // SAME per-key decision as project(); data is byte-identical.
-      const r = projectWithTrace(args.canonical as Canonical<unknown>, contract, args.env, {
+      const r = projectWithTrace(args.canonical, contract, args.env, {
         consumer_id: profile.id,
         contract: contractName,
         tool: args.canonical.entity,

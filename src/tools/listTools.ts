@@ -240,7 +240,7 @@ async function scanByStatus(
     scannedCount += rows.length;
     for (const r of rows) {
       const s = rowStatus(r);
-      if (s !== undefined && s.toLowerCase() === want) {
+      if (s?.toLowerCase() === want) {
         matched.push(r);
       }
     }

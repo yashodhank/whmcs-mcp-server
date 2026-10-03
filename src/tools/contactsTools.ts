@@ -90,10 +90,10 @@ export function registerContactsTools(
       const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
       const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
 
-      const clientIdNum = num(params as Record<string, unknown>, 'clientid');
+      const clientIdNum = num(params, 'clientid');
       if (clientIdNum === undefined) {
         return errorResult('clientid is required');
       }
@@ -151,7 +151,7 @@ export function registerContactsTools(
         e instanceof Error ? e.message : String(e)
       );
       if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
-        return errorResult((e as Error).message);
+        return errorResult(e.message);
       }
       throw e;
     }

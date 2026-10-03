@@ -227,7 +227,7 @@ function registerShell(
               })()
             : applyGovernanceOrLegacy({
                 enabled: governanceEnabled(),
-                legacy: cmap(resp).data as Record<string, unknown>,
+                legacy: cmap(resp).data,
                 govern: () =>
                   governedToolResult({ canonical: cmap(resp), authToken, requestedContract }),
               });

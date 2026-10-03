@@ -404,7 +404,7 @@ export function validateIntent(intent: WriteIntent, ctx: ValidationContext = {})
   // custom block) is the structural check for these intents.
   if (intent.scope !== 'service:price_restore') {
     try {
-      intentToWhmcsParams(intent.scope, intent.params as Record<string, unknown>, {
+      intentToWhmcsParams(intent.scope, intent.params, {
         idempotency_key: intent.idempotency_key,
       });
     } catch (e) {

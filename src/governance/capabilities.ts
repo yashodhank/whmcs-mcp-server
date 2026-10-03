@@ -163,7 +163,7 @@ function extractErrorMessage(error: unknown): string {
     typeof error === 'object' &&
     error !== null &&
     'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
+    typeof error.message === 'string'
   ) {
     return (error as { message: string }).message;
   }
@@ -175,7 +175,7 @@ function readResultIsError(value: unknown): { isError: boolean; message: string 
     typeof value === 'object' &&
     value !== null &&
     'result' in value &&
-    (value as { result: unknown }).result === 'error'
+    value.result === 'error'
   ) {
     const msg =
       'message' in value && typeof (value as { message: unknown }).message === 'string'

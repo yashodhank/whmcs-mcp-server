@@ -85,7 +85,7 @@ const anonEntry = {
 };
 
 function envWith(registry: unknown): NodeJS.ProcessEnv {
-  return { MCP_CONSUMER_REGISTRY: JSON.stringify(registry) } as NodeJS.ProcessEnv;
+  return { MCP_CONSUMER_REGISTRY: JSON.stringify(registry) };
 }
 
 // ---- hashToken --------------------------------------------------------------
@@ -116,13 +116,13 @@ describe('loadConsumerRegistry', () => {
   });
 
   it('returns empty array when env var absent', () => {
-    expect(loadConsumerRegistry({} as NodeJS.ProcessEnv)).toEqual([]);
+    expect(loadConsumerRegistry({})).toEqual([]);
   });
 
   it('fails fast on invalid JSON without leaking the raw value', () => {
     let err: unknown;
     try {
-      loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: '{not json' } as NodeJS.ProcessEnv);
+      loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: '{not json' });
     } catch (e) {
       err = e;
     }

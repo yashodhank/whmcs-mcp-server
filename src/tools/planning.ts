@@ -352,7 +352,7 @@ async function runSafePreflightStep(
 
 function registeredTool(
   server: McpServer,
-  catalog: OperationCatalog,
+  _catalog: OperationCatalog,
   logger: Logger,
   rl: RateLimiter,
   name: string,
@@ -390,7 +390,6 @@ function registeredTool(
       }
     }) as ToolCallback<z.ZodRawShape>
   );
-  void catalog;
 }
 
 /** Register non-executing planning tools and return the expanded effective catalog. */
@@ -423,7 +422,7 @@ export function registerPlanningTools(
       operations: z.array(z.record(z.string(), z.unknown())),
       executable: z.literal(false),
     },
-    (async (params) => {
+    async (params) => {
       const resolved = planningContext(params.auth_token as string | undefined, catalog);
       if (!resolved.ok) return fail(resolved.reason);
       const versionProfile = whmcs !== undefined ? await getWhmcsVersionProfile(whmcs) : undefined;
@@ -440,7 +439,6 @@ export function registerPlanningTools(
           const stored = catalog.getById(definition.id);
           if (stored === undefined) throw new Error('Immutable catalog definition disappeared');
           const { auth_token: _authToken, ...clientInputs } = stored.inputSchema;
-          void _authToken;
           const base: Record<string, unknown> = {
             ...definition,
             input_schema: z.toJSONSchema(z.object(clientInputs).strict()),
@@ -466,7 +464,7 @@ export function registerPlanningTools(
           return base;
         });
       return out({ catalog_version: catalog.version, operations, executable: false });
-    }) as ToolCallback<z.ZodRawShape>
+    }
   );
 
   registeredTool(
@@ -478,7 +476,7 @@ export function registerPlanningTools(
     'Deterministically validate and compile a structured candidate into non-executable PlanIR. No WHMCS calls.',
     { candidate: candidatePlanSchema, ttl_ms: z.number().int().positive().optional() },
     compiledPlanOutputShape,
-    ((params) => {
+    (params) => {
       const resolved = planningContext(params.auth_token as string | undefined, catalog);
       if (!resolved.ok) return fail(resolved.reason);
       const result = compileOperationPlan({
@@ -495,7 +493,7 @@ export function registerPlanningTools(
         executable: false,
         ...(result.accepted ? { plan_hash: result.plan.plan_hash } : {}),
       });
-    }) as ToolCallback<z.ZodRawShape>
+    }
   );
 
   registeredTool(
@@ -513,7 +511,7 @@ export function registerPlanningTools(
       blockers: z.array(z.record(z.string(), z.unknown())),
       plan: z.record(z.string(), z.unknown()).optional(),
     },
-    (async (params, extra) => {
+    async (params, extra) => {
       const resolved = planningContext(params.auth_token as string | undefined, catalog);
       if (!resolved.ok) return fail(resolved.reason);
       const nowMs = Date.now();
@@ -615,7 +613,7 @@ export function registerPlanningTools(
         }
       }
       return out({ executable: false, plan_hash: plan.plan_hash, checks, blockers });
-    }) as ToolCallback<z.ZodRawShape>
+    }
   );
 
   registeredTool(
@@ -634,7 +632,7 @@ export function registerPlanningTools(
       drafts: z.array(z.record(z.string(), z.unknown())),
       blockers: z.array(z.record(z.string(), z.unknown())),
     },
-    ((params, extra) => {
+    (params, extra) => {
       const resolved = planningContext(params.auth_token as string | undefined, catalog);
       if (!resolved.ok) return fail(resolved.reason);
       const plan = params.plan as PlanIR;
@@ -859,7 +857,7 @@ export function registerPlanningTools(
         drafts,
         blockers,
       });
-    }) as ToolCallback<z.ZodRawShape>
+    }
   );
 
   return catalog;

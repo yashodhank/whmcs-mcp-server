@@ -86,7 +86,7 @@ function registerSimpleRead(
       const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
       const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
 
       log.logToolCall(spec.tool, params, false);
@@ -115,7 +115,7 @@ function registerSimpleRead(
         e instanceof Error ? e.message : String(e)
       );
       if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
-        return errorResult((e as Error).message);
+        return errorResult(e.message);
       }
       throw e;
     }
@@ -250,7 +250,7 @@ function registerWhmcsDetailsWithFallback(
       const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
       const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
 
       log.logToolCall(toolName, params, false);
@@ -288,7 +288,7 @@ function registerWhmcsDetailsWithFallback(
         e instanceof Error ? e.message : String(e)
       );
       if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
-        return errorResult((e as Error).message);
+        return errorResult(e.message);
       }
       throw e;
     }

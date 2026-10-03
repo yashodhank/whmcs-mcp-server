@@ -5,7 +5,7 @@ const { consumerState, draftWorkflowIntent } = vi.hoisted(() => ({
     consumerId: 'transport-consumer',
     allowedActions: ['list_invoices'],
     allowedWriteScopes: ['service:suspend'],
-    writeCapability: 'draft_only' as 'draft_only' | 'disabled',
+    writeCapability: 'draft_only',
   },
   draftWorkflowIntent: vi.fn(() => ({
     ok: true as const,
@@ -318,7 +318,6 @@ describe('planning tools', () => {
     }
     (paramsInput.value as Record<string, unknown>).password = 'credential-sentinel';
     const { plan_hash: _oldHash, ...unhashed } = tampered;
-    void _oldHash;
     const rehashed = { ...tampered, plan_hash: canonicalPlanHash(unhashed) };
     const response = await call('draft_operation_plan', {
       auth_token: 'transport-bound',

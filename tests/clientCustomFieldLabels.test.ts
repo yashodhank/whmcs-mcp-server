@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const labels = vi.hoisted(() => ({ current: {} as Record<string, string> }));
+const labels = vi.hoisted(() => ({ current: {} }));
 
 vi.mock('../src/config.js', () => ({
   config: {

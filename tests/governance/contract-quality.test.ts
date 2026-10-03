@@ -254,7 +254,7 @@ function appRegistry(): ConsumerProfile[] {
   ]);
   return loadConsumerRegistry({
     MCP_CONSUMER_REGISTRY: json,
-  } as NodeJS.ProcessEnv);
+  });
 }
 
 describe('3. billing_dashboard preserves invoice/payment/transaction fields', () => {
@@ -378,7 +378,7 @@ describe('6. unknown / no / bad token is denied (no privileged profile, no data)
           anonymous: true,
         },
       ]),
-    } as NodeJS.ProcessEnv);
+    });
     // anon honoured in staging…
     const staging = resolveConsumer(undefined, 'staging', anonReg, {
       allowAnon: true,
@@ -411,7 +411,7 @@ describe('7. contract escalation is impossible', () => {
           writeCapability: 'false',
         },
       ]),
-    } as NodeJS.ProcessEnv);
+    });
   }
   function llmOnlyProfile(): ConsumerProfile {
     const p = llmOnlyRegistry().find((x) => x.id === 'llm_pinned_app');
@@ -577,7 +577,7 @@ describe('9. projection is the only output-boundary mutation', () => {
     expect(c.data.contactEmail).toBe(RAW_EMAIL);
     // fresh, independent output objects
     expect(a).not.toBe(b);
-    expect(a).not.toBe(c.data as unknown);
+    expect(a).not.toBe(c.data);
   });
 
   it('secret.credential is `drop` in EVERY non-local contract (policy sweep)', () => {
@@ -645,7 +645,7 @@ describe('10. env hard-gate fires before any field is read', () => {
           writeCapability: 'false',
         },
       ]),
-    } as NodeJS.ProcessEnv);
+    });
     const r = governProjection({
       canonical: secretCanonical(),
       authToken: 'tok-debug-eeee',

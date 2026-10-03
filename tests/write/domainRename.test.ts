@@ -51,7 +51,7 @@ describe('mapServiceDomainRenameParams (strict 2-key output)', () => {
       status: 'Active',
       billingcycle: 'Annually',
       paymentmethod: 'evil',
-    } as never);
+    });
     expect(Object.keys(out).sort()).toEqual(['domain', 'serviceid']);
   });
 

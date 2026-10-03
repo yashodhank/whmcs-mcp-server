@@ -96,11 +96,11 @@ export function registerSupportTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
-          const scopeError = requireClientModeClientId(params as Record<string, unknown>);
+          const scopeError = requireClientModeClientId(params);
           if (scopeError) return scopeError;
 
           if (params.related_service_id) {
@@ -242,7 +242,7 @@ export function registerSupportTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         let clientReplyClientId: number | undefined;
@@ -307,7 +307,7 @@ export function registerSupportTools(
             };
           }
 
-          const ownershipError = ensureClientOwnership(ownerId, params as Record<string, unknown>);
+          const ownershipError = ensureClientOwnership(ownerId, params);
           if (ownershipError) return ownershipError;
           clientReplyClientId = ownerId;
         }
@@ -454,7 +454,7 @@ export function registerSupportTools(
           legacy: legacyPayload,
           govern: () => ({
             content: [{ type: 'text' as const, text: JSON.stringify(legacyPayload) }],
-            structuredContent: legacyPayload as unknown as Record<string, unknown>,
+            structuredContent: legacyPayload,
           }),
         });
       } catch (error) {

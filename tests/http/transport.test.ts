@@ -19,8 +19,8 @@ const VALID_TOKEN = 'http-transport-test-token-xyz';
 
 const cfg = vi.hoisted(() => ({
   config: {
-    MCP_ENV: 'local' as 'local' | 'staging' | 'production',
-    MCP_TRANSPORT: 'http' as 'stdio' | 'http',
+    MCP_ENV: 'local',
+    MCP_TRANSPORT: 'http',
     MCP_HTTP_HOST: '127.0.0.1',
     MCP_HTTP_PORT: 0, // OS-assigned free port
     MCP_HTTP_PATH: '/mcp',

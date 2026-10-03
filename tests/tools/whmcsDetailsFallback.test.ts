@@ -95,7 +95,7 @@ describe('mapToCanonicalWhmcsDetails (fallback mapper)', () => {
     const raw = { whmcs: { version: '8.13.7', canonicalversion: '8.13.7-release.1' } };
     const canonical = mapToCanonicalWhmcsDetails(raw);
     expect(canonical.entity).toBe('activity');
-    const data = canonical.data as { version: string | null; release: string | null };
+    const data = canonical.data;
     expect(data.version).toBe('8.13.7');
     expect(data.release).toBe('8.13.7-release.1');
   });
@@ -103,14 +103,14 @@ describe('mapToCanonicalWhmcsDetails (fallback mapper)', () => {
   it('extracts version from flat response', () => {
     const raw = { version: '8.13.7', canonicalversion: '8.13.7-release.1' };
     const canonical = mapToCanonicalWhmcsDetails(raw);
-    const data = canonical.data as { version: string | null; release: string | null };
+    const data = canonical.data;
     expect(data.version).toBe('8.13.7');
     expect(data.release).toBe('8.13.7-release.1');
   });
 
   it('returns null version for empty input', () => {
     const canonical = mapToCanonicalWhmcsDetails({});
-    const data = canonical.data as { version: string | null; release: string | null };
+    const data = canonical.data;
     expect(data.version).toBeNull();
     expect(data.release).toBeNull();
   });
@@ -118,7 +118,7 @@ describe('mapToCanonicalWhmcsDetails (fallback mapper)', () => {
   it('uses release as fallback for canonicalversion', () => {
     const raw = { whmcs: { version: '8.13.7', release: '8.13.7-release.1' } };
     const canonical = mapToCanonicalWhmcsDetails(raw);
-    const data = canonical.data as { version: string | null; release: string | null };
+    const data = canonical.data;
     expect(data.version).toBe('8.13.7');
     expect(data.release).toBe('8.13.7-release.1');
   });

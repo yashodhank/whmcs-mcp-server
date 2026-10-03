@@ -28,5 +28,5 @@ export function encodeWhmcsRequest(
     ...(credentials.accessKey ? { accesskey: credentials.accessKey } : {}),
     responsetype: 'json',
     ...params,
-  } as Record<string, string>);
+  });
 }

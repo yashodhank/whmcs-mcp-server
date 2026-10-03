@@ -430,7 +430,7 @@ export function registerClientTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -565,7 +565,7 @@ export function registerClientTools(
         const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
         const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
 
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -683,7 +683,7 @@ export function registerClientTools(
         const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
         const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
 
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         const clientIds = resolveClientDetailIds(params);
@@ -849,7 +849,7 @@ export function registerClientTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -1003,7 +1003,7 @@ export function registerClientTools(
         const authToken = typeof pview.auth_token === 'string' ? pview.auth_token : undefined;
         const requestedContract = typeof pview.contract === 'string' ? pview.contract : undefined;
 
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         toolLogger.logToolCall('get_service_details', params, false);
@@ -1089,10 +1089,7 @@ export function registerClientTools(
               isError: true,
             };
           }
-          const ownershipError = ensureClientOwnership(
-            product.clientid,
-            params as Record<string, unknown>
-          );
+          const ownershipError = ensureClientOwnership(product.clientid, params);
           if (ownershipError) return ownershipError;
         }
 

@@ -28,7 +28,7 @@ const REG = JSON.stringify([
     anonymous: false,
   },
 ]);
-const registry = loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: REG } as NodeJS.ProcessEnv);
+const registry = loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: REG });
 
 afterEach(() => enableTransportConsumerBinding(false));
 

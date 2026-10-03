@@ -21,7 +21,7 @@ describe('mapToCanonicalActivity', () => {
       ipAddress: '203.0.113.9',
     });
     // every data path must be classified
-    for (const k of Object.keys(c.data as Record<string, unknown>)) {
+    for (const k of Object.keys(c.data)) {
       expect(c.classes[k]).toBeDefined();
     }
     expect(c.classes.activityId).toBe('business.identifier');

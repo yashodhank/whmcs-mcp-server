@@ -131,7 +131,7 @@ function escalationRegistry(): ConsumerProfile[] {
   ]);
   return loadConsumerRegistry({
     MCP_CONSUMER_REGISTRY: json,
-  } as NodeJS.ProcessEnv);
+  });
 }
 
 function billingOnlyProfile(): ConsumerProfile {

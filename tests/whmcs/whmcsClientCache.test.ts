@@ -50,7 +50,7 @@ function projectionRegistry(): ConsumerProfile[] {
         writeCapability: 'false',
       },
     ]),
-  } as NodeJS.ProcessEnv);
+  });
 }
 
 function makeLogger(): any {

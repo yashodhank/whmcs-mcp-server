@@ -186,8 +186,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   let verifier: TokenVerifier | undefined;
   let prmUrl = '';
   let prmConfig:
-    | { resource: string; authorizationServers: string[]; scopesSupported: string[] }
-    | undefined;
+    { resource: string; authorizationServers: string[]; scopesSupported: string[] } | undefined;
   if (oauthEnabled) {
     const resource = config.MCP_OAUTH_RESOURCE;
     const audience = config.MCP_OAUTH_AUDIENCE ?? resource;

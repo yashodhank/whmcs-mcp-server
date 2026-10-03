@@ -132,8 +132,7 @@ describe('Track C2 quote validation', () => {
   });
 
   it('billing:quote:create accepts identity via valid email when no userid', () => {
-    const { userid, ...rest } = validCreate;
-    void userid;
+    const { userid: _userid, ...rest } = validCreate;
     expect(
       validateIntent(intent('billing:quote:create', { ...rest, email: 'buyer@example.test' }), {})
         .ok
@@ -150,8 +149,7 @@ describe('Track C2 quote validation', () => {
   });
 
   it('billing:quote:create rejects when neither userid nor valid email present', () => {
-    const { userid, ...rest } = validCreate;
-    void userid;
+    const { userid: _userid2, ...rest } = validCreate;
     const r = validateIntent(intent('billing:quote:create', rest), {});
     expect(r.ok).toBe(false);
     expect(r.issues.some((i) => i.code === 'missing_quote_identity')).toBe(true);
@@ -165,8 +163,7 @@ describe('Track C2 quote validation', () => {
   });
 
   it('billing:quote:create rejects empty/missing items', () => {
-    const { items, ...rest } = validCreate;
-    void items;
+    const { items: _items, ...rest } = validCreate;
     expect(validateIntent(intent('billing:quote:create', rest), {}).ok).toBe(false);
     const r = validateIntent(intent('billing:quote:create', { ...rest, items: [] }), {});
     expect(r.ok).toBe(false);

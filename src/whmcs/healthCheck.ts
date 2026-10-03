@@ -22,12 +22,7 @@ export interface ConnectivityResult {
 }
 
 export type ConnectivityFailureReason =
-  | 'admin-context-unresolved'
-  | 'auth-failed'
-  | 'dns'
-  | 'unreachable'
-  | 'forbidden'
-  | 'unknown';
+  'admin-context-unresolved' | 'auth-failed' | 'dns' | 'unreachable' | 'forbidden' | 'unknown';
 
 /**
  * Classify a startup-probe failure into a stable reason + an actionable hint.

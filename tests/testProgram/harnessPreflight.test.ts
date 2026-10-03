@@ -36,7 +36,7 @@ interface PreflightFail {
   kind: 'harness_config_error';
   message: string;
 }
-type PreflightResult = PreflightOk | PreflightFail;
+type _PreflightResult = PreflightOk | PreflightFail;
 
 interface ToolNameOk {
   ok: true;
@@ -48,12 +48,9 @@ interface ToolNameFail {
   message: string;
   missing: string[];
 }
-type ToolNameResult = ToolNameOk | ToolNameFail;
+type _ToolNameResult = ToolNameOk | ToolNameFail;
 
-const mod = (await import('../../scripts/lib/harnessPreflight.mjs')) as {
-  validateToolNames: (requested: readonly string[], live: readonly string[]) => ToolNameResult;
-  governancePreflight: (env: Record<string, string | undefined>) => PreflightResult;
-};
+const mod = await import('../../scripts/lib/harnessPreflight.mjs');
 const { validateToolNames, governancePreflight } = mod;
 
 describe('harness preflight: tool-name validation', () => {
