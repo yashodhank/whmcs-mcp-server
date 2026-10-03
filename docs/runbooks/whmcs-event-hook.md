@@ -96,9 +96,10 @@ MCP_EVENT_AUTHORIZATION=Bearer <your-grok-routine-webhook-key>
 ```
 
 Every allowlisted event produces **one POST → one Grok run**. The
-`DailyCronJob` hook can emit up to **50 `domain.grace_or_expired` posts** in
-a single cron invocation — that is 50 separate Grok runs. Plan routine
-capacity accordingly.
+`DailyCronJob` hook queries both Expired and Grace domains (50 each), so it
+can emit up to **100 `domain.grace_or_expired` posts** in a single cron
+invocation — that is up to 100 separate Grok runs. Plan routine capacity
+accordingly.
 
 The POST carries the same JSON body as the local path:
 
