@@ -1,12 +1,9 @@
 <?php
 /**
- * WHMCS MCP Event Hook — pushes allowlisted events to the MCP event receiver.
+ * WHMCS MCP Event Hook — pushes allowlisted events to an external receiver.
  *
- * Drop this file into <WHMCS_ROOT>/includes/hooks/ and configure the two
- * required settings below (or via WHMCS Configuration → General → Other).
- *
- * Environment / define constants (set in configuration.php or a wrapper that
- * loads before hooks, or as env vars on the container):
+ * Drop this file into <WHMCS_ROOT>/includes/hooks/ and set the environment
+ * variables (or PHP define() constants in configuration.php / a loader):
  *   MCP_EVENT_RECEIVER_URL    — full URL (required)
  *   MCP_EVENT_HMAC_SECRET     — shared HMAC-SHA256 secret (never commit)
  *   MCP_EVENT_AUTHORIZATION   — full Authorization header value,
@@ -38,9 +35,11 @@ function mcpEventPost(string $eventType, array $payload): void
         return;
     }
 
-    $url   = MCP_EVENT_RECEIVER_URL;
+    $url    = MCP_EVENT_RECEIVER_URL;
     $secret = defined('MCP_EVENT_HMAC_SECRET') ? MCP_EVENT_HMAC_SECRET : '';
-    $auth   = defined('MCP_EVENT_AUTHORIZATION') ? MCP_EVENT_AUTHORIZATION : '';
+    $auth   = defined('MCP_EVENT_AUTHORIZATION')
+        ? str_replace(["\r", "\n"], '', MCP_EVENT_AUTHORIZATION)
+        : '';
 
     if (empty($secret) && empty($auth)) {
         return;
@@ -135,31 +134,39 @@ add_hook('AfterModuleCreate', 1, function (array $vars) {
 });
 
 add_hook('DailyCronJob', 1, function (array $vars) {
-    // Domain grace/expiry detection from the daily cron.
-    // Query domains in grace or expired status that changed today.
     if (!function_exists('localAPI')) {
         return;
     }
 
     $today = date('Y-m-d');
 
-    $result = localAPI('GetClientsDomains', [
-        'status'   => 'Expired',
-        'limitnum' => 50,
-    ]);
+    // GetClientsDomains accepts only a single status filter per call,
+    // so we query Expired and Grace separately and merge the results.
+    $domains = [];
 
-    if (($result['result'] ?? '') === 'success' && !empty($result['domains']['domain'])) {
-        foreach ($result['domains']['domain'] as $domain) {
-            $expiryDate = $domain['expirydate'] ?? '';
-            if (substr($expiryDate, 0, 10) === $today || $domain['status'] === 'Grace') {
-                mcpEventPost('domain.grace_or_expired', [
-                    'domainid'   => $domain['id'] ?? null,
-                    'domain'     => $domain['domainname'] ?? '',
-                    'status'     => $domain['status'] ?? '',
-                    'expirydate' => $expiryDate,
-                    'clientid'   => $domain['userid'] ?? null,
-                ]);
+    foreach (['Expired', 'Grace'] as $status) {
+        $result = localAPI('GetClientsDomains', [
+            'status'   => $status,
+            'limitnum' => 50,
+        ]);
+
+        if (($result['result'] ?? '') === 'success' && !empty($result['domains']['domain'])) {
+            foreach ($result['domains']['domain'] as $domain) {
+                $domains[] = $domain;
             }
+        }
+    }
+
+    foreach ($domains as $domain) {
+        $expiryDate = $domain['expirydate'] ?? '';
+        if (substr($expiryDate, 0, 10) === $today || ($domain['status'] ?? '') === 'Grace') {
+            mcpEventPost('domain.grace_or_expired', [
+                'domainid'   => $domain['id'] ?? null,
+                'domain'     => $domain['domainname'] ?? '',
+                'status'     => $domain['status'] ?? '',
+                'expirydate' => $expiryDate,
+                'clientid'   => $domain['userid'] ?? null,
+            ]);
         }
     }
 });
