@@ -108,6 +108,12 @@ jobs:
       - name: PHP lint (remote worker + bootstrap-callable PHP)
         run: php -l scripts/whmcs-ip-updater/remote/whmcs_api_ip_updater.php
 
+      - name: PHP lint (event hook)
+        run: php -l deploy/whmcs-event-hook/mcp_event_hook.php
+
+      - name: PHP event hook tests
+        run: php deploy/whmcs-event-hook/tests/mcpEventPostTest.php
+
   ci-ok:
     name: ci-ok
     if: always()
