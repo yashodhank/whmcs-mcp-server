@@ -5,10 +5,15 @@
  * Drop this file into <WHMCS_ROOT>/includes/hooks/ and configure the two
  * required settings below (or via WHMCS Configuration → General → Other).
  *
- * Required environment / define constants (set in configuration.php or a
- * wrapper that loads before hooks):
- *   MCP_EVENT_RECEIVER_URL  — full URL, e.g. https://mcp.example.com/events/whmcs
- *   MCP_EVENT_HMAC_SECRET   — shared HMAC-SHA256 secret (never commit)
+ * Environment / define constants (set in configuration.php or a wrapper that
+ * loads before hooks, or as env vars on the container):
+ *   MCP_EVENT_RECEIVER_URL    — full URL (required)
+ *   MCP_EVENT_HMAC_SECRET     — shared HMAC-SHA256 secret (never commit)
+ *   MCP_EVENT_AUTHORIZATION   — full Authorization header value,
+ *                                e.g. "Bearer <token>" (never commit)
+ *
+ * At least one of MCP_EVENT_HMAC_SECRET or MCP_EVENT_AUTHORIZATION must be set
+ * alongside MCP_EVENT_RECEIVER_URL for the hook to fire.
  *
  * @see docs/runbooks/whmcs-event-hook.md
  */
@@ -19,6 +24,9 @@ if (!defined('MCP_EVENT_RECEIVER_URL') && getenv('MCP_EVENT_RECEIVER_URL')) {
 if (!defined('MCP_EVENT_HMAC_SECRET') && getenv('MCP_EVENT_HMAC_SECRET')) {
     define('MCP_EVENT_HMAC_SECRET', getenv('MCP_EVENT_HMAC_SECRET'));
 }
+if (!defined('MCP_EVENT_AUTHORIZATION') && getenv('MCP_EVENT_AUTHORIZATION')) {
+    define('MCP_EVENT_AUTHORIZATION', getenv('MCP_EVENT_AUTHORIZATION'));
+}
 
 /**
  * POST a signed JSON payload to the MCP event receiver.
@@ -26,14 +34,15 @@ if (!defined('MCP_EVENT_HMAC_SECRET') && getenv('MCP_EVENT_HMAC_SECRET')) {
  */
 function mcpEventPost(string $eventType, array $payload): void
 {
-    if (!defined('MCP_EVENT_RECEIVER_URL') || !defined('MCP_EVENT_HMAC_SECRET')) {
+    if (!defined('MCP_EVENT_RECEIVER_URL') || empty(MCP_EVENT_RECEIVER_URL)) {
         return;
     }
 
-    $url    = MCP_EVENT_RECEIVER_URL;
-    $secret = MCP_EVENT_HMAC_SECRET;
+    $url   = MCP_EVENT_RECEIVER_URL;
+    $secret = defined('MCP_EVENT_HMAC_SECRET') ? MCP_EVENT_HMAC_SECRET : '';
+    $auth   = defined('MCP_EVENT_AUTHORIZATION') ? MCP_EVENT_AUTHORIZATION : '';
 
-    if (empty($url) || empty($secret)) {
+    if (empty($secret) && empty($auth)) {
         return;
     }
 
@@ -44,8 +53,20 @@ function mcpEventPost(string $eventType, array $payload): void
         'payload'   => $payload,
     ];
 
-    $body      = json_encode($event, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    $signature = hash_hmac('sha256', $body, $secret);
+    $body    = json_encode($event, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $headers = [
+        'Content-Type: application/json',
+        'X-MCP-Event: ' . $eventType,
+    ];
+
+    if (!empty($secret)) {
+        $signature = hash_hmac('sha256', $body, $secret);
+        $headers[] = 'X-MCP-Signature: sha256=' . $signature;
+    }
+
+    if (!empty($auth)) {
+        $headers[] = 'Authorization: ' . $auth;
+    }
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -54,11 +75,7 @@ function mcpEventPost(string $eventType, array $payload): void
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 5,
         CURLOPT_CONNECTTIMEOUT => 3,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'X-MCP-Signature: sha256=' . $signature,
-            'X-MCP-Event: ' . $eventType,
-        ],
+        CURLOPT_HTTPHEADER     => $headers,
     ]);
 
     $result   = curl_exec($ch);

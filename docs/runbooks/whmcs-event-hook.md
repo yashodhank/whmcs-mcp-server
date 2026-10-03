@@ -1,14 +1,30 @@
-# Runbook — WHMCS Event Hook & MCP Event Receiver
+# Runbook — WHMCS Event Hook
 
-Real-time push path for important WHMCS events. The PHP hook posts signed
-payloads to the MCP HTTP server, which verifies, deduplicates, and optionally
-forwards them to an external webhook (e.g. Grok Bot).
+Real-time push path for important WHMCS events. The PHP hook can post
+directly to an external webhook (e.g. Grok Bot routine) or to the MCP
+HTTP server for local processing.
 
 ## Architecture
 
+Two deployment modes:
+
+### Direct-to-webhook (recommended for Grok Bot)
+
 ```
 WHMCS (PHP hook)
-  ─ POST /events/whmcs ─▶  MCP HTTP server (eventReceiver.ts)
+  ─ POST ──▶  Grok Bot routine webhook (one run per POST)
+                 ├─ Authorization: Bearer <key>
+                 ├─ X-MCP-Event header
+                 └─ JSON body (event + payload)
+```
+
+No cloudflared, no Mac staying awake, no MCP HTTP server required.
+
+### Local MCP receiver (legacy / development)
+
+```
+WHMCS (PHP hook)
+  ─ POST /events/whmcs ──▶  MCP HTTP server (eventReceiver.ts)
                               ├─ HMAC verify
                               ├─ allowlist filter
                               ├─ dedup (in-memory, 5 min window)
@@ -42,35 +58,49 @@ All other WHMCS hook points are ignored.
 ### WHMCS side
 
 Set these as PHP `define()` constants (e.g. in `configuration.php` or a loader)
-or as environment variables read by `getenv()`:
+or as environment variables on the WHMCS container / PHP-FPM unit. **Never
+commit secrets to git.**
 
-| Variable / define          | Required | Description                                   |
-| -------------------------- | -------- | --------------------------------------------- |
-| `MCP_EVENT_RECEIVER_URL`   | Yes      | Full URL, e.g. `https://mcp.example.com/events/whmcs` |
-| `MCP_EVENT_HMAC_SECRET`    | Yes      | Same shared secret as the MCP server side.    |
+| Variable / define          | Required | Description                                                        |
+| -------------------------- | -------- | ------------------------------------------------------------------ |
+| `MCP_EVENT_RECEIVER_URL`   | Yes      | Full URL of the receiver or webhook endpoint.                      |
+| `MCP_EVENT_HMAC_SECRET`    | No\*     | Shared HMAC-SHA256 secret (for the local MCP receiver path).       |
+| `MCP_EVENT_AUTHORIZATION`  | No\*     | Full `Authorization` header value, e.g. `Bearer <token>`.          |
+
+\* At least one of `MCP_EVENT_HMAC_SECRET` or `MCP_EVENT_AUTHORIZATION` must be
+set. When only `MCP_EVENT_AUTHORIZATION` is set, `X-MCP-Signature` is omitted.
+When only `MCP_EVENT_HMAC_SECRET` is set, no `Authorization` header is sent
+(legacy behavior). Both can coexist.
 
 ## Installing the WHMCS hook
 
 1. Copy `deploy/whmcs-event-hook/mcp_event_hook.php` to
    `<WHMCS_ROOT>/includes/hooks/mcp_event_hook.php`.
 
-2. Configure the two required constants. Recommended: add to `configuration.php`
-   (below the existing WHMCS settings) or a separate include:
-
-   ```php
-   define('MCP_EVENT_RECEIVER_URL', 'https://mcp.example.com/events/whmcs');
-   define('MCP_EVENT_HMAC_SECRET',  'your-secret-here');
-   ```
-
-   Or set as environment variables in the PHP-FPM / Apache / systemd unit.
+2. Configure environment. Pick **one** of the two deployment modes below.
 
 3. Verify the hook is loaded: WHMCS Admin → Setup → Addon Modules → Hooks
    (or simply trigger a test invoice payment).
 
-## Pointing the notifier at a webhook
+## Direct-to-Grok deployment (recommended)
 
-Set `MCP_EVENT_NOTIFIER_URL` to your downstream webhook. The notifier receives
-a POST with `Content-Type: application/json` and the same event payload:
+Posts events straight to a Grok Bot routine webhook. No cloudflared tunnel, no
+local MCP HTTP server, no Mac that needs to stay awake.
+
+Set the following on the WHMCS container (env vars or `define()` in
+`configuration.php`). **Never commit these values.**
+
+```sh
+MCP_EVENT_RECEIVER_URL=https://api.x.ai/v1/grok-routine/wh_<your-id>
+MCP_EVENT_AUTHORIZATION=Bearer <your-grok-routine-webhook-key>
+```
+
+Every allowlisted event produces **one POST → one Grok run**. The
+`DailyCronJob` hook can emit up to **50 `domain.grace_or_expired` posts** in
+a single cron invocation — that is 50 separate Grok runs. Plan routine
+capacity accordingly.
+
+The POST carries the same JSON body as the local path:
 
 ```json
 {
@@ -81,49 +111,74 @@ a POST with `Content-Type: application/json` and the same event payload:
 }
 ```
 
-### Grok Bot example
+Headers sent: `Content-Type: application/json`, `Authorization: Bearer <key>`,
+`X-MCP-Event: <type>`. No `X-MCP-Signature` (HMAC is not configured in this
+mode).
 
+A **200** from Grok means a run started. A **non-200** is logged to the WHMCS
+activity log (`Utilities → Activity Log`, search "MCP Event Hook") but never
+surfaces to the WHMCS UI or blocks the hook caller.
+
+## Local MCP receiver deployment (legacy)
+
+Posts signed events to the MCP HTTP server (requires `MCP_TRANSPORT=http` on
+the MCP side and a network path from WHMCS to the MCP host).
+
+```sh
+MCP_EVENT_RECEIVER_URL=https://mcp.example.com/events/whmcs
+MCP_EVENT_HMAC_SECRET=your-shared-secret
 ```
-MCP_EVENT_NOTIFIER_URL=https://grokbot.example.com/api/webhooks/whmcs
-```
 
-The forward is best-effort with a 10-second timeout. A notifier failure is
-logged but never fails the hook response — the WHMCS side always gets a fast
-response (202 Accepted or a rejection status).
+### Pointing the MCP notifier at a downstream webhook
 
-## Payload signing
+Set `MCP_EVENT_NOTIFIER_URL` on the **MCP server side** to forward accepted
+events further (e.g. to Grok Bot). The forward is best-effort with a
+10-second timeout. A notifier failure is logged but never fails the hook
+response — the WHMCS side always gets a fast response (202 Accepted or a
+rejection status).
 
-Every POST from the hook carries an `X-MCP-Signature` header:
+## Payload signing (HMAC path only)
+
+When `MCP_EVENT_HMAC_SECRET` is set, every POST carries an `X-MCP-Signature`
+header:
 
 ```
 X-MCP-Signature: sha256=<hex HMAC-SHA256 of the raw JSON body>
 ```
 
-The receiver uses timing-safe comparison (`crypto.timingSafeEqual`).
+The MCP receiver uses timing-safe comparison (`crypto.timingSafeEqual`).
+When only `MCP_EVENT_AUTHORIZATION` is set (direct-to-Grok), no signature
+header is sent.
 
-## Duplicate handling
+## Duplicate handling (MCP receiver path only)
 
-Each event carries a unique `event_id` (32-character hex). The receiver keeps
-an in-memory set for `MCP_EVENT_DEDUP_WINDOW_MS` (default 5 minutes). A
+Each event carries a unique `event_id` (32-character hex). The MCP receiver
+keeps an in-memory set for `MCP_EVENT_DEDUP_WINDOW_MS` (default 5 minutes). A
 duplicate within the window returns `200 { "status": "duplicate" }` instead of
-`202`. This covers WHMCS retry or accidental double-fire.
+`202`. This covers WHMCS retry or accidental double-fire. The direct-to-Grok
+path does not deduplicate — each POST starts a new Grok run.
 
 ## Troubleshooting
 
 | Symptom                            | Check                                                       |
 | ---------------------------------- | ----------------------------------------------------------- |
-| Hook POST returns 503              | `MCP_EVENT_HMAC_SECRET` is empty on the MCP side.           |
-| Hook POST returns 401              | Secrets don't match, or the body was modified in transit.    |
-| Hook POST returns 422              | Event type not in the allowlist. Check `X-MCP-Event` header.|
-| Hook POST returns 404              | `MCP_TRANSPORT` is not `http`, or server not running.       |
+| Hook never fires                   | Both `MCP_EVENT_HMAC_SECRET` and `MCP_EVENT_AUTHORIZATION` are empty, or `MCP_EVENT_RECEIVER_URL` is empty. At least one credential must be set alongside the URL. |
+| Hook POST returns 401 (Grok)       | Bearer key is wrong or expired. Check `MCP_EVENT_AUTHORIZATION`. |
+| Hook POST returns 401 (MCP)        | HMAC secrets don't match, or the body was modified in transit. |
+| Hook POST returns 503 (MCP)        | `MCP_EVENT_HMAC_SECRET` is empty on the MCP server side.    |
+| Hook POST returns 422 (MCP)        | Event type not in the allowlist. Check `X-MCP-Event` header.|
+| Hook POST returns 404 (MCP)        | `MCP_TRANSPORT` is not `http`, or server not running.       |
 | Notifier not receiving events      | Check `MCP_EVENT_NOTIFIER_URL` is set and reachable.        |
 | WHMCS admin log shows failures     | Check WHMCS → Utilities → Activity Log for "MCP Event Hook".|
+| Non-200 from Grok webhook          | Logged to WHMCS Activity Log. Does not block WHMCS.         |
 
 ## Security notes
 
-- The HMAC secret must **never** be committed to git.
+- `MCP_EVENT_HMAC_SECRET` and `MCP_EVENT_AUTHORIZATION` must **never** be
+  committed to git. Set them as environment variables on the container.
 - The receiver endpoint does **not** use MCP consumer auth — it has its own
   HMAC verification, independent of the MCP bearer token flow.
 - The hook only sends a minimal payload (IDs and metadata, not full PII).
-- The notifier forward carries no additional authentication. If the downstream
-  requires auth, extend `forwardToNotifier` in `eventReceiver.ts`.
+- In the direct-to-Grok path the bearer token authenticates the POST. The
+  Grok routine webhook is HTTPS; the key travels only in the `Authorization`
+  header over TLS.
