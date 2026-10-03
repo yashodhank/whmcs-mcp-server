@@ -40,7 +40,8 @@ if (!function_exists('logActivity')) {
 // replicate and test the core dispatch logic that mcpEventPost uses.
 
 /**
- * Replicate the header-building + guard logic from mcpEventPost.
+ * Replicate the header-building + guard logic from mcpEventPost, including
+ * the CR/LF sanitization applied to the authorization value.
  * Returns null if the function would bail (no post), or the array of headers
  * it would send to curl.
  */
@@ -49,6 +50,8 @@ function buildHeaders(string $url, string $secret, string $auth, string $eventTy
     if (empty($url)) {
         return null;
     }
+
+    $auth = str_replace(["\r", "\n"], '', $auth);
 
     if (empty($secret) && empty($auth)) {
         return null;
@@ -160,6 +163,28 @@ foreach ($headers as $h) {
     }
 }
 assert_true($sigHeader === $expected, 'HMAC signature matches expected value');
+
+echo "\n=== CR/LF header injection is stripped ===\n";
+$injected = "Bearer good\r\nX-Injected: evil";
+$headers = buildHeaders('https://example.com', '', $injected, 'invoice.paid', $testBody);
+assert_true($headers !== null, 'POST still fires after stripping');
+$authHeader = '';
+$hasInjected = false;
+foreach ($headers as $h) {
+    if (str_starts_with($h, 'Authorization:')) {
+        $authHeader = $h;
+    }
+    if (str_contains($h, 'X-Injected')) {
+        $hasInjected = true;
+    }
+}
+assert_true($authHeader === 'Authorization: Bearer goodX-Injected: evil', 'CR/LF removed, value collapsed');
+assert_true(!$hasInjected, 'Injected header name does not appear as a separate header');
+assert_true(strpos($authHeader, "\r") === false && strpos($authHeader, "\n") === false, 'No CR or LF in output header');
+
+echo "\n=== CR/LF-only auth value becomes empty (no post without HMAC) ===\n";
+$headers = buildHeaders('https://example.com', '', "\r\n", 'invoice.paid', $testBody);
+assert_true($headers === null, 'Returns null when auth is only CR/LF and no HMAC');
 
 // ── Summary ───────────────────────────────────────────────────────────────
 
