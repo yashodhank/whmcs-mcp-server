@@ -463,6 +463,11 @@ const configSchema = z
       (val) => (typeof val === 'string' ? val.toLowerCase() === 'true' : false),
       z.boolean().default(false)
     ),
+
+    // ── WHMCS event receiver (inbound webhook from the PHP hook) ────────────
+    MCP_EVENT_HMAC_SECRET: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_EVENT_NOTIFIER_URL: z.preprocess(preprocessOptionalEnvString, z.string().default('')),
+    MCP_EVENT_DEDUP_WINDOW_MS: z.coerce.number().int().min(0).default(300_000),
   })
   .superRefine((val, ctx) => {
     if (

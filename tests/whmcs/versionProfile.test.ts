@@ -21,6 +21,7 @@ describe('versionProfile', () => {
     expect(profile.version).toBe('8.13.1');
     expect(is813(profile)).toBe(true);
     expect(isAtLeast9(profile)).toBe(false);
+    expect(profile.source).toBe('WhmcsDetails');
   });
 
   it('classifies WHMCS 9.x', async () => {
@@ -47,6 +48,7 @@ describe('versionProfile', () => {
     const profile = await getWhmcsVersionProfile({ read } as never);
     expect(profile.family).toBe('unknown');
     expect(profile.version).toBeNull();
+    expect(profile.source).toBe('unavailable');
   });
 
   it('falls back to GetConfigurationValue when WhmcsDetails is denied', async () => {
@@ -63,6 +65,7 @@ describe('versionProfile', () => {
     expect(profile.family).toBe('8.13');
     expect(profile.version).toBe('8.13.6');
     expect(profile.release).toBe('8.13.6-release.1');
+    expect(profile.source).toBe('GetConfigurationValue');
   });
 
   it('falls back to GetAdminDetails when WhmcsDetails is denied', async () => {
@@ -81,6 +84,7 @@ describe('versionProfile', () => {
     expect(profile.family).toBe('8.13');
     expect(profile.version).toBe('8.13.7');
     expect(profile.release).toBe('8.13.7-release.1');
+    expect(profile.source).toBe('GetAdminDetails');
   });
 
   it('skips GetAdminDetails and falls to GetConfigurationValue when all deny', async () => {

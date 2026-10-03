@@ -33,6 +33,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { config } from '../config.js';
+import { createEventReceiver, type EventReceiver } from './eventReceiver.js';
 import type { Logger } from '../logging.js';
 import {
   loadConsumerRegistry,
@@ -216,6 +217,18 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
   // sets this, so the marker can't be used to impersonate there).
   enableTransportConsumerBinding(true);
 
+  // ── WHMCS event receiver (POST /events/whmcs) ───────────────────────────
+  let eventReceiver: EventReceiver | undefined;
+  if (config.MCP_EVENT_HMAC_SECRET) {
+    eventReceiver = createEventReceiver({
+      logger,
+      hmacSecret: config.MCP_EVENT_HMAC_SECRET,
+      notifierUrl: config.MCP_EVENT_NOTIFIER_URL,
+      dedupWindowMs: config.MCP_EVENT_DEDUP_WINDOW_MS,
+    });
+    logger.info('WHMCS event receiver enabled on /events/whmcs');
+  }
+
   // Active sessions: sessionId → its transport. One McpServer is connected per
   // transport (created on the initialize request).
   const transports = new Map<string, StreamableHTTPServerTransport>();
@@ -262,6 +275,12 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<HttpServerH
     if (oauthEnabled && method === 'GET' && pathOnly === PRM_PATH && prmConfig !== undefined) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(buildProtectedResourceMetadata(prmConfig)));
+      return;
+    }
+
+    // ── WHMCS event receiver (no MCP auth — uses its own HMAC) ──
+    if (pathOnly === '/events/whmcs' && eventReceiver !== undefined) {
+      await eventReceiver.handle(req, res);
       return;
     }
 

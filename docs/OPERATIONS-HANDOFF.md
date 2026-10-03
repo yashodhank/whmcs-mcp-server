@@ -111,8 +111,8 @@ Interactive OAuth and role probes stay `PENDING` with an owner.
 |---|---|---|
 | Operator baseline | WHMCS **8.13.7** (LTS; 2026-09-03 security-only vs 8.13.x) | accepted |
 | Last Admin API `Version` | `8.13.6-release.1` (2026-09-02 PR #103) | **PENDING** re-read via `GetConfigurationValue` / `GetAdminDetails.whmcs` |
-| `WhmcsDetails` | HTTP 403 `invalid_permissions` | last recorded; do not add to the API role |
-| `GetUsers` | `not_authorized` for the configured API role | last recorded; identity uses `GetClients` / `GetClientsDetails` |
+| `WhmcsDetails` | HTTP 403 `invalid_permissions` | 2026-09-02 record; **superseded 2026-09-23** — dedicated role 12 now grants it (live `success`); see Dedicated MCP API role section below |
+| `GetUsers` | `not_authorized` for the configured API role | 2026-09-02 record; **superseded 2026-09-23** — dedicated role 12 now grants it (live success, 218 users) |
 | OIDC discovery `/oauth/openid-configuration.php` | **200** — issuer `https://my.securiace.com`; authorize/token/userinfo/jwks; scopes `openid email profile`; `id_token_signing_alg` `RS256`; claims `iss aud exp sub` | verified this run |
 | `/.well-known/openid-configuration` | **404** | verified this run (rewrite not installed) |
 | JWKS `/oauth/certs.php` | `{ "keys": [] }` | verified this run — **PENDING** operator to publish signing keys |
@@ -131,6 +131,59 @@ Interactive OAuth and role probes stay `PENDING` with an owner.
 
 Re-run `node scripts/mcp-whmcs-8137-phase0-probe.mjs` when credentials exist.
 See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.md).
+
+### Dedicated MCP API role + credential rotation (2026-09-23)
+
+Live database is **`whmcs_recovery_20260817`** (`whmcs-production-jvjwfo-app-1`
+env `WHMCS_DB_NAME=whmcs_recovery_20260817`; the bare `whmcs` schema is empty).
+WHMCS **8.13.7-release.1**. API roles: id 1 `Admin` (121 actions) and ids 3–10
+narrow roles; **all pre-existing roles untouched** in this work item (Admin
+permissions MD5 identical before/after the change: `470d150e…`).
+
+- **Role id 12 `WHMCS MCP Full API 20260923133435`** created 2026-09-23
+  13:34:37 as a copy of `Admin` (121 actions) so the MCP stops sharing the
+  admin credential. The shared admin identifier was rotated out of
+  `.env.production` (old value retained only as the comment line
+  `ROTATED_20260923133435_WHMCS_IDENTIFIER=…`); the active identifier in
+  `.env.production` (32-hex, gitignored file) belongs to this role — see the
+  `PENDING` note below on direct confirmation.
+- **Permissions expanded 121 → 131** same day (13:51 UTC) by adding the 10
+  actions referenced by the MCP source (union of `READ_ALLOWLIST`,
+  `SCOPE_ACTION`, capability probes, `GetUsers`, `LogActivity`):
+  `GetUsers, GetAdminUsers, GetAdminLog, GetUserPermissions, WhmcsDetails,
+  GetPayMethods, GetRegistrars, GetAffiliates, MergeTicket,
+  UpdateBillableItem`. Applied as a single guarded
+  `UPDATE … WHERE id=12 AND role LIKE 'WHMCS MCP Full API %'`
+  (`rows_updated=1`); in-role key count verified 121 → 131 via
+  `JSON_LENGTH`/`JSON_CONTAINS_PATH` in the same transaction; `updated_at`
+  set. Note: WHMCS 8.13 stores `tblapi_roles.permissions` as a JSON object,
+  **not** the legacy comma list — two earlier expansion attempts targeted the
+  wrong format and made no change (their success banners were unverified).
+- **Live re-probe with the dedicated credential (read-only; write actions
+  probed with empty params, nothing executed):**
+
+  | Action | Result | Note |
+  |---|---|---|
+  | `WhmcsDetails` | `success` | was 403 in the 2026-09-02 probe |
+  | `GetUsers` (limitnum 1) | `success` (218 users) | was `not_authorized` |
+  | `GetPayMethods` (clientid 1) | `success` | param accepted |
+  | `GetAffiliates` | `success` (XML) | — |
+  | `GetAdminUsers` | `success` (count 4) | includes user id 8 |
+  | `GetAdminLog` (limitnum 1) | `API Function Not Found` | action not present in this 8.13 build; role grants it, build lacks it |
+  | `GetUserPermissions` (userid 8) | authorized | no permission denial; empty result |
+  | `GetRegistrars` | HTTP 500 `Oops!` | no permission signature; server-side fault, pre-existing, **PENDING** owner to check app error log |
+  | `MergeTicket` / `UpdateBillableItem` (empty params) | parameter validation error | permission granted; **no mutation executed** |
+
+- **Owner transfer** still requires `MCP_WHMCS_DB_*` (user↔owner transfer is a
+  DB-level path, not an Admin API action).
+
+**PENDING** (direct evidence, not inference): the active `.env.production`
+→ role 12 binding is inferred from (a) the 13:34:35 rotation tag matching
+role creation at 13:34:37, and (b) only role 12 explains the observed
+behavior flip (Admin id 1 does not include `whmcsdetails`/`getusers`). The
+snapshot `tblusers` schema exposes no key/role column, so the binding is not
+queryable in-DB here. Owner can confirm in the WHMCS UI (admin user → API
+role) when convenient.
 
 ### 8.13.7 MCP job surface
 
@@ -160,8 +213,9 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
 - Credit-note reads stay unverified / 9.x-only.
 - Grok write gaps: `order:accept` defaults `autosetup=false` /
   `sendemail=false`; `service:product:set` + `service:customfields:update`
-  for package/CF; `ticket:merge` still needs API role `mergeticket`;
-  owner transfer still needs `MCP_WHMCS_DB_*`. Sealed: terminate, domain
+  for package/CF; `ticket:merge` needed `mergeticket` (2026-09-23: granted on
+  dedicated MCP role 12 and live-verified); owner transfer still needs
+  `MCP_WHMCS_DB_*`. Sealed: terminate, domain
   transfer/release, contact delete. See
   [grok-mcp-write-audit.md](runbooks/grok-mcp-write-audit.md).
 - Open-PR reconciliation (2026-09-12): `main` now contains #105, #106, #108,
@@ -179,7 +233,10 @@ See [docs/runbooks/whmcs-8137-phase0-probe.md](runbooks/whmcs-8137-phase0-probe.
 - **Governance optional:** default `MCP_GOVERNANCE_ENABLED=false`; consumer registry not required for writes.
 - **Version auto-detect:** lazy `WhmcsDetails` probe with `GetConfigurationValue`
   `Version` fallback (`src/whmcs/versionProfile.ts`, 15 min cache) feeds validation
-  advisories and `get_capability_matrix`.
+  advisories and `get_capability_matrix`. Probe output records the successful
+  source. A role-denied optional `WhmcsDetails` action with a successful
+  `GetAdminDetails` or `GetConfigurationValue` fallback is healthy, not degraded,
+  and must not trigger API-role expansion.
 - **Destructive writes:** typed `confirmation` phrase only — no distinct approver, caps, or allowlist when scope is in `MCP_WRITE_ALLOW_DESTRUCTIVE_SCOPES`.
 - **Dokploy IP heal:** `WHMCS_HEAL_MODE=dokploy` runs `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` (see [api-connectivity-troubleshooting.md](runbooks/api-connectivity-troubleshooting.md)).
 - **Simple writes runbook:** [docs/runbooks/simple-writes.md](runbooks/simple-writes.md).
@@ -199,6 +256,12 @@ WHMCS (`.env.production`, `MCP_ENV=production`). Artifacts:
 | **Capability probe** | **4/5 supported** | `GetUsers` → `not_authorized` for configured API role; others supported (`node --import tsx scripts/mcp-capability-probe.mjs`; no `npm run mcp:capability-probe` script yet) |
 | **Version family** | **8.13** | `GetConfigurationValue` `Version` → `8.13.6-release.1`; `WhmcsDetails` denied for API credential; `get_capability_matrix` shows `whmcs_version.status=unverified` until details probe succeeds |
 | **Dokploy IP heal smoke** | **PASS (exit 0)** | `scripts/whmcs-ip-updater/dokploy/dokploy_ip_heal.sh` — API smoke healthy, no heal |
+
+**Superseded 2026-09-23 (role rows only):** the 2026-09-02 role-denial rows
+(`GetUsers → not_authorized`; `WhmcsDetails denied`) describe the
+pre-rotation shared admin credential. Dedicated role 12 + rotated credential
+now resolves both (live `success`; see the Dedicated MCP API role section
+above). Build, L1–L6, and IP-heal rows remain current.
 
 **Post-merge follow-up (harness):** production-test harness preflight now treats
 `MCP_CONSUMER_REGISTRY_FILE` as a valid registry source (same env the MCP

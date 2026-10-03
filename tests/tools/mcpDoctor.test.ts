@@ -46,6 +46,7 @@ vi.mock('../../src/whmcs/versionProfile.js', () => ({
     version: '8.13.7',
     release: '8.13.7-release.1',
     probedAt: '2026-09-12T00:00:00.000Z',
+    source: 'GetAdminDetails',
   }),
 }));
 
@@ -56,7 +57,9 @@ vi.mock('../../src/governance/capabilities.js', () => ({
 import { config } from '../../src/config.js';
 import { registerMcpDoctorTools } from '../../src/tools/mcpDoctor.js';
 
-function registerDoctor() {
+function registerDoctor(
+  read: ReturnType<typeof vi.fn> = vi.fn().mockRejectedValue(new Error('denied'))
+) {
   const handlers: Record<string, (p: Record<string, unknown>) => Promise<unknown>> = {};
   const server = {
     registerTool: (
@@ -68,7 +71,6 @@ function registerDoctor() {
     },
   };
   const logger = { child: () => ({ logToolCall: vi.fn(), logToolResult: vi.fn() }) };
-  const read = vi.fn().mockRejectedValue(new Error('denied'));
   registerMcpDoctorTools(
     server as never,
     { read } as never,
@@ -111,6 +113,7 @@ describe('mcp_doctor', () => {
     const res = (await handlers.mcp_doctor({})) as { structuredContent: Record<string, unknown> };
     const sc = res.structuredContent;
     expect(sc.whmcs_version).toMatchObject({ family: '8.13', version: '8.13.7' });
+    expect(sc.whmcs_api).toEqual({ status: 'degraded', version_source: 'unavailable' });
     expect((sc.oidc as { jwks: { key_count: number } }).jwks.key_count).toBe(0);
     expect((sc.warnings as string[]).some((w) => w.includes('JWKS'))).toBe(true);
     expect((sc.warnings as string[]).some((w) => w.includes('MCP_STAFF_CONSUMER_IDS'))).toBe(true);
@@ -124,6 +127,36 @@ describe('mcp_doctor', () => {
     expect(
       (sc.grok_write as { package_change: { set_local_pid: string } }).package_change.set_local_pid
     ).toBe('service:product:set');
+  });
+
+  it('classifies denied optional WhmcsDetails as healthy when a fallback supplied the version', async () => {
+    const read = vi.fn(async (action: string) => {
+      if (action === 'WhmcsDetails') {
+        throw new Error('HTTP 403 — Invalid Permissions: WhmcsDetails is not allowed');
+      }
+      if (action === 'GetAdminDetails' || action === 'GetConfigurationValue') {
+        return { result: 'success' };
+      }
+      throw new Error(`unexpected ${action}`);
+    });
+    const handlers = registerDoctor(read);
+    const res = (await handlers.mcp_doctor({})) as { structuredContent: Record<string, unknown> };
+    const health = res.structuredContent.whmcs_api as {
+      status: string;
+      version_source: string;
+    };
+    const role = res.structuredContent.api_role as Record<
+      string,
+      { status: string; required: boolean; fallback_source?: string }
+    >;
+
+    expect(health).toEqual({ status: 'healthy', version_source: 'GetAdminDetails' });
+    expect(role.WhmcsDetails).toMatchObject({
+      status: 'optional_denied_with_fallback',
+      required: false,
+      fallback_source: 'GetAdminDetails',
+    });
+    expect(role.GetAdminDetails).toMatchObject({ status: 'allowed', required: false });
   });
 
   it('warns when MCP_OAUTH_ISSUERS includes the WHMCS origin', async () => {
