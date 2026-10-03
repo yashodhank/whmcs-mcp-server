@@ -244,6 +244,7 @@ export async function runStaffJob(args: {
         family: profile.family,
         version: profile.version,
         release: profile.release,
+        source: profile.source,
       },
       admin: {
         adminid: num(asRecord(admin), 'adminid'),

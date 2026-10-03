@@ -30,6 +30,7 @@ const CAPABILITY_MATRIX_OUTPUT_SHAPE = {
       family: z.string().optional(),
       version: z.string().nullable().optional(),
       release: z.string().nullable().optional(),
+      source: z.string().optional(),
       probed_at: z.string().optional(),
       note: z.string().optional(),
     })
@@ -97,6 +98,7 @@ function createCapabilityMatrixHandler(
           family: versionProfile.family,
           version: versionProfile.version,
           release: versionProfile.release,
+          source: versionProfile.source,
           probed_at: versionProfile.probedAt,
         },
         capabilities,
@@ -188,6 +190,7 @@ const WRITE_SCOPE_AVAILABILITY_OUTPUT_SHAPE = {
       family: z.string(),
       version: z.string().nullable(),
       release: z.string().nullable(),
+      source: z.string(),
       probed_at: z.string(),
     })
     .optional(),
@@ -292,6 +295,7 @@ function createWriteScopeAvailabilityHandler(
           family: versionProfile.family,
           version: versionProfile.version,
           release: versionProfile.release,
+          source: versionProfile.source,
           probed_at: versionProfile.probedAt,
         },
         scopes: finalEntries,
