@@ -59,7 +59,7 @@ function ensureClientScope(clientId: number): GovernedToolResult | null {
       // ensureClientAllowed returns the local McpToolResponse shape, which is
       // structurally the governed error shape; re-emit via errorResult is not
       // possible (it has structured fields), so pass it straight through.
-      return scopeErr as unknown as GovernedToolResult;
+      return scopeErr;
     }
   }
   return null;
@@ -95,7 +95,7 @@ export function registerBillingReadTools(
         const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
         const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-        const authErr = ensureToolAuth(params as Record<string, unknown>);
+        const authErr = ensureToolAuth(params);
         if (authErr) return authErr;
 
         const scopeErr = ensureClientScope(params.clientid);
@@ -129,7 +129,7 @@ export function registerBillingReadTools(
           e instanceof Error ? e.message : String(e)
         );
         if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
-          return errorResult((e as Error).message);
+          return errorResult(e.message);
         }
         throw e;
       }
@@ -166,7 +166,7 @@ export function registerBillingReadTools(
         const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
         const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-        const authErr = ensureToolAuth(params as Record<string, unknown>);
+        const authErr = ensureToolAuth(params);
         if (authErr) return authErr;
 
         const scopeErr = ensureClientScope(params.clientid);
@@ -198,7 +198,7 @@ export function registerBillingReadTools(
           e instanceof Error ? e.message : String(e)
         );
         if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
-          return errorResult((e as Error).message);
+          return errorResult(e.message);
         }
         throw e;
       }

@@ -15,7 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 const cfg = vi.hoisted(() => ({
   config: {
     MCP_AUTH_TOKEN: '',
-    MCP_ACCESS_MODE: 'admin' as 'admin' | 'client',
+    MCP_ACCESS_MODE: 'admin',
     MCP_ALLOWED_CLIENT_IDS: [] as number[],
     MCP_MODE: 'read_only',
   },

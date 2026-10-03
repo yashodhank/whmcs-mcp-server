@@ -89,7 +89,7 @@ describe('attemptIpAllowlistHeal', () => {
 
   it('is a no-op (no spawn) when WHMCS_AUTO_IP_HEAL is false', async () => {
     const r = await attemptIpAllowlistHeal(
-      { ...baseConfig, WHMCS_AUTO_IP_HEAL: false } as AppConfig,
+      { ...baseConfig, WHMCS_AUTO_IP_HEAL: false },
       makeLogger()
     );
     expect(r).toBe(false);

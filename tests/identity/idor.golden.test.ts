@@ -21,7 +21,6 @@ describe('IDOR golden — customer door', () => {
     expect((r.oidc_link as { pkce: string }).pkce).toBe('required');
     expect((r.oidc_link as { user_agent: string }).user_agent).toBe('browser_not_whatsapp');
     expect(read).not.toHaveBeenCalled();
-    void read;
   });
 
   it('customer cannot run morning_digest', () => {

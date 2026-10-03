@@ -23,7 +23,7 @@ import {
   governedToolResult,
   governanceEnabled,
 } from '../governance/pipeline.js';
-import type { Canonical, FieldClass, FieldClassMap } from '../governance/types.js';
+import type { Canonical, FieldClass } from '../governance/types.js';
 import { mapToCanonicalTransactions, type CanonicalTransaction } from '../canonical/transaction.js';
 import { mapToCanonicalCreditNotes, type CanonicalCreditNote } from '../canonical/creditNote.js';
 import { asRecord, isRecord, num, str } from '../canonical/_shared.js';
@@ -582,7 +582,7 @@ function classifyAggregateTree(
     return;
   }
   if (value !== null && typeof value === 'object') {
-    for (const key of Object.keys(value as Record<string, unknown>)) {
+    for (const key of Object.keys(value)) {
       const childPath = path === '' ? key : `${path}.${key}`;
       classes[childPath] = classifyAggregateKey(key);
       classifyAggregateTree((value as Record<string, unknown>)[key], childPath, classes);
@@ -590,14 +590,13 @@ function classifyAggregateTree(
   }
 }
 
-function aggregateCanonical(entity: string, payload: Record<string, unknown>): Canonical<unknown> {
-  void entity;
+function aggregateCanonical(_entity: string, payload: Record<string, unknown>): Canonical<unknown> {
   const classes: Record<string, FieldClass> = {};
   classifyAggregateTree(payload, '', classes);
   return {
     entity: 'activity' as const,
     data: payload,
-    classes: classes as FieldClassMap,
+    classes: classes,
   };
 }
 
@@ -1369,7 +1368,7 @@ export function registerAggregatorTools(
       const reconTxns = txnResult.rows;
       const txnPageBounded = txnResult.bounded;
 
-      const matching = reconcile(reconTxns, invoices as InvoiceLite[]);
+      const matching = reconcile(reconTxns, invoices);
 
       const boundedNote = txnPageBounded
         ? {

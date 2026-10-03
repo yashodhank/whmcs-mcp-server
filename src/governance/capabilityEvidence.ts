@@ -11,11 +11,7 @@ export interface CapabilityEvidenceTarget {
 
 export type CapabilityEvidenceSource = 'read_probe' | 'operator_external' | 'policy';
 export type CapabilityFailureClass =
-  | 'none'
-  | 'access_denied'
-  | 'unsupported_action'
-  | 'transport_or_other'
-  | 'policy_denied';
+  'none' | 'access_denied' | 'unsupported_action' | 'transport_or_other' | 'policy_denied';
 
 export interface CapabilityEvidence {
   readonly installationId: string;

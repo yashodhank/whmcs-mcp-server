@@ -165,7 +165,7 @@ export function registerDomainTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         toolLogger.logToolCall('check_domain_availability', params, false);
@@ -299,7 +299,7 @@ export function registerDomainTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -465,7 +465,7 @@ export function registerDomainTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -599,7 +599,7 @@ export function registerDomainTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -729,7 +729,7 @@ export function registerDomainTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {

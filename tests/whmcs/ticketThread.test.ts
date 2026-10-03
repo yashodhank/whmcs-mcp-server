@@ -17,7 +17,7 @@ describe('formatTicketThread', () => {
         ],
       },
       notes: { note: [{ noteid: 'n1', date: 'dn', admin: 'A', message: 'note1' }] },
-    } as any);
+    });
     expect(out).toMatchObject({
       ticketid: 1001,
       ticket_number: 'TST01',
@@ -41,7 +41,7 @@ describe('formatTicketThread', () => {
       date: 'd',
       replies: { reply: [{ replyid: '0', name: 'C', date: 'd', message: 'only' }] },
       notes: [],
-    } as any);
+    });
     expect(out.initial_message).toBe('only');
     expect(out.replies).toEqual([]);
     expect(out.internal_notes).toEqual([]);
@@ -61,7 +61,7 @@ describe('formatTicketThread', () => {
         },
       },
       notes: [],
-    } as any);
+    });
     expect(out.initial_message).toBe('a');
     expect(out.replies[0]).toMatchObject({ message: 'b', is_admin: true });
   });

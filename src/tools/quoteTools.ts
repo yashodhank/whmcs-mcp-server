@@ -97,7 +97,7 @@ export function registerQuoteTools(
       const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
       const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-      const authErr = ensureToolAuth(params as Record<string, unknown>);
+      const authErr = ensureToolAuth(params);
       if (authErr) return authErr;
 
       // Client-scope enforcement. In client access mode a clientid is
@@ -159,7 +159,7 @@ export function registerQuoteTools(
         e instanceof Error ? e.message : String(e)
       );
       if (e instanceof RateLimitError || e instanceof WhmcsBusinessError) {
-        return errorResult((e as Error).message);
+        return errorResult(e.message);
       }
       throw e;
     }

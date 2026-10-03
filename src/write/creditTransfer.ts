@@ -439,7 +439,7 @@ async function executeUnlocked(args: {
         creditByDescription(whmcs, source.clientid, compensationDescription),
       ]);
       if (!sourceDebit || !compensationCredit)
-        throw new Error('compensation credit read-back failed');
+        throw new Error('compensation credit read-back failed', { cause: error });
       const sourceCreditId = nativeId(sourceDebit.id, 'source debit credit id');
       const compensationCreditId = nativeId(compensationCredit.id, 'source compensation credit id');
       const sourceActivityDescription = `[${transferId}] client credit transfer to Client #${destination.clientid} failed; source automatically compensated ${source.currency} ${amount}; debit #${sourceCreditId}; compensation #${compensationCreditId}`;
@@ -457,7 +457,7 @@ async function executeUnlocked(args: {
         activityByDescription(whmcs, destinationActivityDescription),
       ]);
       if (!sourceActivity?.date || !destinationActivity?.date) {
-        throw new Error('compensation activity read-back failed');
+        throw new Error('compensation activity read-back failed', { cause: error });
       }
       const occurredAt = scalarText(sourceActivity.date);
       const actor = safeText(input.approval.actor_consumer_id);

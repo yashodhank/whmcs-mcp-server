@@ -315,7 +315,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
           { id: 2, userid: 7 },
         ])
       );
-      const res = (await handlers[tool]({ clientid: 7 })) as ToolResult;
+      const res = await handlers[tool]({ clientid: 7 });
       expect(read).toHaveBeenCalledWith(action, expect.any(Object));
       const p = JSON.parse(res.content[0].text) as Record<string, unknown>;
       expect(p.capability_unavailable).toBeUndefined();
@@ -331,7 +331,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
     it(`${tool}: empty WHMCS response ⇒ items:[] count:0 (no throw)`, async () => {
       const { handlers, read } = harness();
       read.mockResolvedValue({});
-      const res = (await handlers[tool]({})) as ToolResult;
+      const res = await handlers[tool]({});
       const p = JSON.parse(res.content[0].text) as Record<string, unknown>;
       expect(p.items).toEqual([]);
       expect(p.count).toBe(0);
@@ -341,7 +341,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
     it(`${tool}: empty wrapper object {wrapper:{}} ⇒ items:[] (no throw)`, async () => {
       const { handlers, read } = harness();
       read.mockResolvedValue(wrap([]));
-      const res = (await handlers[tool]({})) as ToolResult;
+      const res = await handlers[tool]({});
       const p = JSON.parse(res.content[0].text) as Record<string, unknown>;
       expect(p.items).toEqual([]);
       expect(p.count).toBe(0);
@@ -352,7 +352,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
       read.mockResolvedValue(
         wrap([{}, { id: 'not-a-number', userid: null }, { unexpected: { nested: true } }])
       );
-      const res = (await handlers[tool]({})) as ToolResult;
+      const res = await handlers[tool]({});
       const p = JSON.parse(res.content[0].text) as {
         items: Record<string, unknown>[];
         count: number;
@@ -369,7 +369,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
         JSON.stringify(wrap([])).replace(/\[\]/, '{"0":{"id":1},"1":{"id":2},"2":{"id":3}}')
       ) as Record<string, unknown>;
       read.mockResolvedValue(numeric);
-      const res = (await handlers[tool]({})) as ToolResult;
+      const res = await handlers[tool]({});
       const p = JSON.parse(res.content[0].text) as { items: unknown[]; count: number };
       expect(p.count).toBe(3);
     });
@@ -381,7 +381,7 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
         unknown
       >;
       read.mockResolvedValue(single);
-      const res = (await handlers[tool]({})) as ToolResult;
+      const res = await handlers[tool]({});
       const p = JSON.parse(res.content[0].text) as { items: unknown[]; count: number };
       expect(p.count).toBe(1);
     });
@@ -389,15 +389,15 @@ describe('Phase H promoted LIST tools — governance OFF (legacy compat)', () =>
     it(`${tool}: governance OFF runtime payload is byte-stable across calls`, async () => {
       const { handlers, read } = harness();
       read.mockResolvedValue(wrap([{ id: 1, userid: 7 }]));
-      const a = (await handlers[tool]({ clientid: 7 })) as ToolResult;
-      const b = (await handlers[tool]({ clientid: 7 })) as ToolResult;
+      const a = await handlers[tool]({ clientid: 7 });
+      const b = await handlers[tool]({ clientid: 7 });
       expect(a.content[0].text).toBe(b.content[0].text);
     });
 
     it(`${tool}: result validates against the registered outputSchema`, async () => {
       const { handlers, configs, read } = harness();
       read.mockResolvedValue(wrap([{ id: 1, userid: 7 }]));
-      const res = (await handlers[tool]({ clientid: 7 })) as ToolResult;
+      const res = await handlers[tool]({ clientid: 7 });
       const p = JSON.parse(res.content[0].text);
       const schema = asSchema(configs[tool].outputSchema);
       expect(schema.safeParse(p).success).toBe(true);
@@ -409,7 +409,7 @@ describe('get_stats (single) — governance OFF (legacy compat)', () => {
   it('happy path: calls WHMCS GetStats, returns mapped data object (NOT capability_unavailable)', async () => {
     const { handlers, read } = harness();
     read.mockResolvedValue({ income_today: '100.50', num_clients: 5, total_revenue: 9000 });
-    const res = (await handlers.get_stats({})) as ToolResult;
+    const res = await handlers.get_stats({});
     expect(read).toHaveBeenCalledWith('GetStats', expect.any(Object));
     const p = JSON.parse(res.content[0].text) as { metrics: Record<string, unknown> };
     expect(p.capability_unavailable).toBeUndefined();
@@ -421,7 +421,7 @@ describe('get_stats (single) — governance OFF (legacy compat)', () => {
   it('empty WHMCS response ⇒ metrics:{} (no throw)', async () => {
     const { handlers, read } = harness();
     read.mockResolvedValue({});
-    const res = (await handlers.get_stats({})) as ToolResult;
+    const res = await handlers.get_stats({});
     const p = JSON.parse(res.content[0].text) as { metrics: Record<string, unknown> };
     expect(p.metrics).toEqual({});
     expect(p.capability_unavailable).toBeUndefined();
@@ -430,7 +430,7 @@ describe('get_stats (single) — governance OFF (legacy compat)', () => {
   it('malformed response (array / nested objects) degrades safely, no throw', async () => {
     const { handlers, read } = harness();
     read.mockResolvedValue({ orders_today: 4, nested: { a: 1 }, list: [1, 2] });
-    const res = (await handlers.get_stats({})) as ToolResult;
+    const res = await handlers.get_stats({});
     const p = JSON.parse(res.content[0].text) as { metrics: Record<string, unknown> };
     expect(p.metrics.orders_today).toBe(4);
     // nested objects/arrays are not emitted as scalar metrics.
@@ -441,15 +441,15 @@ describe('get_stats (single) — governance OFF (legacy compat)', () => {
   it('governance OFF runtime payload is byte-stable across calls', async () => {
     const { handlers, read } = harness();
     read.mockResolvedValue({ income_today: '1.00' });
-    const a = (await handlers.get_stats({})) as ToolResult;
-    const b = (await handlers.get_stats({})) as ToolResult;
+    const a = await handlers.get_stats({});
+    const b = await handlers.get_stats({});
     expect(a.content[0].text).toBe(b.content[0].text);
   });
 
   it('result validates against the registered outputSchema', async () => {
     const { handlers, configs, read } = harness();
     read.mockResolvedValue({ income_today: '1.00' });
-    const res = (await handlers.get_stats({})) as ToolResult;
+    const res = await handlers.get_stats({});
     const p = JSON.parse(res.content[0].text);
     const schema = asSchema(configs.get_stats.outputSchema);
     expect(schema.safeParse(p).success).toBe(true);

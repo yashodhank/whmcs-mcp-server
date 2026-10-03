@@ -130,7 +130,7 @@ export class ReadCoordinator {
       shared.settled = true;
       this.inflight.delete(options.key);
     });
-    this.inflight.set(options.key, shared as SharedRead<unknown>);
+    this.inflight.set(options.key, shared);
     this.telemetry.record({
       phase: 'coalesce',
       outcome: 'started',

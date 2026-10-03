@@ -121,7 +121,7 @@ function scanInto(value: unknown, found: string[], budget: { chars: number }, de
       scanInto(item, found, budget, depth + 1);
     }
   } else if (value !== null && typeof value === 'object') {
-    for (const key of Object.keys(value as Record<string, unknown>)) {
+    for (const key of Object.keys(value)) {
       if (budget.chars <= 0) break;
       scanInto((value as Record<string, unknown>)[key], found, budget, depth + 1);
     }

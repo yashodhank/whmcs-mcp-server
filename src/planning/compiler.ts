@@ -69,7 +69,7 @@ export function compileOperationPlan(
     }));
     return { accepted: false, issues };
   }
-  const candidate = normalizeCandidate(parsed.data as CandidatePlan);
+  const candidate = normalizeCandidate(parsed.data);
   const input: CompilePlanInput = { ...rawInput, candidate };
   const issues = validateCandidatePlan(input);
   if (issues.some((item) => item.severity === 'error')) return { accepted: false, issues };

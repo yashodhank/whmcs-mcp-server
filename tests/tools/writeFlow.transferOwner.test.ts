@@ -181,7 +181,7 @@ describe('executeServiceTransferBatch', () => {
         getDbCalled.value = true;
         throw new Error('should not be called');
       },
-    } as any);
+    });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('unsupported_capability');
     // The DB capability gate must fire before any DB access.
@@ -199,8 +199,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
   });
@@ -216,8 +216,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     expect(res.reason).toBe('precondition_mismatch');
   });
 
@@ -232,8 +232,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
     expect(calls.some((call) => call.sql.toLowerCase().startsWith('update'))).toBe(false);
@@ -255,8 +255,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
 
     expect(res.allowed).toBe(true);
     expect(res.phase_2?.committed).toBe(true);
@@ -290,8 +290,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
 
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -314,8 +314,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
 
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -338,8 +338,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
 
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -368,8 +368,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
 
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -393,8 +393,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
 
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('precondition_mismatch');
@@ -413,8 +413,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     expect(res.dry_run).toBe(true);
     expect(calls.some((c) => c.sql.toLowerCase().startsWith('update'))).toBe(false);
   });
@@ -430,8 +430,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     expect(res.allowed).toBe(true);
     expect(res.phase_2?.committed).toBe(true);
   });
@@ -447,8 +447,8 @@ describe('executeServiceTransferBatch', () => {
       }),
       audit: audit(),
       isDbConfigured: dbConfigured,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('transfer_rolled_back');
     expect(transaction.rolledBack).toBe(true);
@@ -474,7 +474,7 @@ describe('executeServiceTransferBatch', () => {
         getDbCalled.value = true;
         throw new Error('should not open DB');
       },
-    } as any);
+    });
     expect(res.allowed).toBe(false);
     expect(res.reason).toBe('batch_too_large');
     // batch_too_large fires before withTransaction — no DB connection opened.
@@ -790,8 +790,8 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
       intent: intentForMode('none'),
       audit: auditForMode(),
       isDbConfigured: () => true,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     const invoiceCalls = calls.filter((c) => c.sql.toLowerCase().includes('tblinvoice'));
     expect(invoiceCalls).toHaveLength(0);
     // No UPDATE tblinvoices or UPDATE tblinvoiceitems must be issued.
@@ -810,8 +810,8 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
       intent: intentForMode('unpaid_only'),
       audit: auditForMode(),
       isDbConfigured: () => true,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     const invoiceSelectCalls = calls.filter(
       (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice')
     );
@@ -842,8 +842,8 @@ describe('service:transfer_owner — invoice mode SQL (unit-level)', () => {
       intent: intentForMode('all'),
       audit: auditLog,
       isDbConfigured: () => true,
-      getDb: () => db as any,
-    } as any);
+      getDb: () => db,
+    });
     const invoiceSelectCalls = calls.filter(
       (c) => c.sql.toLowerCase().startsWith('select') && c.sql.toLowerCase().includes('tblinvoice')
     );

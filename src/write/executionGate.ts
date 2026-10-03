@@ -212,10 +212,7 @@ export function defaultExecutionAuthorizer(
     }
     // Separation of duties: a high-risk intent can never be self-approved. The
     // approving consumer must differ from the drafting consumer.
-    if (
-      req.humanApproval !== undefined &&
-      req.humanApproval.approver_consumer_id === req.intent.consumer_id
-    ) {
+    if (req.humanApproval?.approver_consumer_id === req.intent.consumer_id) {
       return deny('self_approval_forbidden');
     }
     const rawCaps = req.caps ?? ZERO_CAPS;

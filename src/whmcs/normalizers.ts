@@ -62,7 +62,7 @@ export function normalizeToArray<T>(value: unknown): T[] {
 
   // Single object (not an array structure) → wrap in array
   // This handles cases where WHMCS returns a single item as an object
-  return [obj as T];
+  return [obj];
 }
 
 /**

@@ -31,20 +31,18 @@ const context: AuthenticatedPlanningContext = {
 };
 
 function evidence(actions: readonly string[], status: CapabilityEvidence['status'] = 'supported') {
-  return actions.map(
-    (action): CapabilityEvidence => ({
-      installationId: 'install',
-      configFingerprint: 'config',
-      catalogVersion: 4,
-      action,
-      probeShapeHash: `shape-${action}`,
-      status,
-      source: 'read_probe',
-      observedAt: new Date(nowMs - 1_000).toISOString(),
-      expiresAt: new Date(nowMs + 60_000).toISOString(),
-      failureClass: status === 'supported' ? 'none' : 'unsupported_action',
-    })
-  );
+  return actions.map((action): CapabilityEvidence => ({
+    installationId: 'install',
+    configFingerprint: 'config',
+    catalogVersion: 4,
+    action,
+    probeShapeHash: `shape-${action}`,
+    status,
+    source: 'read_probe',
+    observedAt: new Date(nowMs - 1_000).toISOString(),
+    expiresAt: new Date(nowMs + 60_000).toISOString(),
+    failureClass: status === 'supported' ? 'none' : 'unsupported_action',
+  }));
 }
 
 function value(value: unknown) {

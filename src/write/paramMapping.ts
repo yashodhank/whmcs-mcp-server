@@ -1051,10 +1051,8 @@ export function intentToWhmcsParams(
     case 'client:contact:delete':
       return pickFields(params, ['contactid']);
     default: {
-      // Exhaustiveness guard — typescript will flag any new scope here.
       const _exhaustive: never = scope;
-      void _exhaustive;
-      return { ...params };
+      return _exhaustive;
     }
   }
 }

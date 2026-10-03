@@ -410,7 +410,7 @@ export const project: ProjectFn = <T>(
   }
 
   const ctx: ProjectNodeCtx = {
-    canonical: canonical as Canonical<unknown>,
+    canonical: canonical,
     contract,
     env,
   };

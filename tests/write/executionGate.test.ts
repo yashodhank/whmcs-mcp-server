@@ -282,7 +282,7 @@ describe('defaultExecutionAuthorizer — gate priority & new reasons', () => {
     const base = approvedIntent();
     const blockedScope: WriteIntent = {
       ...base,
-      scope: 'service:terminate' as WriteScope,
+      scope: 'service:terminate',
       action: 'UpdateClientProduct', // a non-permanently-blocked action
     };
     const d = defaultExecutionAuthorizer(

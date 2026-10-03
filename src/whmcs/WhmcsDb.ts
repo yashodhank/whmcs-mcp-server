@@ -67,7 +67,7 @@ export function getWhmcsDb(cfg: DbConfig = dbConfigFromEnv()): WhmcsDb {
             const r = res as { affectedRows?: number };
             return {
               affectedRows: r.affectedRows ?? 0,
-              rows: Array.isArray(res) ? (res as unknown[]) : [],
+              rows: Array.isArray(res) ? res : [],
             };
           },
         };

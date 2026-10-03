@@ -159,10 +159,7 @@ export type ConsumerResolution =
   | { readonly ok: false; readonly reason: ConsumerDenyReason };
 
 export type ConsumerDenyReason =
-  | 'no_token'
-  | 'unknown_token'
-  | 'env_forbidden'
-  | 'anonymous_disabled';
+  'no_token' | 'unknown_token' | 'env_forbidden' | 'anonymous_disabled';
 
 /* ─────────────────────────  Capability registry (B4)  ────────────────────── */
 

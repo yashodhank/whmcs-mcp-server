@@ -575,8 +575,7 @@ export type ExecutionDeniedReason =
   | 'batch_too_large';
 
 export type ExecutionDecision =
-  | { readonly allowed: false; readonly reason: ExecutionDeniedReason }
-  | { readonly allowed: true };
+  { readonly allowed: false; readonly reason: ExecutionDeniedReason } | { readonly allowed: true };
 
 /**
  * The execution authorizer. DENY-BY-DEFAULT. Returns `allowed:true` ONLY

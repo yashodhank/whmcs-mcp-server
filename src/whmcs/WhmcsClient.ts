@@ -100,11 +100,9 @@ export class WhmcsClient {
     const cacheActions = Reflect.get(config, 'MCP_READ_CACHE_ACTIONS') as string[] | undefined;
     const cacheTtl = Reflect.get(config, 'MCP_READ_CACHE_TTL_MS') as number | undefined;
     const coalescingEnabled = Reflect.get(config, 'MCP_READ_COALESCE_ENABLED') as
-      | boolean
-      | undefined;
+      boolean | undefined;
     const maxReadConcurrency = Reflect.get(config, 'MCP_READ_MAX_CONCURRENCY') as
-      | number
-      | undefined;
+      number | undefined;
     this.cacheableActions = new Set(cacheActions ?? []);
     this.readCache = new ReadCache({
       ttlMs: cacheTtl ?? 0,
@@ -168,7 +166,7 @@ export class WhmcsClient {
       action,
       normalizedParams,
       this.cacheableActions,
-      (Reflect.get(this.config, 'MCP_READ_CACHE_TTL_MS') as number | undefined) ?? 0
+      this.config.MCP_READ_CACHE_TTL_MS
     );
     const actionClass = classifyWhmcsAction(action);
     const cacheEpoch = this.cacheEpoch;

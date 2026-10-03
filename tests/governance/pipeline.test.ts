@@ -53,7 +53,7 @@ function registry(): ConsumerProfile[] {
       writeCapability: 'false',
     },
   ]);
-  return loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: json } as NodeJS.ProcessEnv);
+  return loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: json });
 }
 
 function byId(id: string): ConsumerProfile {
@@ -124,7 +124,7 @@ describe('governProjection (pure core)', () => {
     ]);
     const r = governProjection({
       ...base,
-      registry: loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: json } as NodeJS.ProcessEnv),
+      registry: loadConsumerRegistry({ MCP_CONSUMER_REGISTRY: json }),
       authToken: TOKEN_LLM,
       requiredAction: 'get_account_360',
     });

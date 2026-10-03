@@ -10,23 +10,10 @@
 export type WhmcsActionClass = 'reference' | 'account' | 'invoice' | 'ticket' | 'probe' | 'other';
 
 export type WhmcsTelemetryPhase =
-  | 'queue'
-  | 'transport'
-  | 'retry'
-  | 'repair'
-  | 'cache'
-  | 'coalesce'
-  | 'complete';
+  'queue' | 'transport' | 'retry' | 'repair' | 'cache' | 'coalesce' | 'complete';
 
 export type WhmcsTelemetryOutcome =
-  | 'success'
-  | 'failure'
-  | 'cancelled'
-  | 'deadline'
-  | 'hit'
-  | 'miss'
-  | 'joined'
-  | 'started';
+  'success' | 'failure' | 'cancelled' | 'deadline' | 'hit' | 'miss' | 'joined' | 'started';
 
 /**
  * UTF-8 size of a successful decoded transport payload, bucketed in KiB.

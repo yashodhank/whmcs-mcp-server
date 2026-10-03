@@ -179,7 +179,7 @@ export function registerReportingListTools(
         const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
         const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-        const authErr = ensureToolAuth(params as Record<string, unknown>);
+        const authErr = ensureToolAuth(params);
         if (authErr) return authErr;
 
         if (isClientMode()) {
@@ -336,7 +336,7 @@ export function registerReportingListTools(
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ isError: true, error: (e as Error).message }),
+                text: JSON.stringify({ isError: true, error: e.message }),
               },
             ],
             isError: true,
@@ -390,7 +390,7 @@ export function registerReportingListTools(
         const authToken = typeof params.auth_token === 'string' ? params.auth_token : undefined;
         const requestedContract = typeof params.contract === 'string' ? params.contract : undefined;
 
-        const authErr = ensureToolAuth(params as Record<string, unknown>);
+        const authErr = ensureToolAuth(params);
         if (authErr) return authErr;
 
         if (isClientMode()) {
@@ -506,7 +506,7 @@ export function registerReportingListTools(
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ isError: true, error: (e as Error).message }),
+                text: JSON.stringify({ isError: true, error: e.message }),
               },
             ],
             isError: true,

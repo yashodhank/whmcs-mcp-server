@@ -25,7 +25,7 @@ function registryWithToken(token: string): ConsumerProfile[] {
   };
   return loadConsumerRegistry({
     MCP_CONSUMER_REGISTRY: JSON.stringify([entry]),
-  } as NodeJS.ProcessEnv);
+  });
 }
 
 describe('extractBearerToken', () => {

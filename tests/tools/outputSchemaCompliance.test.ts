@@ -193,7 +193,7 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
       registerOrderTools,
     ]) {
       try {
-        reg(mcp as any, m.whmcs, m.logger, m.rl);
+        reg(mcp, m.whmcs, m.logger, m.rl);
       } catch {
         /* a group that also registers write tools via the older server.tool()
            signature may partially throw; read tools registered before the
@@ -211,8 +211,7 @@ describe('MCP strict-runtime outputSchema fidelity (real McpServer schema + ajv)
 
     // Self-check: the mechanism really distinguishes strict vs permissive.
     const agg = schemaByName.get('get_billing_snapshot') as
-      | { additionalProperties?: unknown }
-      | undefined;
+      { additionalProperties?: unknown } | undefined;
     expect(
       agg && agg.additionalProperties !== false,
       'get_billing_snapshot outputSchema must permit additional properties (RCA: strict-false caused -32602)'

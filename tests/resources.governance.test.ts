@@ -20,10 +20,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const cfg = vi.hoisted(() => ({
   config: {
     MCP_AUTH_TOKEN: '',
-    MCP_ACCESS_MODE: 'admin' as 'admin' | 'client',
+    MCP_ACCESS_MODE: 'admin',
     MCP_ALLOWED_CLIENT_IDS: [] as number[],
     MCP_MODE: 'read_only',
-    MCP_ENV: 'production' as 'local' | 'staging' | 'production',
+    MCP_ENV: 'production',
     MCP_GOVERNANCE_ENABLED: false,
     MCP_ALLOW_ANON_LLM: false,
   },

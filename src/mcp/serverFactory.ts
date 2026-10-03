@@ -224,7 +224,7 @@ export async function buildModernServer(
               cursor === undefined ? undefined : { cursor },
               bridgeRequestOptions(context)
             );
-            return { items: page.tools as LegacyToolDescriptor[], nextCursor: page.nextCursor };
+            return { items: page.tools, nextCursor: page.nextCursor };
           }),
       capabilities?.prompts === undefined
         ? Promise.resolve([])
@@ -233,7 +233,7 @@ export async function buildModernServer(
               cursor === undefined ? undefined : { cursor },
               bridgeRequestOptions(context)
             );
-            return { items: page.prompts as LegacyPromptDescriptor[], nextCursor: page.nextCursor };
+            return { items: page.prompts, nextCursor: page.nextCursor };
           }),
       capabilities?.resources === undefined
         ? Promise.resolve([])
@@ -243,7 +243,7 @@ export async function buildModernServer(
               bridgeRequestOptions(context)
             );
             return {
-              items: page.resources as LegacyResourceDescriptor[],
+              items: page.resources,
               nextCursor: page.nextCursor,
             };
           }),
@@ -255,7 +255,7 @@ export async function buildModernServer(
               bridgeRequestOptions(context)
             );
             return {
-              items: page.resourceTemplates as LegacyResourceTemplateDescriptor[],
+              items: page.resourceTemplates,
               nextCursor: page.nextCursor,
             };
           }),
@@ -344,13 +344,13 @@ export async function buildModernServer(
           return runWithRequestContext(
             activeContext,
             async () =>
-              (await bridge.client.getPrompt(
+              await bridge.client.getPrompt(
                 {
                   name: prompt.name,
                   arguments: args,
                 },
                 bridgeRequestOptions(activeContext)
-              )) as unknown as ModernGetPromptResult
+              )
           );
         }
       );
@@ -377,10 +377,10 @@ export async function buildModernServer(
           return runWithRequestContext(
             activeContext,
             async () =>
-              (await bridge.client.readResource(
+              await bridge.client.readResource(
                 { uri: uri.href },
                 bridgeRequestOptions(activeContext)
-              )) as unknown as ModernReadResourceResult
+              )
           );
         }
       );
@@ -407,10 +407,10 @@ export async function buildModernServer(
           return runWithRequestContext(
             activeContext,
             async () =>
-              (await bridge.client.readResource(
+              await bridge.client.readResource(
                 { uri: uri.href },
                 bridgeRequestOptions(activeContext)
-              )) as unknown as ModernReadResourceResult
+              )
           );
         }
       );

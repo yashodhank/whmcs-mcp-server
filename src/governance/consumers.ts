@@ -477,7 +477,6 @@ export function resolveConsumer(
     if (!bound) return deny('unknown_token');
     if (envForbidden(bound, env)) return deny('env_forbidden');
     const { tokenSha256: _omit, ...publicProfile } = bound as LoadedProfile;
-    void _omit;
     return { ok: true, profile: publicProfile };
   }
 
@@ -489,8 +488,7 @@ export function resolveConsumer(
         return deny('env_forbidden');
       }
       // Strip the internal token hash from the externally-visible profile.
-      const { tokenSha256: _omit, ...publicProfile } = match as LoadedProfile;
-      void _omit;
+      const { tokenSha256: _omit2, ...publicProfile } = match as LoadedProfile;
       return { ok: true, profile: publicProfile };
     }
     // Known-shape but unrecognised token → fall through to the anonymous /

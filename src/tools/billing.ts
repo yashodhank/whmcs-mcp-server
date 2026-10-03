@@ -333,7 +333,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         const invoiceIds = resolveInvoiceIds(params);
@@ -365,10 +365,7 @@ export function registerBillingTools(
           });
 
           if (isClientMode()) {
-            const ownershipError = ensureClientOwnership(
-              invoice.userid,
-              params as Record<string, unknown>
-            );
+            const ownershipError = ensureClientOwnership(invoice.userid, params);
             if (ownershipError) return ownershipError;
           }
 
@@ -442,7 +439,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -624,7 +621,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -831,7 +828,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -1048,7 +1045,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -1174,7 +1171,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {
@@ -1302,7 +1299,7 @@ export function registerBillingTools(
       const startTime = Date.now();
 
       try {
-        const authError = ensureToolAuth(params as Record<string, unknown>);
+        const authError = ensureToolAuth(params);
         if (authError) return authError;
 
         if (isClientMode()) {

@@ -118,7 +118,7 @@ function extractErrorMessage(error: unknown): string {
     typeof error === 'object' &&
     error !== null &&
     'message' in error &&
-    typeof (error as { message: unknown }).message === 'string'
+    typeof error.message === 'string'
   ) {
     return (error as { message: string }).message;
   }
@@ -130,7 +130,7 @@ function responseIsError(value: unknown): { isError: boolean; message: string } 
     typeof value === 'object' &&
     value !== null &&
     'result' in value &&
-    (value as { result: unknown }).result === 'error'
+    value.result === 'error'
   ) {
     const msg =
       'message' in value && typeof (value as { message: unknown }).message === 'string'
@@ -143,10 +143,7 @@ function responseIsError(value: unknown): { isError: boolean; message: string } 
 
 function responseIsSuccess(value: unknown): boolean {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    'result' in value &&
-    (value as { result: unknown }).result === 'success'
+    typeof value === 'object' && value !== null && 'result' in value && value.result === 'success'
   );
 }
 
@@ -285,12 +282,11 @@ export function buildProbeReport(results: readonly ProbeResult[]): ProbeReport {
   };
 }
 
-/* `CapabilityStatusValue` is imported to bind this module to the frozen seam
- * vocabulary; the probe's four-value subset is a strict subset of it. */
-const _STATUS_SUBSET: readonly CapabilityStatusValue[] = [
+/* Compile-time binding to the frozen seam vocabulary: every literal below
+ * must be a valid CapabilityStatusValue, or the build breaks. */
+export const PROBE_STATUS_SUBSET = [
   'supported',
   'not_authorized',
   'unsupported',
   'degraded',
-];
-void _STATUS_SUBSET;
+] as const satisfies readonly CapabilityStatusValue[];

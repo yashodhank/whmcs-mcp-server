@@ -37,7 +37,7 @@ const { govCfg } = vi.hoisted(() => ({
     MCP_GOVERNANCE_ENABLED: false,
     MCP_ALLOW_ANON_LLM: false,
     MCP_ENV: 'production',
-  } as Record<string, unknown>,
+  },
 }));
 vi.mock('../../src/config.js', () => ({
   get config() {

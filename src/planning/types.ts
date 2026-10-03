@@ -77,11 +77,7 @@ export interface AuthenticatedPlanningContext {
   /** Null for admin scope; otherwise the process-level client allowlist. */
   readonly allowedClientIds: ReadonlySet<number> | null;
   readonly writeCapability:
-    | 'false'
-    | 'draft_only'
-    | 'approval_required'
-    | 'disabled'
-    | 'execution_allowed';
+    'false' | 'draft_only' | 'approval_required' | 'disabled' | 'execution_allowed';
 }
 
 export interface CompiledPlanStep extends CandidatePlanStep {
