@@ -169,17 +169,17 @@ $injected = "Bearer good\r\nX-Injected: evil";
 $headers = buildHeaders('https://example.com', '', $injected, 'invoice.paid', $testBody);
 assert_true($headers !== null, 'POST still fires after stripping');
 $authHeader = '';
-$hasInjected = false;
+$injectedAsSeparateHeader = false;
 foreach ($headers as $h) {
     if (str_starts_with($h, 'Authorization:')) {
         $authHeader = $h;
     }
-    if (str_contains($h, 'X-Injected')) {
-        $hasInjected = true;
+    if (str_starts_with($h, 'X-Injected:')) {
+        $injectedAsSeparateHeader = true;
     }
 }
-assert_true($authHeader === 'Authorization: Bearer goodX-Injected: evil', 'CR/LF removed, value collapsed');
-assert_true(!$hasInjected, 'Injected header name does not appear as a separate header');
+assert_true($authHeader === 'Authorization: Bearer goodX-Injected: evil', 'CR/LF removed, value collapsed into single header');
+assert_true(!$injectedAsSeparateHeader, 'Injected header does not appear as a separate header entry');
 assert_true(strpos($authHeader, "\r") === false && strpos($authHeader, "\n") === false, 'No CR or LF in output header');
 
 echo "\n=== CR/LF-only auth value becomes empty (no post without HMAC) ===\n";
