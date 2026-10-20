@@ -82,7 +82,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.11.0",
     "prettier": "^3.9.9",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.0",
