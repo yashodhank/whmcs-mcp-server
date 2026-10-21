@@ -79,7 +79,7 @@
     "@modelcontextprotocol/conformance": "0.1.16",
     "@types/node": "^26.6.3",
     "@types/uuid": "^11.0.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^10.11.0",
     "prettier": "^3.9.9",
     "tsup": "^8.5.1",
